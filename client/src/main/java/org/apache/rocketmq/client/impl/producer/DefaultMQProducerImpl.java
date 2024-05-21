@@ -134,7 +134,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     public DefaultMQProducerImpl(final DefaultMQProducer defaultMQProducer, RPCHook rpcHook) {
         this.defaultMQProducer = defaultMQProducer;
         this.rpcHook = rpcHook;
-
+        // 创建默认的 异步发送消息 线程池：阻塞队列长度 5W
         this.asyncSenderThreadPoolQueue = new LinkedBlockingQueue<>(50000);
         this.defaultAsyncSenderExecutor = new ThreadPoolExecutor(
             Runtime.getRuntime().availableProcessors(),
@@ -143,20 +143,21 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             TimeUnit.MILLISECONDS,
             this.asyncSenderThreadPoolQueue,
             new ThreadFactoryImpl("AsyncSenderExecutor_"));
+        // 在背压的异步模式下，限制正在发送异步消息的最大数量默认为10000
         if (defaultMQProducer.getBackPressureForAsyncSendNum() > 10) {
             semaphoreAsyncSendNum = new Semaphore(Math.max(defaultMQProducer.getBackPressureForAsyncSendNum(), 10), true);
         } else {
             semaphoreAsyncSendNum = new Semaphore(10, true);
             log.info("semaphoreAsyncSendNum can not be smaller than 10.");
         }
-
+        //  在背压的异步模式下，正在发送异步消息的最大消息大小限制默认为100M
         if (defaultMQProducer.getBackPressureForAsyncSendSize() > 1024 * 1024) {
             semaphoreAsyncSendSize = new Semaphore(Math.max(defaultMQProducer.getBackPressureForAsyncSendSize(), 1024 * 1024), true);
         } else {
             semaphoreAsyncSendSize = new Semaphore(1024 * 1024, true);
             log.info("semaphoreAsyncSendSize can not be smaller than 1M.");
         }
-
+        // 服务探测器
         ServiceDetector serviceDetector = new ServiceDetector() {
             @Override
             public boolean detect(String endpoint, long timeoutMillis) {
@@ -174,7 +175,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 }
             }
         };
-
+        // mq故障策略
         this.mqFaultStrategy = new MQFaultStrategy(defaultMQProducer.cloneClientConfig(), new Resolver() {
             @Override
             public String resolve(String name) {
@@ -241,13 +242,16 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         switch (this.serviceState) {
             case CREATE_JUST:
                 this.serviceState = ServiceState.START_FAILED;
-
+                // 配置检查 组名
                 this.checkConfig();
-
+                // 生产者组 不是 CLIENT_INNER_PRODUCER
                 if (!this.defaultMQProducer.getProducerGroup().equals(MixAll.CLIENT_INNER_PRODUCER_GROUP)) {
+                    // 实例名是：DEFAULT，替换 InstanceName = pid#nanoTime
                     this.defaultMQProducer.changeInstanceNameToPID();
                 }
-
+                // 创建 客户端实例：缓存中存在使用缓存，不存在创建；
+                //  1、创建 MQClientAPIImpl：创建 netty 客户端，并指定请求的处理器
+                // 2、创建拉取服务、负载均衡服务、客户端内部生产者、消费者状态管理器
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQProducer, rpcHook);
 
                 boolean registerOK = mQClientFactory.registerProducer(this.defaultMQProducer.getProducerGroup(), this);
@@ -257,7 +261,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                         + "] has been created before, specify another name please." + FAQUrl.suggestTodo(FAQUrl.GROUP_NAME_DUPLICATE_URL),
                         null);
                 }
-
+                // 默认开启
                 if (startFactory) {
                     mQClientFactory.start();
                 }

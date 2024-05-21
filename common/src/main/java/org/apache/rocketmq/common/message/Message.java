@@ -25,8 +25,25 @@ import java.util.Map;
 public class Message implements Serializable {
     private static final long serialVersionUID = 8445773977080406428L;
 
+    /**
+     * topic
+     */
     private String topic;
+    /**
+     * flag
+     */
     private int flag;
+    /**
+     * 属性对映：
+     * org.apache.rocketmq.spring.support.RocketMQHeaders
+     *
+     * 属性包括
+     * TAGS:
+     * KEYS:
+     * WAIT：是否等待存储完成，默认是 true
+     * DELAY：延迟等级，0 无延迟，大于 0才设置这个属性
+     *
+     */
     private Map<String, String> properties;
     private byte[] body;
     private String transactionId;

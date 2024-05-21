@@ -46,12 +46,12 @@ public class Validators {
         if (UtilAll.isBlank(group)) {
             throw new MQClientException("the specified group is blank", null);
         }
-
+        // 组名最大长度 255 字符
         if (group.length() > CHARACTER_MAX_LENGTH) {
             throw new MQClientException("the specified group is longer than group max length 255.", null);
         }
 
-
+        // 组名是否满足正则表达式：^[%|a-zA-Z0-9_-]+$
         if (isTopicOrGroupIllegal(group)) {
             throw new MQClientException(String.format(
                     "the specified group[%s] contains illegal characters, allowing only %s", group,

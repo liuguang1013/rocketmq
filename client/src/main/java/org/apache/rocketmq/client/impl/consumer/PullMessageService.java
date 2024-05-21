@@ -33,6 +33,9 @@ public class PullMessageService extends ServiceThread {
     private final LinkedBlockingQueue<MessageRequest> messageRequestQueue = new LinkedBlockingQueue<>();
 
     private final MQClientInstance mQClientFactory;
+    /**
+     *  延时线程池
+      */
     private final ScheduledExecutorService scheduledExecutorService = Executors
         .newSingleThreadScheduledExecutor(new ThreadFactoryImpl("PullMessageServiceScheduledThread"));
 

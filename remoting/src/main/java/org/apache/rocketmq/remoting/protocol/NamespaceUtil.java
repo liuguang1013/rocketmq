@@ -86,6 +86,7 @@ public class NamespaceUtil {
             return resourceWithOutNamespace;
         }
 
+        // 查看是否是系统内置消息 或者 已经以 nameSpace 开头
         if (isSystemResource(resourceWithOutNamespace) || isAlreadyWithNamespace(resourceWithOutNamespace, namespace)) {
             return resourceWithOutNamespace;
         }
@@ -110,6 +111,7 @@ public class NamespaceUtil {
             return false;
         }
 
+        // 组名以 重试队列 "%RETRY%" 、死信队列的%DLQ% 开头，去除
         String resourceWithoutRetryAndDLQ = withOutRetryAndDLQ(resource);
 
         return resourceWithoutRetryAndDLQ.startsWith(namespace + NAMESPACE_SEPARATOR);

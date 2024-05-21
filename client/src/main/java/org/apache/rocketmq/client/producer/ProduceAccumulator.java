@@ -59,7 +59,9 @@ public class ProduceAccumulator {
 
     public ProduceAccumulator(String instanceName) {
         this.instanceName = instanceName;
+        // 同步发送保证服务
         this.guardThreadForSyncSend = new GuardForSyncSendService(this.instanceName);
+        // 异步发送保证服务
         this.guardThreadForAsyncSend = new GuardForAsyncSendService(this.instanceName);
     }
 
@@ -104,6 +106,7 @@ public class ProduceAccumulator {
                     }
                 }
             }
+            // sleep 5 ms
             Thread.sleep(sleepTime);
         }
     }
@@ -319,6 +322,9 @@ public class ProduceAccumulator {
         }
     }
 
+    /**
+     * 积累消息
+     */
     private class MessageAccumulation {
         private final DefaultMQProducer defaultMQProducer;
         private LinkedList<Message> messages;
@@ -344,6 +350,7 @@ public class ProduceAccumulator {
         }
 
         private boolean readyToSend() {
+            // 数量大于 32 * 1024  或者 大于 10 ms
             if (this.messagesSize.get() > holdSize
                 || System.currentTimeMillis() >= this.createTime + holdMs) {
                 return true;

@@ -48,11 +48,12 @@ public class MQClientManager {
         return getOrCreateMQClientInstance(clientConfig, null);
     }
     public MQClientInstance getOrCreateMQClientInstance(final ClientConfig clientConfig, RPCHook rpcHook) {
+        // ClientIP@instanceName@unitName@0
         String clientId = clientConfig.buildMQClientId();
         MQClientInstance instance = this.factoryTable.get(clientId);
         if (null == instance) {
-            instance =
-                new MQClientInstance(clientConfig.cloneClientConfig(),
+            //
+            instance = new MQClientInstance(clientConfig.cloneClientConfig(),
                     this.factoryIndexGenerator.getAndIncrement(), clientId, rpcHook);
             MQClientInstance prev = this.factoryTable.putIfAbsent(clientId, instance);
             if (prev != null) {
@@ -66,6 +67,7 @@ public class MQClientManager {
         return instance;
     }
     public ProduceAccumulator getOrCreateProduceAccumulator(final ClientConfig clientConfig) {
+        // ClientIP@instanceName@unitName@0
         String clientId = clientConfig.buildMQClientId();
         ProduceAccumulator accumulator = this.accumulatorTable.get(clientId);
         if (null == accumulator) {
@@ -73,6 +75,7 @@ public class MQClientManager {
             ProduceAccumulator prev = this.accumulatorTable.putIfAbsent(clientId, accumulator);
             if (prev != null) {
                 accumulator = prev;
+                // 返回之前创建的对象
                 log.warn("Returned Previous ProduceAccumulator for clientId:[{}]", clientId);
             } else {
                 log.info("Created new ProduceAccumulator for clientId:[{}]", clientId);

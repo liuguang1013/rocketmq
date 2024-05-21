@@ -27,9 +27,11 @@ public class ThreadLocalIndex {
     public int incrementAndGet() {
         Integer index = this.threadLocalIndex.get();
         if (null == index) {
+            // 产生
             index = random.nextInt();
         }
         this.threadLocalIndex.set(++index);
+        // &，负数变正数，
         return index & POSITIVE_MASK;
     }
 

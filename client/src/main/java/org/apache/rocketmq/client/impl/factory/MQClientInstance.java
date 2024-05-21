@@ -97,6 +97,7 @@ public class MQClientInstance {
 
     /**
      * The container of the producer in the current client. The key is the name of producerGroup.
+     * 当前客户端中生产者的容器。关键字是producerGroup的名称。
      */
     private final ConcurrentMap<String, MQProducerInner> producerTable = new ConcurrentHashMap<>();
 
@@ -154,6 +155,7 @@ public class MQClientInstance {
         this.nettyClientConfig.setSocksProxyConfig(clientConfig.getSocksProxyConfig());
         ClientRemotingProcessor clientRemotingProcessor = new ClientRemotingProcessor(this);
         ChannelEventListener channelEventListener;
+        // 默认是 true
         if (clientConfig.isEnableHeartbeatChannelEventListener()) {
             channelEventListener = new ChannelEventListener() {
                 private final ConcurrentMap<String, HashMap<Long, String>> brokerAddrTable = MQClientInstance.this.brokerAddrTable;
@@ -181,7 +183,9 @@ public class MQClientInstance {
                             if (addr.equals(remoteAddr)) {
                                 long id = entry.getKey();
                                 String brokerName = addressEntry.getKey();
+                                // 发送心跳到 broker
                                 if (sendHeartbeatToBroker(id, brokerName, addr)) {
+                                    // 发送成功，立刻调整 重新平衡
                                     rebalanceImmediately();
                                 }
                                 break;
@@ -193,24 +197,27 @@ public class MQClientInstance {
         } else {
             channelEventListener = null;
         }
+        // 创建 MQClientAPIImpl：创建 netty 客户端，并注册RpcHook、注册不同请求的处理器
         this.mQClientAPIImpl = new MQClientAPIImpl(this.nettyClientConfig, clientRemotingProcessor, rpcHook, clientConfig, channelEventListener);
 
         if (this.clientConfig.getNamesrvAddr() != null) {
+            // 更新 NettyRemotingClient 中的 NameServerAddressList，并且如果选择的地址不存在，应该关闭通道。
             this.mQClientAPIImpl.updateNameServerAddressList(this.clientConfig.getNamesrvAddr());
             log.info("user specified name server address: {}", this.clientConfig.getNamesrvAddr());
         }
 
         this.clientId = clientId;
-
+        // todo：作用
         this.mQAdminImpl = new MQAdminImpl(this);
-
+        // 拉取消息服务
         this.pullMessageService = new PullMessageService(this);
-
+        // 负载均衡服务
         this.rebalanceService = new RebalanceService(this);
-
+        // 创建 CLIENT_INNER_PRODUCER 客户端内部生产者。
+        // todo：作用
         this.defaultMQProducer = new DefaultMQProducer(MixAll.CLIENT_INNER_PRODUCER_GROUP);
         this.defaultMQProducer.resetClientConfig(clientConfig);
-
+        // 消费者状态管理器：通过定时线程池计算分钟、小时、天的 tps、avgpt
         this.consumerStatsManager = new ConsumerStatsManager(this.scheduledExecutorService);
 
         log.info("Created a new client Instance, InstanceIndex:{}, ClientID:{}, ClientConfig:{}, ClientVersion:{}, SerializerType:{}",
@@ -304,10 +311,12 @@ public class MQClientInstance {
                 case CREATE_JUST:
                     this.serviceState = ServiceState.START_FAILED;
                     // If not specified,looking address from name server
+                    // 如果未指定，则从名称服务器查找地址
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
                     // Start request-response channel
+                    // 开启 netty 客户端连接服务端
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
                     this.startScheduledTask();
@@ -591,6 +600,7 @@ public class MQClientInstance {
 
     public boolean sendHeartbeatToBroker(long id, String brokerName, String addr) {
         if (this.lockHeartbeat.tryLock()) {
+            // 准备心跳数据：clientId、生产者set、消费者set
             final HeartbeatData heartbeatDataWithSub = this.prepareHeartbeatData(false);
             final boolean producerEmpty = heartbeatDataWithSub.getProducerDataSet().isEmpty();
             final boolean consumerEmpty = heartbeatDataWithSub.getConsumerDataSet().isEmpty();
@@ -599,6 +609,7 @@ public class MQClientInstance {
                 return false;
             }
             try {
+                // 默认是 false
                 if (clientConfig.isUseHeartbeatV2()) {
                     int currentHeartbeatFingerprint = heartbeatDataWithSub.computeHeartbeatFingerprint();
                     heartbeatDataWithSub.setHeartbeatFingerprint(currentHeartbeatFingerprint);

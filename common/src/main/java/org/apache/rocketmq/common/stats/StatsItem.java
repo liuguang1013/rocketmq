@@ -49,6 +49,9 @@ public class StatsItem {
         this.logger = logger;
     }
 
+    /**
+     * 计算统计区间内数据： 总次数、时间间隔、TPS、
+     */
     private static StatsSnapshot computeStatsData(final LinkedList<CallSnapshot> csList) {
         StatsSnapshot statsSnapshot = new StatsSnapshot();
         synchronized (csList) {
@@ -64,6 +67,7 @@ public class StatsItem {
 
                 timesDiff = last.getTimes() - first.getTimes();
                 if (timesDiff > 0) {
+                    // todo：这是啥？
                     avgpt = (sum * 1.0d) / timesDiff;
                 }
             }
@@ -154,9 +158,11 @@ public class StatsItem {
 
     public void samplingInSeconds() {
         synchronized (this.csListMinute) {
+            // 初始化 分钟级 请求快照
             if (this.csListMinute.size() == 0) {
                 this.csListMinute.add(new CallSnapshot(System.currentTimeMillis() - 10 * 1000, 0, 0));
             }
+            // 记录当前时间的 次数、值
             this.csListMinute.add(new CallSnapshot(System.currentTimeMillis(), this.times.sum(), this.value
                 .sum()));
             if (this.csListMinute.size() > 7) {
@@ -232,9 +238,18 @@ public class StatsItem {
 }
 
 class CallSnapshot {
+    /**
+     * 时间戳
+     */
     private final long timestamp;
+    /**
+     * todo：含义
+     */
     private final long times;
 
+    /**
+     * 总次数
+     */
     private final long value;
 
     public CallSnapshot(long timestamp, long times, long value) {

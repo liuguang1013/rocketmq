@@ -98,6 +98,10 @@ public abstract class NettyRemotingAbstract {
     /**
      * This container holds all processors per request code, aka, for each incoming request, we may look up the
      * responding processor in this map to handle the request.
+     * 这个容器保存每个请求代码的所有处理器，也就是说，对于每个传入请求，我们可以在这个映射中查找响应处理器来处理请求
+     *
+     * 创建 MQClientAPIImpl 的时候设置
+     * @see org.apache.rocketmq.client.impl.MQClientAPIImpl
      */
     protected final HashMap<Integer/* request code */, Pair<NettyRequestProcessor, ExecutorService>> processorTable =
         new HashMap<>(64);
@@ -131,7 +135,7 @@ public abstract class NettyRemotingAbstract {
 
     /**
      * Constructor, specifying capacity of one-way and asynchronous semaphores.
-     *
+     * 构造函数，指定单向和异步信号量的容量。
      * @param permitsOneway Number of permits for one-way requests.
      * @param permitsAsync  Number of permits for asynchronous requests.
      */

@@ -252,13 +252,21 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         this(nettyClientConfig, clientRemotingProcessor, rpcHook, clientConfig, null);
     }
 
+    /**
+     * 创建 netty 客户端，并指定请求的处理器
+     */
     public MQClientAPIImpl(final NettyClientConfig nettyClientConfig,
         final ClientRemotingProcessor clientRemotingProcessor,
         RPCHook rpcHook, final ClientConfig clientConfig, final ChannelEventListener channelEventListener) {
+
         this.clientConfig = clientConfig;
+        // 默认的顶级寻址：用于nameServer地址查找
         topAddressing = new DefaultTopAddressing(MixAll.getWSAddr(), clientConfig.getUnitName());
+        // nameService 更新改变回调
         topAddressing.registerChangeCallBack(this);
+        // 创建 netty 客户端
         this.remotingClient = new NettyRemotingClient(nettyClientConfig, channelEventListener);
+        //
         this.clientRemotingProcessor = clientRemotingProcessor;
 
         this.remotingClient.registerRPCHook(new NamespaceRpcHook(clientConfig));
@@ -267,19 +275,21 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
             this.remotingClient.registerRPCHook(new StreamTypeRPCHook());
         }
         this.remotingClient.registerRPCHook(rpcHook);
+        // 注册 动态文本字段 rpc hook
         this.remotingClient.registerRPCHook(new DynamicalExtFieldRPCHook());
+        // 注册检查事务状态处理器
         this.remotingClient.registerProcessor(RequestCode.CHECK_TRANSACTION_STATE, this.clientRemotingProcessor, null);
-
+        // 通知消费者ids 改变
         this.remotingClient.registerProcessor(RequestCode.NOTIFY_CONSUMER_IDS_CHANGED, this.clientRemotingProcessor, null);
-
+        // 重置消费者客户端 offset
         this.remotingClient.registerProcessor(RequestCode.RESET_CONSUMER_CLIENT_OFFSET, this.clientRemotingProcessor, null);
-
+        // 从客户端获取消费者状态
         this.remotingClient.registerProcessor(RequestCode.GET_CONSUMER_STATUS_FROM_CLIENT, this.clientRemotingProcessor, null);
-
+        // 获取消费者运行信息
         this.remotingClient.registerProcessor(RequestCode.GET_CONSUMER_RUNNING_INFO, this.clientRemotingProcessor, null);
-
+        // 直接消费消息
         this.remotingClient.registerProcessor(RequestCode.CONSUME_MESSAGE_DIRECTLY, this.clientRemotingProcessor, null);
-
+        // 向客户端推送回复消息
         this.remotingClient.registerProcessor(RequestCode.PUSH_REPLY_MESSAGE_TO_CLIENT, this.clientRemotingProcessor, null);
     }
 

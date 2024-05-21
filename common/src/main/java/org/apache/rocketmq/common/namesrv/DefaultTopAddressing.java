@@ -85,6 +85,7 @@ public class DefaultTopAddressing implements TopAddressing {
 
     @Override
     public final String fetchNSAddr() {
+        // 在 SPI 加载的 TopAddressing 中获取 nameServer 的地址
         if (!topAddressingList.isEmpty()) {
             for (TopAddressing topAddressing : topAddressingList) {
                 String nsAddress = topAddressing.fetchNSAddr();
@@ -94,6 +95,7 @@ public class DefaultTopAddressing implements TopAddressing {
             }
         }
         // Return result of default implementation
+        // 返回默认的实现
         return fetchNSAddr(true, 3000);
     }
 
@@ -106,6 +108,9 @@ public class DefaultTopAddressing implements TopAddressing {
         }
     }
 
+    /**
+     * 默认 nameServer 寻址方法
+     */
     public final String fetchNSAddr(boolean verbose, long timeoutMills) {
         String url = this.wsAddr;
         try {

@@ -84,6 +84,7 @@ public class ClientConfig {
     /**
      * Enable stream request type will inject a RPCHook to add corresponding request type to remoting layer.
      * And it will also generate a different client id to prevent unexpected reuses of MQClientInstance.
+     * 启用流请求类型将注入一个RPCHook来为远程层添加相应的请求类型。它还将生成一个不同的客户端id，以防止意外重用MQClientInstance。
      */
     protected boolean enableStreamRequestType = false;
 
@@ -92,18 +93,31 @@ public class ClientConfig {
      * DO NOT OPEN when ORDER messages are required.
      * Turning on will interfere with the queue selection functionality,
      * possibly conflicting with the order message.
+     *
+     * 开启客户端发送进程容错机制。
+     * 在使用顺序消息的时候不要打开
+     * 打开可能会影响队列选择功能
+     * 可能和顺序消息冲突
      */
     private boolean sendLatencyEnable = Boolean.parseBoolean(System.getProperty(SEND_LATENCY_ENABLE, "false"));
     private boolean startDetectorEnable = Boolean.parseBoolean(System.getProperty(START_DETECTOR_ENABLE, "false"));
 
+    /**
+     * 客户端与服务端 netty 长连接，是否创建心跳时间监听者
+     */
     private boolean enableHeartbeatChannelEventListener = true;
 
+    /**
+     *
+     * @return ClientIP@instanceName@unitName@0
+     */
     public String buildMQClientId() {
         StringBuilder sb = new StringBuilder();
         sb.append(this.getClientIP());
 
         sb.append("@");
         sb.append(this.getInstanceName());
+        //
         if (!UtilAll.isBlank(this.unitName)) {
             sb.append("@");
             sb.append(this.unitName);
@@ -141,6 +155,8 @@ public class ClientConfig {
 
     @Deprecated
     public String withNamespace(String resource) {
+        // 生产者组名 包装
+        //  %RETRY%  或者 %DLQ% + namespace + % + producerGroup
         return NamespaceUtil.wrapNamespace(this.getNamespace(), resource);
     }
 

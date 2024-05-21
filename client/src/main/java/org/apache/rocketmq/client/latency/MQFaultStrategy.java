@@ -64,6 +64,7 @@ public class MQFaultStrategy {
 
 
     public MQFaultStrategy(ClientConfig cc, Resolver fetcher, ServiceDetector serviceDetector) {
+        // 创建延迟容错的实现类：设置 探测间隔、探测的超时时间
         this.latencyFaultTolerance = new LatencyFaultToleranceImpl(fetcher, serviceDetector);
         this.latencyFaultTolerance.setDetectInterval(cc.getDetectInterval());
         this.latencyFaultTolerance.setDetectTimeout(cc.getDetectTimeout());

@@ -43,7 +43,7 @@ public class StatsItemSet {
     }
 
     public void init() {
-
+        // 10s 执行依次
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -53,7 +53,7 @@ public class StatsItemSet {
                 }
             }
         }, 0, 10, TimeUnit.SECONDS);
-
+        // 10分钟执行依次
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -63,7 +63,7 @@ public class StatsItemSet {
                 }
             }
         }, 0, 10, TimeUnit.MINUTES);
-
+        // 一小时执行一次
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
@@ -74,6 +74,7 @@ public class StatsItemSet {
             }
         }, 0, 1, TimeUnit.HOURS);
 
+        // 延迟一分钟后，每 1分钟打印一次
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {

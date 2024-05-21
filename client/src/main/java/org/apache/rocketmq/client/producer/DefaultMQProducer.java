@@ -65,9 +65,15 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Wrapping internal implementations for virtually all methods presented in this class.
+     * 为这个类的所有方法，提供内部实现
      */
     protected final transient DefaultMQProducerImpl defaultMQProducerImpl;
+
     private final Logger logger = LoggerFactory.getLogger(DefaultMQProducer.class);
+
+    /**
+     * 重试消息响应码值
+     */
     private final Set<Integer> retryResponseCodes = new CopyOnWriteArraySet<>(Arrays.asList(
         ResponseCode.TOPIC_NOT_EXIST,
         ResponseCode.SERVICE_NOT_AVAILABLE,
@@ -80,8 +86,10 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Producer group conceptually aggregates all producer instances of exactly same role, which is particularly
      * important when transactional messages are involved. </p>
+     * 生产者组在概念上聚合了完全相同角色的所有生产者实例，这在涉及事务消息时尤为重要。
      * <p>
      * For non-transactional messages, it does not matter as long as it's unique per process. </p>
+     * 对于非事务性消息，只要它在每个进程中是唯一的就没关系。
      * <p>
      * See <a href="https://rocketmq.apache.org/docs/introduction/02concepts">core concepts</a> for more discussion.
      */
@@ -99,6 +107,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Number of queues to create per default topic.
+     * 每个topic默认队列数：4
      */
     private volatile int defaultTopicQueueNums = 4;
 
@@ -158,12 +167,14 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * on BackpressureForAsyncMode, limit maximum number of on-going sending async messages
      * default is 10000
+     * 在背压的异步模式下，限制正在发送异步消息的最大数量默认为10000
      */
     private int backPressureForAsyncSendNum = 10000;
 
     /**
      * on BackpressureForAsyncMode, limit maximum message size of on-going sending async messages
      * default is 100M
+     * 在背压的异步模式下，正在发送异步消息的最大消息大小限制默认为100M
      */
     private int backPressureForAsyncSendSize = 100 * 1024 * 1024;
 
@@ -191,6 +202,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     public DefaultMQProducer(final String producerGroup) {
         this.producerGroup = producerGroup;
         defaultMQProducerImpl = new DefaultMQProducerImpl(this, null);
+
         produceAccumulator = MQClientManager.getInstance().getOrCreateProduceAccumulator(this);
     }
 
@@ -343,7 +355,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Start this producer instance. </p>
-     *
+     * 开启生产者
      * <strong> Much internal initializing procedures are carried out to make this instance prepared, thus, it's a must
      * to invoke this method before sending or querying messages. </strong> </p>
      *
@@ -351,11 +363,15 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      */
     @Override
     public void start() throws MQClientException {
+        // 设置包装后的生产者组名
         this.setProducerGroup(withNamespace(this.producerGroup));
+        // 生产者实现类开始
         this.defaultMQProducerImpl.start();
+        // 生产者消息积累处理器
         if (this.produceAccumulator != null) {
             this.produceAccumulator.start();
         }
+
         if (null != traceDispatcher) {
             try {
                 traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());

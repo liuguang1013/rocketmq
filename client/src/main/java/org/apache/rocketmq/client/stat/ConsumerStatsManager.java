@@ -40,6 +40,7 @@ public class ConsumerStatsManager {
     private final StatsItemSet topicAndGroupPullRT;
 
     public ConsumerStatsManager(final ScheduledExecutorService scheduledExecutorService) {
+
         this.topicAndGroupConsumeOKTPS =
             new StatsItemSet(TOPIC_AND_GROUP_CONSUME_OK_TPS, scheduledExecutorService, log);
 
