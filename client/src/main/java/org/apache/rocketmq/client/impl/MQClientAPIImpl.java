@@ -1992,15 +1992,15 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         return getTopicRouteInfoFromNameServer(topic, timeoutMillis, true);
     }
 
-    public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis,
-        boolean allowTopicNotExist) throws MQClientException, InterruptedException, RemotingTimeoutException, RemotingSendRequestException, RemotingConnectException {
+    public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis, boolean allowTopicNotExist) throws MQClientException, InterruptedException, RemotingTimeoutException, RemotingSendRequestException, RemotingConnectException {
         GetRouteInfoRequestHeader requestHeader = new GetRouteInfoRequestHeader();
         requestHeader.setTopic(topic);
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ROUTEINFO_BY_TOPIC, requestHeader);
-
+        // netty 同步调用
         RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);
         assert response != null;
         switch (response.getCode()) {
+            // topic不存在
             case ResponseCode.TOPIC_NOT_EXIST: {
                 if (allowTopicNotExist) {
                     log.warn("get Topic [{}] RouteInfoFromNameServer is not exist value", topic);
@@ -2008,6 +2008,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 
                 break;
             }
+            // 成功返回 TopicRouteData 数据
             case ResponseCode.SUCCESS: {
                 byte[] body = response.getBody();
                 if (body != null) {

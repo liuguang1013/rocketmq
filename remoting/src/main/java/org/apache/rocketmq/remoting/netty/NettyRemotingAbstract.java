@@ -101,7 +101,7 @@ public abstract class NettyRemotingAbstract {
      * 这个容器保存每个请求代码的所有处理器，也就是说，对于每个传入请求，我们可以在这个映射中查找响应处理器来处理请求
      *
      * 创建 MQClientAPIImpl 的时候设置
-     * @see org.apache.rocketmq.client.impl.MQClientAPIImpl
+//     * @see org.apache.rocketmq.client.impl.MQClientAPIImpl
      */
     protected final HashMap<Integer/* request code */, Pair<NettyRequestProcessor, ExecutorService>> processorTable =
         new HashMap<>(64);
@@ -395,6 +395,7 @@ public abstract class NettyRemotingAbstract {
 
     /**
      * Execute callback in callback executor. If callback executor is null, run directly in current thread
+     * 在回调执行器中执行回调。如果回调执行器为空，则直接在当前线程中运行
      */
     private void executeInvokeCallback(final ResponseFuture responseFuture) {
         boolean runInThisThread = false;
@@ -459,6 +460,7 @@ public abstract class NettyRemotingAbstract {
     /**
      * <p>
      * This method is periodically invoked to scan and expire deprecated request.
+     * 定期调用此方法来扫描和过期已弃用的请求。
      * </p>
      */
     public void scanResponseTable() {
@@ -469,8 +471,11 @@ public abstract class NettyRemotingAbstract {
             ResponseFuture rep = next.getValue();
 
             if ((rep.getBeginTimestamp() + rep.getTimeoutMillis() + 1000) <= System.currentTimeMillis()) {
+                // 释放信号量
                 rep.release();
+                // 从响应缓存中移除
                 it.remove();
+                // 移除列表添加
                 rfList.add(rep);
                 log.warn("remove timeout request, " + rep);
             }
@@ -485,12 +490,12 @@ public abstract class NettyRemotingAbstract {
         }
     }
 
-    public RemotingCommand invokeSyncImpl(final Channel channel, final RemotingCommand request,
-        final long timeoutMillis)
-        throws InterruptedException, RemotingSendRequestException, RemotingTimeoutException {
+    public RemotingCommand invokeSyncImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis) throws InterruptedException, RemotingSendRequestException, RemotingTimeoutException {
         try {
-            return invokeImpl(channel, request, timeoutMillis).thenApply(ResponseFuture::getResponseCommand)
-                .get(timeoutMillis, TimeUnit.MILLISECONDS);
+            return invokeImpl(channel, request, timeoutMillis)
+                    .thenApply(ResponseFuture::getResponseCommand)
+                    // 获取结果，在指定的超时时间内
+                    .get(timeoutMillis, TimeUnit.MILLISECONDS);
         } catch (ExecutionException e) {
             throw new RemotingSendRequestException(channel.remoteAddress().toString(), e.getCause());
         } catch (TimeoutException e) {
@@ -498,23 +503,27 @@ public abstract class NettyRemotingAbstract {
         }
     }
 
-    public CompletableFuture<ResponseFuture> invokeImpl(final Channel channel, final RemotingCommand request,
-        final long timeoutMillis) {
+    public CompletableFuture<ResponseFuture> invokeImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis) {
         String channelRemoteAddr = RemotingHelper.parseChannelRemoteAddr(channel);
+        // 调用前执行钩子函数
         doBeforeRpcHooks(channelRemoteAddr, request);
-        return invoke0(channel, request, timeoutMillis).whenComplete((v, t) -> {
-            if (t == null) {
-                doAfterRpcHooks(channelRemoteAddr, request, v.getResponseCommand());
-            }
-        });
+
+        return invoke0(channel, request, timeoutMillis)
+                .whenComplete((v, t) -> {
+                    // 没有异常，代表正常结束
+                    if (t == null) {
+                        // 调用后执行钩子函数
+                        doAfterRpcHooks(channelRemoteAddr, request, v.getResponseCommand());
+                    }
+                });
     }
 
-    protected CompletableFuture<ResponseFuture> invoke0(final Channel channel, final RemotingCommand request,
-        final long timeoutMillis) {
+    protected CompletableFuture<ResponseFuture> invoke0(final Channel channel, final RemotingCommand request, final long timeoutMillis) {
         CompletableFuture<ResponseFuture> future = new CompletableFuture<>();
         long beginStartTime = System.currentTimeMillis();
+        // 请求id
         final int opaque = request.getOpaque();
-
+        // 获取信号量
         boolean acquired;
         try {
             acquired = this.semaphoreAsync.tryAcquire(timeoutMillis, TimeUnit.MILLISECONDS);
@@ -522,10 +531,12 @@ public abstract class NettyRemotingAbstract {
             future.completeExceptionally(t);
             return future;
         }
+        // 获取 到信号量
         if (acquired) {
             final SemaphoreReleaseOnlyOnce once = new SemaphoreReleaseOnlyOnce(this.semaphoreAsync);
             long costTime = System.currentTimeMillis() - beginStartTime;
             if (timeoutMillis < costTime) {
+                // 释放信号量，获取到才会涉及到释放
                 once.release();
                 future.completeExceptionally(new RemotingTimeoutException("invokeAsyncImpl call timeout"));
                 return future;
@@ -533,7 +544,8 @@ public abstract class NettyRemotingAbstract {
 
             AtomicReference<ResponseFuture> responseFutureReference = new AtomicReference<>();
             final ResponseFuture responseFuture = new ResponseFuture(channel, opaque, request, timeoutMillis - costTime,
-                new InvokeCallback() {
+                    // 请求回调
+                    new InvokeCallback() {
                     @Override
                     public void operationComplete(ResponseFuture responseFuture) {
 
@@ -549,26 +561,34 @@ public abstract class NettyRemotingAbstract {
                         future.completeExceptionally(throwable);
                     }
                 }, once);
+
             responseFutureReference.set(responseFuture);
+            // 缓存每次请求的响应回调
             this.responseTable.put(opaque, responseFuture);
             try {
-                channel.writeAndFlush(request).addListener((ChannelFutureListener) f -> {
-                    if (f.isSuccess()) {
-                        responseFuture.setSendRequestOK(true);
-                        return;
-                    }
-                    requestFail(opaque);
-                    log.warn("send a request command to channel <{}> failed.", RemotingHelper.parseChannelRemoteAddr(channel));
-                });
+                channel.writeAndFlush(request)
+                        // netty 写数据的回调
+                        .addListener((ChannelFutureListener) f -> {
+                            if (f.isSuccess()) {
+                                // 标记发送请求成功，但是结果需要netty服务端处理后响应，
+                                // 客户端接收后在执行responseFuture的回调方法，将响应传入
+                                responseFuture.setSendRequestOK(true);
+                                return;
+                            }
+                            requestFail(opaque);
+                            log.warn("send a request command to channel <{}> failed.", RemotingHelper.parseChannelRemoteAddr(channel));
+                        });
                 return future;
             } catch (Exception e) {
                 responseTable.remove(opaque);
+                // 异常释放锁
                 responseFuture.release();
                 log.warn("send a request command to channel <" + RemotingHelper.parseChannelRemoteAddr(channel) + "> Exception", e);
                 future.completeExceptionally(new RemotingSendRequestException(RemotingHelper.parseChannelRemoteAddr(channel), e));
                 return future;
             }
         } else {
+            // 未获取到信号量
             if (timeoutMillis <= 0) {
                 future.completeExceptionally(new RemotingTooMuchRequestException("invokeAsyncImpl invoke too fast"));
             } else {
@@ -605,6 +625,7 @@ public abstract class NettyRemotingAbstract {
     }
 
     private void requestFail(final int opaque) {
+        // 缓存中移除
         ResponseFuture responseFuture = responseTable.remove(opaque);
         if (responseFuture != null) {
             responseFuture.setSendRequestOK(false);
@@ -614,6 +635,7 @@ public abstract class NettyRemotingAbstract {
             } catch (Throwable e) {
                 log.warn("execute callback in requestFail, and callback throw", e);
             } finally {
+                // 释放锁
                 responseFuture.release();
             }
         }

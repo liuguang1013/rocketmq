@@ -198,6 +198,7 @@ public class RemotingHelper {
         if (null == channel) {
             return "";
         }
+
         String addr = getProxyProtocolAddress(channel);
         if (StringUtils.isNotBlank(addr)) {
             return addr;

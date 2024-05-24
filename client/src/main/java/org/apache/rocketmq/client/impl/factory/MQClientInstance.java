@@ -103,6 +103,7 @@ public class MQClientInstance {
 
     /**
      * The container of the consumer in the current client. The key is the name of consumerGroup.
+     * 当前客户机中消费者的容器。关键字是consumerGroup的名称。
      */
     private final ConcurrentMap<String, MQConsumerInner> consumerTable = new ConcurrentHashMap<>();
 
@@ -154,6 +155,7 @@ public class MQClientInstance {
         this.nettyClientConfig.setUseTLS(clientConfig.isUseTLS());
         this.nettyClientConfig.setSocksProxyConfig(clientConfig.getSocksProxyConfig());
         ClientRemotingProcessor clientRemotingProcessor = new ClientRemotingProcessor(this);
+        // 在 start()方法中，会启动 nettyEventExecutor.start()
         ChannelEventListener channelEventListener;
         // 默认是 true
         if (clientConfig.isEnableHeartbeatChannelEventListener()) {
@@ -319,6 +321,7 @@ public class MQClientInstance {
                     // 开启 netty 客户端连接服务端
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
+                    // 启动各种计划任务
                     this.startScheduledTask();
                     // Start pull service
                     this.pullMessageService.start();
@@ -338,7 +341,9 @@ public class MQClientInstance {
     }
 
     private void startScheduledTask() {
+        // 一般不为空
         if (null == this.clientConfig.getNamesrvAddr()) {
+            // 延迟10s，每2分钟拉取一次 NameServer 地址
             this.scheduledExecutorService.scheduleAtFixedRate(() -> {
                 try {
                     MQClientInstance.this.mQClientAPIImpl.fetchNameServerAddr();
@@ -347,7 +352,7 @@ public class MQClientInstance {
                 }
             }, 1000 * 10, 1000 * 60 * 2, TimeUnit.MILLISECONDS);
         }
-
+        // 延迟 10ms ，默认 30s 从 NameServer 拉取 topic 路由信息，实际就是broker地址
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
                 MQClientInstance.this.updateTopicRouteInfoFromNameServer();
@@ -355,7 +360,7 @@ public class MQClientInstance {
                 log.error("ScheduledTask updateTopicRouteInfoFromNameServer exception", e);
             }
         }, 10, this.clientConfig.getPollNameServerInterval(), TimeUnit.MILLISECONDS);
-
+        //
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
                 MQClientInstance.this.cleanOfflineBroker();
@@ -388,8 +393,9 @@ public class MQClientInstance {
 
     public void updateTopicRouteInfoFromNameServer() {
         Set<String> topicList = new HashSet<>();
-
+        // todo：生产消费者的topic 信息什么时候添加的
         // Consumer
+        // 获取消费者订阅的 topic list
         {
             for (Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
                 MQConsumerInner impl = entry.getValue();
@@ -405,6 +411,7 @@ public class MQClientInstance {
         }
 
         // Producer
+        // 获取生产者发布的 topic list
         {
             for (Entry<String, MQProducerInner> entry : this.producerTable.entrySet()) {
                 MQProducerInner impl = entry.getValue();
@@ -773,12 +780,13 @@ public class MQClientInstance {
         return true;
     }
 
-    public boolean updateTopicRouteInfoFromNameServer(final String topic, boolean isDefault,
-        DefaultMQProducer defaultMQProducer) {
+    public boolean updateTopicRouteInfoFromNameServer(final String topic, boolean isDefault, DefaultMQProducer defaultMQProducer) {
         try {
+            // 锁定 3s
             if (this.lockNamesrv.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
                     TopicRouteData topicRouteData;
+                    // DefaultMQProducer.start（）方法启动过程中，开启定时任务updateTopicRouteInfoFromNameServer，进入到此defaultMQProducer=null
                     if (isDefault && defaultMQProducer != null) {
                         topicRouteData = this.mQClientAPIImpl.getDefaultTopicRouteInfoFromNameServer(clientConfig.getMqClientApiTimeout());
                         if (topicRouteData != null) {
@@ -789,12 +797,15 @@ public class MQClientInstance {
                             }
                         }
                     } else {
+                        // topic的路由信息：包含队列信息、broker信息、
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, clientConfig.getMqClientApiTimeout());
                     }
                     if (topicRouteData != null) {
+                        // 获取老路由信息
                         TopicRouteData old = this.topicRouteTable.get(topic);
                         boolean changed = topicRouteData.topicRouteDataChanged(old);
                         if (!changed) {
+                            // topic 路由信息未改变
                             changed = this.isNeedUpdateTopicRouteInfo(topic);
                         } else {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
