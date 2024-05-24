@@ -42,12 +42,15 @@ public class RebalanceService extends ServiceThread {
 
         long realWaitInterval = waitInterval;
         while (!this.isStopped()) {
+            // 等待运行  等待20s
             this.waitForRunning(realWaitInterval);
 
             long interval = System.currentTimeMillis() - lastRebalanceTimestamp;
             if (interval < minInterval) {
+                // 唤醒线程的时间，小于最小间隔 不执行
                 realWaitInterval = minInterval - interval;
             } else {
+                // 执行重新平衡
                 boolean balanced = this.mqClientFactory.doRebalance();
                 realWaitInterval = balanced ? waitInterval : minInterval;
                 lastRebalanceTimestamp = System.currentTimeMillis();

@@ -31,6 +31,10 @@ import org.apache.rocketmq.common.MixAll;
  */
 public class BrokerData implements Comparable<BrokerData> {
     private String cluster;
+    /**
+     * 集群中 broker 名
+     * 一个集群下 broker 会有多个
+     */
     private String brokerName;
 
     /**

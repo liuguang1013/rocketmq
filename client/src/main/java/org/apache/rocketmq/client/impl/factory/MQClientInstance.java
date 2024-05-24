@@ -123,6 +123,9 @@ public class MQClientInstance {
      * The container which stores the brokerClusterInfo. The key of the map is the brokerCluster name.
      * And the value is the broker instance list that belongs to the broker cluster.
      * For the sub map, the key is the id of single broker instance, and the value is the address.
+     *
+     * key：brokerCluster 集群名
+     * value：key：broker 实例信息，value：地址
      */
     private final ConcurrentMap<String, HashMap<Long, String>> brokerAddrTable = new ConcurrentHashMap<>();
 
@@ -177,6 +180,9 @@ public class MQClientInstance {
                 public void onChannelIdle(String remoteAddr, Channel channel) {
                 }
 
+                /**
+                 * 客户端与某broker地址建立连接后，发送nettyEvent，监听到后触发客户端消费者的重新平衡
+                 */
                 @Override
                 public void onChannelActive(String remoteAddr, Channel channel) {
                     for (Map.Entry<String, HashMap<Long, String>> addressEntry : brokerAddrTable.entrySet()) {
@@ -188,6 +194,7 @@ public class MQClientInstance {
                                 // 发送心跳到 broker
                                 if (sendHeartbeatToBroker(id, brokerName, addr)) {
                                     // 发送成功，立刻调整 重新平衡
+                                    // 唤醒定时任务
                                     rebalanceImmediately();
                                 }
                                 break;
@@ -213,7 +220,7 @@ public class MQClientInstance {
         this.mQAdminImpl = new MQAdminImpl(this);
         // 拉取消息服务
         this.pullMessageService = new PullMessageService(this);
-        // 负载均衡服务
+        // 重新平衡服务：发送心跳的时候，指纹发生变化
         this.rebalanceService = new RebalanceService(this);
         // 创建 CLIENT_INNER_PRODUCER 客户端内部生产者。
         // todo：作用
@@ -340,6 +347,9 @@ public class MQClientInstance {
         }
     }
 
+    /**
+     * 所用的定时任务共同使用同一把锁
+     */
     private void startScheduledTask() {
         // 一般不为空
         if (null == this.clientConfig.getNamesrvAddr()) {
@@ -352,6 +362,7 @@ public class MQClientInstance {
                 }
             }, 1000 * 10, 1000 * 60 * 2, TimeUnit.MILLISECONDS);
         }
+
         // 延迟 10ms ，默认 30s 从 NameServer 拉取 topic 路由信息，实际就是broker地址
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
@@ -360,7 +371,8 @@ public class MQClientInstance {
                 log.error("ScheduledTask updateTopicRouteInfoFromNameServer exception", e);
             }
         }, 10, this.clientConfig.getPollNameServerInterval(), TimeUnit.MILLISECONDS);
-        //
+
+        // 延迟 1s，默认30s 清除下线的broker、向所有Broker发送心跳
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
                 MQClientInstance.this.cleanOfflineBroker();
@@ -370,6 +382,7 @@ public class MQClientInstance {
             }
         }, 1000, this.clientConfig.getHeartbeatBrokerInterval(), TimeUnit.MILLISECONDS);
 
+        //延迟10s，每5s 持久化所有消费者消费的数据
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
                 MQClientInstance.this.persistAllConsumerOffset();
@@ -377,7 +390,7 @@ public class MQClientInstance {
                 log.error("ScheduledTask persistAllConsumerOffset exception", e);
             }
         }, 1000 * 10, this.clientConfig.getPersistConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
-
+        // 延迟1分钟，每分钟 调整消费者的线程池
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
                 MQClientInstance.this.adjustThreadPool();
@@ -444,9 +457,11 @@ public class MQClientInstance {
 
     /**
      * Remove offline broker
+     * 删除下线的broker
      */
     private void cleanOfflineBroker() {
         try {
+            // 加锁 3s
             if (this.lockNamesrv.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS))
                 try {
                     ConcurrentHashMap<String, HashMap<Long, String>> updatedTable = new ConcurrentHashMap<>(this.brokerAddrTable.size(), 1);
@@ -463,7 +478,9 @@ public class MQClientInstance {
                         Iterator<Entry<Long, String>> it = cloneAddrTable.entrySet().iterator();
                         while (it.hasNext()) {
                             Entry<Long, String> ee = it.next();
+                            // 获取 broker 地址
                             String addr = ee.getValue();
+                            // 判断broker地址是否在TopicRoute缓存中
                             if (!this.isBrokerAddrExistInTopicRouteTable(addr)) {
                                 it.remove();
                                 log.info("the broker addr[{} {}] is offline, remove it", brokerName, addr);
@@ -566,6 +583,7 @@ public class MQClientInstance {
     private void persistAllConsumerOffset() {
         for (Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
             MQConsumerInner impl = entry.getValue();
+            // todo：待看
             impl.persistConsumerOffset();
         }
     }
@@ -639,18 +657,21 @@ public class MQClientInstance {
 
     private boolean sendHeartbeatToBroker(long id, String brokerName, String addr, HeartbeatData heartbeatData) {
         try {
+            // 发送心跳获取 broker 的版本
             int version = this.mQClientAPIImpl.sendHeartbeat(addr, heartbeatData, clientConfig.getMqClientApiTimeout());
             if (!this.brokerVersionTable.containsKey(brokerName)) {
                 this.brokerVersionTable.put(brokerName, new HashMap<>(4));
             }
             this.brokerVersionTable.get(brokerName).put(addr, version);
             long times = this.sendHeartbeatTimesTotal.getAndIncrement();
+            // 默认 30s 发一次 ，10分钟打印一次
             if (times % 20 == 0) {
                 log.info("send heart beat to broker[{} {} {}] success", brokerName, id, addr);
                 log.info(heartbeatData.toString());
             }
             return true;
         } catch (Exception e) {
+            // 发送心跳异常：
             if (this.isBrokerInNameServer(addr)) {
                 log.warn("send heart beat to broker[{} {} {}] failed", brokerName, id, addr, e);
             } else {
@@ -711,6 +732,7 @@ public class MQClientInstance {
                 heartbeatV2Result = this.mQClientAPIImpl.sendHeartbeatV2(addr, heartbeatDataWithSub, clientConfig.getMqClientApiTimeout());
                 if (heartbeatV2Result.isSupportV2()) {
                     brokerSupportV2HeartbeatSet.add(addr);
+                    // 判断心跳指纹是够改变。指纹：
                     if (heartbeatV2Result.isSubChange()) {
                         brokerAddrHeartbeatFingerprintTable.remove(addr);
                     } else if (!brokerAddrHeartbeatFingerprintTable.containsKey(addr) || brokerAddrHeartbeatFingerprintTable.get(addr) != currentHeartbeatFingerprint) {
@@ -752,8 +774,10 @@ public class MQClientInstance {
             return false;
         }
         if (isRebalance) {
+            // 清除 brokerAddrHeartbeatFingerprintTable 缓存
             resetBrokerAddrHeartbeatFingerprintMap();
         }
+        // 计算心跳指纹信息
         int currentHeartbeatFingerprint = heartbeatDataWithSub.computeHeartbeatFingerprint();
         heartbeatDataWithSub.setHeartbeatFingerprint(currentHeartbeatFingerprint);
         HeartbeatData heartbeatDataWithoutSub = this.prepareHeartbeatData(true);
@@ -810,9 +834,9 @@ public class MQClientInstance {
                         } else {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
                         }
-
+                        // 当初次启动的时候，获取到 订阅的 topic 信息，缓存中不存在老数据，一定会进入这里
                         if (changed) {
-
+                            //
                             for (BrokerData bd : topicRouteData.getBrokerDatas()) {
                                 this.brokerAddrTable.put(bd.getBrokerName(), bd.getBrokerAddrs());
                             }
@@ -1088,6 +1112,8 @@ public class MQClientInstance {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
                 try {
+                    // 消费者组的消费者重新平衡
+                    // todo：待看
                     if (!impl.tryRebalance()) {
                         balanced = false;
                     }

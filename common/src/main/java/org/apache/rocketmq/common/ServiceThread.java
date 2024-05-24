@@ -99,6 +99,7 @@ public abstract class ServiceThread implements Runnable {
     }
 
     public void wakeup() {
+        // CAS   false-> true
         if (hasNotified.compareAndSet(false, true)) {
             waitPoint.countDown(); // notify
         }
@@ -111,9 +112,11 @@ public abstract class ServiceThread implements Runnable {
         }
 
         //entry to wait
+        // 重置 CountDownLatch2
         waitPoint.reset();
 
         try {
+            // 挂起线程
             waitPoint.await(interval, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             log.error("Interrupted", e);

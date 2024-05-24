@@ -1482,11 +1482,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         this.remotingClient.invokeOneway(MixAll.brokerVIPChannel(this.clientConfig.isVipChannelEnabled(), addr), request, timeoutMillis);
     }
 
-    public int sendHeartbeat(
-        final String addr,
-        final HeartbeatData heartbeatData,
-        final long timeoutMillis
-    ) throws RemotingException, MQBrokerException, InterruptedException {
+    public int sendHeartbeat(final String addr, final HeartbeatData heartbeatData, final long timeoutMillis) throws RemotingException, MQBrokerException, InterruptedException {
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.HEART_BEAT, new HeartbeatRequestHeader());
         request.setLanguage(clientConfig.getLanguage());
         request.setBody(heartbeatData.encode());
@@ -1503,11 +1499,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         throw new MQBrokerException(response.getCode(), response.getRemark(), addr);
     }
 
-    public HeartbeatV2Result sendHeartbeatV2(
-        final String addr,
-        final HeartbeatData heartbeatData,
-        final long timeoutMillis
-    ) throws RemotingException, MQBrokerException, InterruptedException {
+    public HeartbeatV2Result sendHeartbeatV2(final String addr, final HeartbeatData heartbeatData, final long timeoutMillis) throws RemotingException, MQBrokerException, InterruptedException {
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.HEART_BEAT, new HeartbeatRequestHeader());
         request.setLanguage(clientConfig.getLanguage());
         request.setBody(heartbeatData.encode());
