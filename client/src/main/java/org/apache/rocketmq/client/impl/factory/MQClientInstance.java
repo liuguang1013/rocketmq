@@ -240,7 +240,16 @@ public class MQClientInstance {
         TopicPublishInfo info = new TopicPublishInfo();
         // TO DO should check the usage of raw route, it is better to remove such field
         info.setTopicRouteData(route);
+
+        /**
+         * 在 TopicRouteData 消息队列信息：
+         * OrderTopic：true，在 orderTopicConf 中最先获取
+         * OrderTopic：false，其次在 topicQueueMappingByBroker 中获取
+         * OrderTopic：false，还获取不到，直接在queueDatas 中获取
+         */
         if (route.getOrderTopicConf() != null && route.getOrderTopicConf().length() > 0) {
+            // 将所有brokerName下的消息队列，封装成MessageQueue 添加到TopicPublishInfo 中
+            //     brokerName:消息队列数量;brokerName:消息队列数量;brokerName:消息队列数量
             String[] brokers = route.getOrderTopicConf().split(";");
             for (String broker : brokers) {
                 String[] item = broker.split(":");
@@ -255,14 +264,19 @@ public class MQClientInstance {
         } else if (route.getOrderTopicConf() == null
             && route.getTopicQueueMappingByBroker() != null
             && !route.getTopicQueueMappingByBroker().isEmpty()) {
+
+            // 设置订阅topic 状态为 ： false
             info.setOrderTopic(false);
             ConcurrentMap<MessageQueue, String> mqEndPoints = topicRouteData2EndpointsForStaticTopic(topic, route);
+
             info.getMessageQueueList().addAll(mqEndPoints.keySet());
             info.getMessageQueueList().sort((mq1, mq2) -> MixAll.compareInteger(mq1.getQueueId(), mq2.getQueueId()));
         } else {
             List<QueueData> qds = route.getQueueDatas();
+            // 根据brokerName排序
             Collections.sort(qds);
             for (QueueData qd : qds) {
+                // 判断是够 可写
                 if (PermName.isWriteable(qd.getPerm())) {
                     BrokerData brokerData = null;
                     for (BrokerData bd : route.getBrokerDatas()) {
@@ -295,6 +309,7 @@ public class MQClientInstance {
 
     public static Set<MessageQueue> topicRouteData2TopicSubscribeInfo(final String topic, final TopicRouteData route) {
         Set<MessageQueue> mqList = new HashSet<>();
+        // 订阅信息
         if (route.getTopicQueueMappingByBroker() != null
             && !route.getTopicQueueMappingByBroker().isEmpty()) {
             ConcurrentMap<MessageQueue, String> mqEndPoints = topicRouteData2EndpointsForStaticTopic(topic, route);
@@ -302,6 +317,7 @@ public class MQClientInstance {
         }
         List<QueueData> qds = route.getQueueDatas();
         for (QueueData qd : qds) {
+            // 队列信息可读性的
             if (PermName.isReadable(qd.getPerm())) {
                 for (int i = 0; i < qd.getReadQueueNums(); i++) {
                     MessageQueue mq = new MessageQueue(topic, qd.getBrokerName(), i);
@@ -811,7 +827,10 @@ public class MQClientInstance {
             if (this.lockNamesrv.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
                     TopicRouteData topicRouteData;
-                    // DefaultMQProducer.start（）方法启动过程中，开启定时任务updateTopicRouteInfoFromNameServer，进入到此defaultMQProducer=null
+                    /**
+                     *  DefaultMQProducer.start（）方法启动过程中，开启定时任务updateTopicRouteInfoFromNameServer，进入到此defaultMQProducer=null
+                     *  DefaultMQProducer.start（）方法启动过程中，initTopicRoute() ，也会进入该方法，先获取订阅的topic。未获取到或会再次获取默认的topic
+                     */
                     if (isDefault && defaultMQProducer != null) {
                         topicRouteData = this.mQClientAPIImpl.getDefaultTopicRouteInfoFromNameServer(clientConfig.getMqClientApiTimeout());
                         if (topicRouteData != null) {
@@ -828,22 +847,24 @@ public class MQClientInstance {
                     if (topicRouteData != null) {
                         // 获取老路由信息
                         TopicRouteData old = this.topicRouteTable.get(topic);
+                        // TopicRouteData 对象是否相同
                         boolean changed = topicRouteData.topicRouteDataChanged(old);
                         if (!changed) {
-                            // topic 路由信息未改变
+                            // TopicRouteData 对象相同，继续判断缓存中是否存在
                             changed = this.isNeedUpdateTopicRouteInfo(topic);
                         } else {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
                         }
                         // 当初次启动的时候，获取到 订阅的 topic 信息，缓存中不存在老数据，一定会进入这里
                         if (changed) {
-                            //
+                            // 缓存 broker 信息
                             for (BrokerData bd : topicRouteData.getBrokerDatas()) {
                                 this.brokerAddrTable.put(bd.getBrokerName(), bd.getBrokerAddrs());
                             }
 
                             // Update endpoint map
                             {
+                                // todo：没看太明白
                                 ConcurrentMap<MessageQueue, String> mqEndPoints = topicRouteData2EndpointsForStaticTopic(topic, topicRouteData);
                                 if (!mqEndPoints.isEmpty()) {
                                     topicEndPointsTable.put(topic, mqEndPoints);
@@ -851,18 +872,22 @@ public class MQClientInstance {
                             }
 
                             // Update Pub info
+                            // 更新 topic 的发布信息
                             {
                                 TopicPublishInfo publishInfo = topicRouteData2TopicPublishInfo(topic, topicRouteData);
                                 publishInfo.setHaveTopicRouterInfo(true);
                                 for (Entry<String, MQProducerInner> entry : this.producerTable.entrySet()) {
                                     MQProducerInner impl = entry.getValue();
                                     if (impl != null) {
+                                        // 更新topic 发布信息
                                         impl.updateTopicPublishInfo(topic, publishInfo);
                                     }
                                 }
                             }
 
                             // Update sub info
+                            // 更新订阅信息
+                            // todo： 待看
                             if (!consumerTable.isEmpty()) {
                                 Set<MessageQueue> subscribeInfo = topicRouteData2TopicSubscribeInfo(topic, topicRouteData);
                                 for (Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
@@ -958,6 +983,7 @@ public class MQClientInstance {
             Entry<String, MQProducerInner> entry = producerIterator.next();
             MQProducerInner impl = entry.getValue();
             if (impl != null) {
+                // 判断是否存在 缓存、消息队列消息
                 result = impl.isPublishTopicNeedUpdate(topic);
             }
         }

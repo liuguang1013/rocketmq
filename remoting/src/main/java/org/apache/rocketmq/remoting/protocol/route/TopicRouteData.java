@@ -36,6 +36,10 @@ public class TopicRouteData extends RemotingSerializable {
     private List<BrokerData> brokerDatas;
     private HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
     //It could be null or empty
+    /**
+     * key：broker 名
+     * value：topic和队列映射信息：总队列数、topic、数据是否脏 等数据
+     */
     private Map<String/*brokerName*/, TopicQueueMappingInfo> topicQueueMappingByBroker;
 
     public TopicRouteData() {

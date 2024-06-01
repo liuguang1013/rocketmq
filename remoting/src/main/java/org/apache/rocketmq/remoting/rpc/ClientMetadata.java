@@ -100,8 +100,16 @@ public class ClientMetadata {
                 || route.getTopicQueueMappingByBroker().isEmpty()) {
             return new ConcurrentHashMap<>();
         }
+        /**
+         * 消息队列
+         * key：MessageQueue：topic、brokerName、queueId
+         *
+         */
         ConcurrentMap<MessageQueue, String> mqEndPointsOfBroker = new ConcurrentHashMap<>();
 
+        // 根据范围再次分组
+        // key： topic和队列的范围
+        // value：key：brokerName  value：TopicQueueMappingInfo
         Map<String, Map<String, TopicQueueMappingInfo>> mappingInfosByScope = new HashMap<>();
         for (Map.Entry<String, TopicQueueMappingInfo> entry : route.getTopicQueueMappingByBroker().entrySet()) {
             TopicQueueMappingInfo info = entry.getValue();
@@ -114,12 +122,16 @@ public class ClientMetadata {
             }
         }
 
+        // 遍历
         for (Map.Entry<String, Map<String, TopicQueueMappingInfo>> mapEntry : mappingInfosByScope.entrySet()) {
             String scope = mapEntry.getKey();
             Map<String, TopicQueueMappingInfo> topicQueueMappingInfoMap =  mapEntry.getValue();
+
             ConcurrentMap<MessageQueue, TopicQueueMappingInfo> mqEndPoints = new ConcurrentHashMap<>();
+            // 对某scope 下，映射信息排序：根据数据新旧标识,由大到小
             List<Map.Entry<String, TopicQueueMappingInfo>> mappingInfos = new ArrayList<>(topicQueueMappingInfoMap.entrySet());
             mappingInfos.sort((o1, o2) -> (int) (o2.getValue().getEpoch() - o1.getValue().getEpoch()));
+            // 某topic下，某scope下，所有brokerName中，最大队列数
             int maxTotalNums = 0;
             long maxTotalNumOfEpoch = -1;
             for (Map.Entry<String, TopicQueueMappingInfo> entry : mappingInfos) {
@@ -127,8 +139,10 @@ public class ClientMetadata {
                 if (info.getEpoch() >= maxTotalNumOfEpoch && info.getTotalQueues() > maxTotalNums) {
                     maxTotalNums = info.getTotalQueues();
                 }
+                // key：logicId 逻辑id  value：physicalId 物理id
                 for (Map.Entry<Integer, Integer> idEntry : entry.getValue().getCurrIdMap().entrySet()) {
                     int globalId = idEntry.getKey();
+                    // 创建消息队列
                     MessageQueue mq = new MessageQueue(topic, TopicQueueMappingUtils.getMockBrokerName(info.getScope()), globalId);
                     TopicQueueMappingInfo oldInfo = mqEndPoints.get(mq);
                     if (oldInfo == null ||  oldInfo.getEpoch() <= info.getEpoch()) {

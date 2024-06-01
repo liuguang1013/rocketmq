@@ -28,8 +28,17 @@ import org.apache.rocketmq.remoting.protocol.route.TopicRouteData;
 public class TopicPublishInfo {
     private boolean orderTopic = false;
     private boolean haveTopicRouterInfo = false;
+    /**
+     * 消息队列信息
+     */
     private List<MessageQueue> messageQueueList = new ArrayList<>();
+    /**
+     * 发送选择的队列
+     */
     private volatile ThreadLocalIndex sendWhichQueue = new ThreadLocalIndex();
+    /**
+     * topic 路由信息
+     */
     private TopicRouteData topicRouteData;
 
     public interface QueueFilter {

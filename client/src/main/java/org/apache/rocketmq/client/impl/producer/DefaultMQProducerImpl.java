@@ -266,9 +266,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 if (startFactory) {
                     mQClientFactory.start();
                 }
-
+                // 初始化topic路由信息
                 this.initTopicRoute();
-
+                //
                 this.mqFaultStrategy.startDetector();
 
                 log.info("the producer [{}] start OK. sendMessageWithVIPChannel={}", this.defaultMQProducer.getProducerGroup(),
@@ -851,8 +851,11 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
         TopicPublishInfo topicPublishInfo = this.topicPublishInfoTable.get(topic);
+        // start（）方法项目初启动，不存在发布信息
         if (null == topicPublishInfo || !topicPublishInfo.ok()) {
+            // 创建新缓存
             this.topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
+            // 从nameSrv 获取路由信息，updateTopicRouteInfoFromNameServer(topic, false, null);
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
         }
@@ -860,6 +863,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         if (topicPublishInfo.isHaveTopicRouterInfo() || topicPublishInfo.ok()) {
             return topicPublishInfo;
         } else {
+            // 获取默认的 topic 信息
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic, true, this.defaultMQProducer);
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
             return topicPublishInfo;

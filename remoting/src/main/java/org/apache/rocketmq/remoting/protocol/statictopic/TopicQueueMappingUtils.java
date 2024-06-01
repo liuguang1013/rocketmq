@@ -197,8 +197,10 @@ public class TopicQueueMappingUtils {
     public static String getMockBrokerName(String scope) {
         assert scope != null;
         if (scope.equals(MixAll.METADATA_SCOPE_GLOBAL)) {
+            // __syslo__global__
             return MixAll.LOGICAL_QUEUE_MOCK_BROKER_PREFIX + scope.substring(2);
         } else {
+            // __syslo__ + scope
             return MixAll.LOGICAL_QUEUE_MOCK_BROKER_PREFIX + scope;
         }
     }
