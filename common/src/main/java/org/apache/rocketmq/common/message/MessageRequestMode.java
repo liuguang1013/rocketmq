@@ -28,6 +28,7 @@ public enum MessageRequestMode {
 
     /**
      * pop, consumer working in pop mode could share MessageQueue
+     * 在弹出模式下工作的消费者可以共享MessageQueue
      */
     POP("POP");
 

@@ -116,6 +116,7 @@ public class PullMessageService extends ServiceThread {
     }
 
     private void popMessage(final PopRequest popRequest) {
+        // 在消费者组缓存consumerTable 中，根据消费者组id 获取消费者组实例
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(popRequest.getConsumerGroup());
         if (consumer != null) {
             DefaultMQPushConsumerImpl impl = (DefaultMQPushConsumerImpl) consumer;
@@ -128,10 +129,12 @@ public class PullMessageService extends ServiceThread {
     @Override
     public void run() {
         logger.info(this.getServiceName() + " service started");
-
+        // 不断执行
         while (!this.isStopped()) {
             try {
+                // 阻塞的从消息队列中获取消息请求
                 MessageRequest messageRequest = this.messageRequestQueue.take();
+                // todo：弹出模式 与 拉取模式的区别
                 if (messageRequest.getMessageRequestMode() == MessageRequestMode.POP) {
                     this.popMessage((PopRequest) messageRequest);
                 } else {
