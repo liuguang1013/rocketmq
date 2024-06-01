@@ -47,11 +47,12 @@ public class RebalanceService extends ServiceThread {
 
             long interval = System.currentTimeMillis() - lastRebalanceTimestamp;
             if (interval < minInterval) {
-                // 唤醒线程的时间，小于最小间隔 不执行
+                // 唤醒线程的时间，小于最小间隔 不执行，并且刷新线程休眠时间
                 realWaitInterval = minInterval - interval;
             } else {
                 // 执行重新平衡
                 boolean balanced = this.mqClientFactory.doRebalance();
+                // 平衡成功：设置正常等待时间，否则等待时间变为最小等待时间
                 realWaitInterval = balanced ? waitInterval : minInterval;
                 lastRebalanceTimestamp = System.currentTimeMillis();
             }

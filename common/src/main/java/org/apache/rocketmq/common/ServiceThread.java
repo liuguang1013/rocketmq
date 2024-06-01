@@ -106,13 +106,17 @@ public abstract class ServiceThread implements Runnable {
     }
 
     protected void waitForRunning(long interval) {
+        // 判断是否是 运行
         if (hasNotified.compareAndSet(true, false)) {
+            // 运行状态，CAS-> 不运行状态
             this.onWaitEnd();
             return;
         }
 
+        // 在线程初始就是 没唤醒状态下，调用方法后，相当于重置等待的时间
+
         //entry to wait
-        // 重置 CountDownLatch2
+        // 不运行，重置 CountDownLatch2
         waitPoint.reset();
 
         try {
