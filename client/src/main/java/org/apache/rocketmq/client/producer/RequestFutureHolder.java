@@ -52,7 +52,7 @@ public class RequestFutureHolder {
         while (it.hasNext()) {
             Map.Entry<String, RequestResponseFuture> next = it.next();
             RequestResponseFuture rep = next.getValue();
-
+            // 判断是否超时
             if (rep.isTimeout()) {
                 it.remove();
                 rfList.add(rep);
@@ -75,7 +75,7 @@ public class RequestFutureHolder {
         this.producerSet.add(producer);
         if (null == scheduledExecutorService) {
             this.scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("RequestHouseKeepingService"));
-
+            // 定时执行
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {

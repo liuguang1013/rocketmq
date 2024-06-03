@@ -125,7 +125,8 @@ public class MQClientInstance {
      * For the sub map, the key is the id of single broker instance, and the value is the address.
      *
      * key：brokerCluster 集群名
-     * value：key：broker 实例信息，value：地址
+     * value：key：broker 实例信息 标记主节点从节点，value：地址
+     * broker 可能是主从架构的，一个broker对多个地址
      */
     private final ConcurrentMap<String, HashMap<Long, String>> brokerAddrTable = new ConcurrentHashMap<>();
 

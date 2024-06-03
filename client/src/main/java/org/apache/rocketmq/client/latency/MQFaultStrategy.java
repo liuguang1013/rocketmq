@@ -128,6 +128,7 @@ public class MQFaultStrategy {
     }
 
     public void startDetector() {
+        // 延迟容错
         this.latencyFaultTolerance.startDetector();
     }
 

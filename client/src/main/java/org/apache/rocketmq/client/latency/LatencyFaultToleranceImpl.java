@@ -69,6 +69,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
                 if (null == serviceDetector) {
                     continue;
                 }
+                // 向broker 发送获取 maxoffsize 请求
                 boolean serviceOK = serviceDetector.detect(brokerAddr, detectTimeout);
                 if (serviceOK && !brokerItem.reachableFlag) {
                     log.info(brokerItem.name + " is reachable now, then it can be used.");
@@ -79,10 +80,12 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
     }
 
     public void startDetector() {
+        // 延迟3s、每3s执行一次
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {
                 try {
+                    // 默认是未打开
                     if (startDetectorEnable) {
                         detectByOneRound();
                     }

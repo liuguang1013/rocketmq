@@ -38,6 +38,9 @@ public class RequestResponseFuture {
         this.requestCallback = requestCallback;
     }
 
+    /**
+     * 请求回调
+     */
     public void executeRequestCallback() {
         if (requestCallback != null) {
             if (sendRequestOk && cause == null) {

@@ -161,12 +161,14 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         ServiceDetector serviceDetector = new ServiceDetector() {
             @Override
             public boolean detect(String endpoint, long timeoutMillis) {
+                //挑选 topic
                 Optional<String> candidateTopic = pickTopic();
                 if (!candidateTopic.isPresent()) {
                     return false;
                 }
                 try {
                     MessageQueue mq = new MessageQueue(candidateTopic.get(), null, 0);
+                    // 获取某topic 的最大偏移量
                     mQClientFactory.getMQClientAPIImpl()
                             .getMaxOffset(endpoint, mq, timeoutMillis);
                     return true;
@@ -179,6 +181,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.mqFaultStrategy = new MQFaultStrategy(defaultMQProducer.cloneClientConfig(), new Resolver() {
             @Override
             public String resolve(String name) {
+                //
                 return DefaultMQProducerImpl.this.mQClientFactory.findBrokerAddressInPublish(name);
             }
         }, serviceDetector);
@@ -268,7 +271,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 }
                 // 初始化topic路由信息
                 this.initTopicRoute();
-                //
+                // 开启探测器
                 this.mqFaultStrategy.startDetector();
 
                 log.info("the producer [{}] start OK. sendMessageWithVIPChannel={}", this.defaultMQProducer.getProducerGroup(),
@@ -285,9 +288,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             default:
                 break;
         }
-
+        // 向所有的 broker 发送一次心跳
         this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
-
+        //
         RequestFutureHolder.getInstance().startScheduledTask(this);
 
     }
