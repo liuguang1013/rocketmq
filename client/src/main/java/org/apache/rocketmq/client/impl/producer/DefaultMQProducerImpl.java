@@ -290,7 +290,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         }
         // 向所有的 broker 发送一次心跳
         this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
-        //
+        // 请求超时检查的定时任务
         RequestFutureHolder.getInstance().startScheduledTask(this);
 
     }
