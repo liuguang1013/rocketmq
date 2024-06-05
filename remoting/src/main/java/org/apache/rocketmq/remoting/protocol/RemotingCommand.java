@@ -461,6 +461,7 @@ public class RemotingCommand {
         // skip 8 bytes
         out.writeLong(0);
         int headerSize;
+        // 判断序列化的格式：rocketmq 自定义的、json 格式
         if (SerializeType.ROCKETMQ == serializeTypeCurrentRPC) {
             if (customHeader != null && !(customHeader instanceof FastCodesHeader)) {
                 this.makeCustomHeaderToNet();
@@ -468,11 +469,14 @@ public class RemotingCommand {
             headerSize = RocketMQSerializable.rocketMQProtocolEncode(this, out);
         } else {
             this.makeCustomHeaderToNet();
+            // 使用 fastJson 转换为json字符串，再获取字节数组
             byte[] header = RemotingSerializable.encode(this);
             headerSize = header.length;
             out.writeBytes(header);
         }
+        // 设置整个请求的字节 长度
         out.setInt(beginIndex, 4 + headerSize + bodySize);
+        //
         out.setInt(beginIndex + 4, markProtocolType(headerSize, serializeTypeCurrentRPC));
     }
 

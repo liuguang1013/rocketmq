@@ -109,6 +109,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     /**
      * NettyRemotingServer may hold multiple SubRemotingServer, each server will be stored in this container with a
      * ListenPort key.
+     * netttyremotingserver可以容纳多个SubRemotingServer，每个服务端将被存储在这个容器中，并带有一个ListenPort键。
      */
     private final ConcurrentMap<Integer/*Port*/, NettyRemotingAbstract> remotingServerTable = new ConcurrentHashMap<>();
 
@@ -140,7 +141,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         // 创建线程池
         this.publicExecutor = buildPublicExecutor(nettyServerConfig);
         this.scheduledExecutorService = buildScheduleExecutor();
-        // 创建nettyServer的参数
+        // 创建nettyServer的参数：主reactor线程数1，从reactor线程数3
         this.eventLoopGroupBoss = buildBossEventLoopGroup();
         this.eventLoopGroupSelector = buildEventLoopGroupSelector();
 
@@ -200,17 +201,19 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
     @Override
     public void start() {
+        // 默认的服务端工作线程组，默认线程数8
         this.defaultEventExecutorGroup = new DefaultEventExecutorGroup(nettyServerConfig.getServerWorkerThreads(),
             new ThreadFactoryImpl("NettyServerCodecThread_"));
-
+        // 准备SharableHandlers
         prepareSharableHandlers();
-
+        // 服务端Bootstrap构建
         serverBootstrap.group(this.eventLoopGroupBoss, this.eventLoopGroupSelector)
             .channel(useEpoll() ? EpollServerSocketChannel.class : NioServerSocketChannel.class)
             .option(ChannelOption.SO_BACKLOG, 1024)
             .option(ChannelOption.SO_REUSEADDR, true)
             .childOption(ChannelOption.SO_KEEPALIVE, false)
             .childOption(ChannelOption.TCP_NODELAY, true)
+                // 0.0.0.0:0
             .localAddress(new InetSocketAddress(this.nettyServerConfig.getBindAddress(),
                 this.nettyServerConfig.getListenPort()))
             .childHandler(new ChannelInitializer<SocketChannel>() {
@@ -219,9 +222,9 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                     configChannel(ch);
                 }
             });
-
+        //
         addCustomConfig(serverBootstrap);
-
+        // 启动服务端，绑定端口，并缓存端口和服务端
         try {
             ChannelFuture sync = serverBootstrap.bind().sync();
             InetSocketAddress addr = (InetSocketAddress) sync.channel().localAddress();
@@ -230,6 +233,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
             }
             log.info("RemotingServer started, listening {}:{}", this.nettyServerConfig.getBindAddress(),
                 this.nettyServerConfig.getListenPort());
+            // 缓存 端口和 服务端的缓存
             this.remotingServerTable.put(this.nettyServerConfig.getListenPort(), this);
         } catch (Exception e) {
             throw new IllegalStateException(String.format("Failed to bind to %s:%d", nettyServerConfig.getBindAddress(),
@@ -284,21 +288,24 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     }
 
     private void addCustomConfig(ServerBootstrap childHandler) {
+        // 服务端socket发送缓存大小
         if (nettyServerConfig.getServerSocketSndBufSize() > 0) {
             log.info("server set SO_SNDBUF to {}", nettyServerConfig.getServerSocketSndBufSize());
             childHandler.childOption(ChannelOption.SO_SNDBUF, nettyServerConfig.getServerSocketSndBufSize());
         }
+        // 服务端socket接收缓存大小
         if (nettyServerConfig.getServerSocketRcvBufSize() > 0) {
             log.info("server set SO_RCVBUF to {}", nettyServerConfig.getServerSocketRcvBufSize());
             childHandler.childOption(ChannelOption.SO_RCVBUF, nettyServerConfig.getServerSocketRcvBufSize());
         }
+        // netty写入缓冲的高低水位
         if (nettyServerConfig.getWriteBufferLowWaterMark() > 0 && nettyServerConfig.getWriteBufferHighWaterMark() > 0) {
             log.info("server set netty WRITE_BUFFER_WATER_MARK to {},{}",
                 nettyServerConfig.getWriteBufferLowWaterMark(), nettyServerConfig.getWriteBufferHighWaterMark());
             childHandler.childOption(ChannelOption.WRITE_BUFFER_WATER_MARK, new WriteBufferWaterMark(
                 nettyServerConfig.getWriteBufferLowWaterMark(), nettyServerConfig.getWriteBufferHighWaterMark()));
         }
-
+        // 是否使用池化ByteBufAllocator，开启后后减少内存分配和垃圾回收
         if (nettyServerConfig.isServerPooledByteBufAllocatorEnable()) {
             childHandler.childOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
         }
@@ -412,10 +419,17 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
     }
 
     private void prepareSharableHandlers() {
+        // tls 模式的处理器
+        // todo:待看
         tlsModeHandler = new TlsModeHandler(TlsSystemConfig.tlsMode);
+        // netty编码器：字节数据编码器，主要通过remotingCommand中自带的方法处理
+        // 有rocket自定义格式、json格式
         encoder = new NettyEncoder();
+        // 连接管理处理器：在激活、取消激活、取消注册等节点，发布nettyEvent
         connectionManageHandler = new NettyConnectManageHandler();
+        // 服务端处理器：主要是当发生channel.read的时候分发不同的请求到处理器
         serverHandler = new NettyServerHandler();
+        // 请求出入统计处理器:对每次channel.read、write使用LongAdder进行统计
         distributionHandler = new RemotingCodeDistributionHandler();
     }
 
@@ -550,26 +564,35 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, RemotingCommand msg) {
+            // 获取服务端端口号
             int localPort = RemotingHelper.parseSocketAddressPort(ctx.channel().localAddress());
             NettyRemotingAbstract remotingAbstract = NettyRemotingServer.this.remotingServerTable.get(localPort);
             if (localPort != -1 && remotingAbstract != null) {
+                // 处理接收到消息：根据消息类型分别处理
                 remotingAbstract.processMessageReceived(ctx, msg);
                 return;
             }
             // The related remoting server has been shutdown, so close the connected channel
+            // 相关的远程服务器已关闭，因此请关闭连接的通道
             RemotingHelper.closeChannel(ctx.channel());
         }
 
+        /**
+         * 当chanenl的可写入状态发生变化的时候，发送通知
+         */
         @Override
         public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
             Channel channel = ctx.channel();
             if (channel.isWritable()) {
                 if (!channel.config().isAutoRead()) {
+                    // 允许数据可用的时候自动且连续的被处理，无需手动控制读取操作
                     channel.config().setAutoRead(true);
                     log.info("Channel[{}] turns writable, bytes to buffer before changing channel to un-writable: {}",
                         RemotingHelper.parseChannelRemoteAddr(channel), channel.bytesBeforeUnwritable());
                 }
             } else {
+                // 当写入缓冲满的时候， channel 不可写的时候，Netty 将停止从网络读取新的数据，直到你再次调用 setAutoRead(true) 重新启用自动读取
+                // 暂停自动读取是一种实现背压（backpressure）管理的有效手段，有助于平衡应用程序处理能力和网络数据输入速度，防止数据积压或资源耗尽。
                 channel.config().setAutoRead(false);
                 log.warn("Channel[{}] auto-read is disabled, bytes to drain before it turns writable: {}",
                     RemotingHelper.parseChannelRemoteAddr(channel), channel.bytesBeforeWritable());

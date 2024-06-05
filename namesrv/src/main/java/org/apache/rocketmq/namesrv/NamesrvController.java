@@ -231,6 +231,7 @@ public class NamesrvController {
     }
 
     public void start() throws Exception {
+        // netty服务端启动
         this.remotingServer.start();
 
         // In test scenarios where it is up to OS to pick up an available port, set the listening port back to config

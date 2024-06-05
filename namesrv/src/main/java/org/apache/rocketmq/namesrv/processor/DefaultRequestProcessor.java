@@ -69,6 +69,9 @@ import org.apache.rocketmq.remoting.protocol.header.namesrv.WipeWritePermOfBroke
 import org.apache.rocketmq.remoting.protocol.namesrv.RegisterBrokerResult;
 import org.apache.rocketmq.remoting.protocol.route.TopicRouteData;
 
+/**
+ * nameSrv 服务端：默认请求处理器
+ */
 public class DefaultRequestProcessor implements NettyRequestProcessor {
     private static Logger log = LoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
 
@@ -92,8 +95,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
     }
 
     @Override
-    public RemotingCommand processRequest(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
 
         if (ctx != null) {
             log.debug("receive request, {} {} {}",
@@ -103,12 +105,15 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         }
 
         switch (request.getCode()) {
+            // kv配置信息：添加、获取、删除
             case RequestCode.PUT_KV_CONFIG:
                 return this.putKVConfig(ctx, request);
             case RequestCode.GET_KV_CONFIG:
                 return this.getKVConfig(ctx, request);
             case RequestCode.DELETE_KV_CONFIG:
                 return this.deleteKVConfig(ctx, request);
+
+            // broker 操作
             case RequestCode.QUERY_DATA_VERSION:
                 return this.queryBrokerTopicConfig(ctx, request);
             case RequestCode.REGISTER_BROKER:
@@ -125,12 +130,16 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
                 return this.wipeWritePermOfBroker(ctx, request);
             case RequestCode.ADD_WRITE_PERM_OF_BROKER:
                 return this.addWritePermOfBroker(ctx, request);
+
+            // 从 nameSrv 获取所有topic
             case RequestCode.GET_ALL_TOPIC_LIST_FROM_NAMESERVER:
                 return this.getAllTopicListFromNameserver(ctx, request);
+            // topic 注册、删除 到nameSrv
             case RequestCode.DELETE_TOPIC_IN_NAMESRV:
                 return this.deleteTopicInNamesrv(ctx, request);
             case RequestCode.REGISTER_TOPIC_IN_NAMESRV:
                 return this.registerTopicToNamesrv(ctx, request);
+
             case RequestCode.GET_KVLIST_BY_NAMESPACE:
                 return this.getKVListByNamespace(ctx, request);
             case RequestCode.GET_TOPICS_BY_CLUSTER:

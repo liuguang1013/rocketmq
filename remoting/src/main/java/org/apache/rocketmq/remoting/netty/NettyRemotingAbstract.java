@@ -178,9 +178,11 @@ public abstract class NettyRemotingAbstract {
     public void processMessageReceived(ChannelHandlerContext ctx, RemotingCommand msg) {
         if (msg != null) {
             switch (msg.getType()) {
+                // 作为服务端处理请求
                 case REQUEST_COMMAND:
                     processRequestCommand(ctx, msg);
                     break;
+                //作为客户端接收响应
                 case RESPONSE_COMMAND:
                     processResponseCommand(ctx, msg);
                     break;
@@ -257,10 +259,12 @@ public abstract class NettyRemotingAbstract {
      * @param cmd request command.
      */
     public void processRequestCommand(final ChannelHandlerContext ctx, final RemotingCommand cmd) {
+        // 获取处理器和对映线程池，这些是在controller.initialize();方法中设置
         final Pair<NettyRequestProcessor, ExecutorService> matched = this.processorTable.get(cmd.getCode());
         final Pair<NettyRequestProcessor, ExecutorService> pair = null == matched ? this.defaultRequestProcessorPair : matched;
+        // 请求id
         final int opaque = cmd.getOpaque();
-
+        // 处理未定义的请求类型
         if (pair == null) {
             String error = " request type " + cmd.getCode() + " not supported";
             final RemotingCommand response =
@@ -270,7 +274,7 @@ public abstract class NettyRemotingAbstract {
             log.error(RemotingHelper.parseChannelRemoteAddr(ctx.channel()) + error);
             return;
         }
-
+        //构建处理请求handler
         Runnable run = buildProcessRequestHandler(ctx, cmd, pair, opaque);
 
         if (isShuttingDown.get()) {
@@ -322,8 +326,10 @@ public abstract class NettyRemotingAbstract {
             RemotingCommand response;
 
             try {
+                // 获取对端地址
                 String remoteAddr = RemotingHelper.parseChannelRemoteAddr(ctx.channel());
                 try {
+                    // 处理rpc前置钩子函数
                     doBeforeRpcHooks(remoteAddr, cmd);
                 } catch (AbortProcessException e) {
                     throw e;
@@ -332,12 +338,14 @@ public abstract class NettyRemotingAbstract {
                 }
 
                 if (exception == null) {
+                    // 进入 DefaultRequestProcessor 或者 ClientRequestProcessor
                     response = pair.getObject1().processRequest(ctx, cmd);
                 } else {
                     response = RemotingCommand.createResponseCommand(RemotingSysResponseCode.SYSTEM_ERROR, null);
                 }
 
                 try {
+                    // 处理rpc后置钩子函数
                     doAfterRpcHooks(remoteAddr, cmd, response);
                 } catch (AbortProcessException e) {
                     throw e;
