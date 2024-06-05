@@ -231,22 +231,25 @@ public class NamesrvController {
     }
 
     public void start() throws Exception {
-        // netty服务端启动
+        // nameSrv中netty服务端启动
         this.remotingServer.start();
 
         // In test scenarios where it is up to OS to pick up an available port, set the listening port back to config
+        //在由操作系统选择可用端口的测试场景中，将侦听端口设置回config
         if (0 == nettyServerConfig.getListenPort()) {
             nettyServerConfig.setListenPort(this.remotingServer.localListenPort());
         }
-
+        // 更新客户端nameSrv地址
         this.remotingClient.updateNameServerAddressList(Collections.singletonList(NetworkUtil.getLocalAddress()
             + ":" + nettyServerConfig.getListenPort()));
+        // nameSrv中netty客户端启动
         this.remotingClient.start();
 
+        // 文件监控服务：检测配置文件是否变动
         if (this.fileWatchService != null) {
             this.fileWatchService.start();
         }
-
+        // 获取阻塞队列消息，取消注册broker
         this.routeInfoManager.start();
     }
 

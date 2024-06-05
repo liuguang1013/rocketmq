@@ -383,17 +383,19 @@ public abstract class NettyRemotingAbstract {
      * @param cmd response command instance.
      */
     public void processResponseCommand(ChannelHandlerContext ctx, RemotingCommand cmd) {
+        // 请求id
         final int opaque = cmd.getOpaque();
         final ResponseFuture responseFuture = responseTable.get(opaque);
         if (responseFuture != null) {
             responseFuture.setResponseCommand(cmd);
-
+            // 缓存移除
             responseTable.remove(opaque);
 
             if (responseFuture.getInvokeCallback() != null) {
                 executeInvokeCallback(responseFuture);
             } else {
                 responseFuture.putResponse(cmd);
+                // 释放信号量
                 responseFuture.release();
             }
         } else {
@@ -433,6 +435,7 @@ public abstract class NettyRemotingAbstract {
             } catch (Throwable e) {
                 log.warn("executeInvokeCallback Exception", e);
             } finally {
+                // 释放信号量
                 responseFuture.release();
             }
         }
