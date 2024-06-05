@@ -33,7 +33,7 @@ public class BrokerData implements Comparable<BrokerData> {
     private String cluster;
     /**
      * 集群中 broker 名
-     * 一个集群下 broker 会有多个
+     * 一个集群下 broker 会有多个，主从模式：broker名是相同的
      */
     private String brokerName;
 
@@ -41,7 +41,7 @@ public class BrokerData implements Comparable<BrokerData> {
      * The container that store the all single instances for the current broker replication cluster.
      * The key is the brokerId, and the value is the address of the single broker instance.
      * 存储集群中所有 broker的信息
-     * key：broker的Id
+     * key：broker的Id，主节点默认是 0，从节点是
      * value：broker地址
      */
     private HashMap<Long, String> brokerAddrs;

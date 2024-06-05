@@ -92,19 +92,28 @@ public class NamesrvController {
         this.nettyServerConfig = nettyServerConfig;
         this.nettyClientConfig = nettyClientConfig;
         this.kvConfigManager = new KVConfigManager(this);
+        // broker 管家服务
         this.brokerHousekeepingService = new BrokerHousekeepingService(this);
+        //
         this.routeInfoManager = new RouteInfoManager(namesrvConfig, this);
         this.configuration = new Configuration(LOGGER, this.namesrvConfig, this.nettyServerConfig);
         this.configuration.setStorePathFromConfig(this.namesrvConfig, "configStorePath");
     }
 
     public boolean initialize() {
+        // kvConfigManager 从 kvConfig.json 加载配置信息
         loadConfig();
+        // 初始化网络组件：NettyRemotingServer、NettyRemotingClient
         initiateNetworkComponents();
+        // 初始化线程池：默认线程池、针对RequestCode.GET_ROUTEINFO_BY_TOPIC请求的线程池，为注册Processor时使用
         initiateThreadExecutors();
+        // 注册remotingServer的请求处理器：除了RequestCode.GET_ROUTEINFO_BY_TOPIC都走默认处理器
         registerProcessor();
+        // 开启定时任务：检测心跳超时broker并清除、打印kv配置信息、打印处理请求线程池阻塞队列数量及时间
         startScheduleService();
+        //初始化ssl上下文
         initiateSslContext();
+        // 初始化 rpc 钩子函数：添加针对通过topic获取路由信息请求，根据区域名过滤路由信息的钩子函数
         initiateRpcHooks();
         return true;
     }
@@ -114,12 +123,13 @@ public class NamesrvController {
     }
 
     private void startScheduleService() {
+        // 定时检查：不活跃的broker，关闭channel 并向BatchUnregistrationService 的阻塞队列中添加元素，
         this.scanExecutorService.scheduleAtFixedRate(NamesrvController.this.routeInfoManager::scanNotActiveBroker,
             5, this.namesrvConfig.getScanNotActiveBrokerInterval(), TimeUnit.MILLISECONDS);
-
+        // 定期打印kv配置对象
         this.scheduledExecutorService.scheduleAtFixedRate(NamesrvController.this.kvConfigManager::printAllPeriodically,
             1, 10, TimeUnit.MINUTES);
-
+        // 定期打印水位：打印处理请求的线程池的队列的数量 和 队列中首位元素请求的等待时间
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
                 NamesrvController.this.printWaterMark();
@@ -135,9 +145,10 @@ public class NamesrvController {
     }
 
     private void initiateThreadExecutors() {
+        // 创建默认线程池：处理请求
         this.defaultThreadPoolQueue = new LinkedBlockingQueue<>(this.namesrvConfig.getDefaultThreadPoolQueueCapacity());
         this.defaultExecutor = ThreadUtils.newThreadPoolExecutor(this.namesrvConfig.getDefaultThreadPoolNums(), this.namesrvConfig.getDefaultThreadPoolNums(), 1000 * 60, TimeUnit.MILLISECONDS, this.defaultThreadPoolQueue, new ThreadFactoryImpl("RemotingExecutorThread_"));
-
+        // 创建专属线程池：处理RequestCode.GET_ROUTEINFO_BY_TOPIC请求
         this.clientRequestThreadPoolQueue = new LinkedBlockingQueue<>(this.namesrvConfig.getClientRequestThreadPoolQueueCapacity());
         this.clientRequestExecutor = ThreadUtils.newThreadPoolExecutor(this.namesrvConfig.getClientRequestThreadPoolNums(), this.namesrvConfig.getClientRequestThreadPoolNums(), 1000 * 60, TimeUnit.MILLISECONDS, this.clientRequestThreadPoolQueue, new ThreadFactoryImpl("ClientRequestExecutorThread_"));
     }
@@ -215,6 +226,7 @@ public class NamesrvController {
     }
 
     private void initiateRpcHooks() {
+        //添加针对通过topic获取路由信息请求，根据区域名过滤路由信息的钩子函数
         this.remotingServer.registerRPCHook(new ZoneRouteRPCHook());
     }
 
@@ -237,13 +249,20 @@ public class NamesrvController {
         this.routeInfoManager.start();
     }
 
+    /**
+     * jvm关闭钩子函数调用
+     */
     public void shutdown() {
+        // netty客户端关闭
         this.remotingClient.shutdown();
+        // netty服务端关闭
         this.remotingServer.shutdown();
+        // 关闭请求线程池
         this.defaultExecutor.shutdown();
         this.clientRequestExecutor.shutdown();
         this.scheduledExecutorService.shutdown();
         this.scanExecutorService.shutdown();
+        // 关闭批量取消注册服务
         this.routeInfoManager.shutdown();
 
         if (this.fileWatchService != null) {

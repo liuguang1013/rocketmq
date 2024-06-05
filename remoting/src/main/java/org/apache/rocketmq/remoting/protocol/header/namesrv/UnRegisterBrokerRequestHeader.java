@@ -25,12 +25,24 @@ import org.apache.rocketmq.remoting.annotation.CFNotNull;
 import org.apache.rocketmq.remoting.exception.RemotingCommandException;
 
 public class UnRegisterBrokerRequestHeader implements CommandCustomHeader {
+    /**
+     *
+     */
     @CFNotNull
     private String brokerName;
+    /**
+     * ip地址
+     */
     @CFNotNull
     private String brokerAddr;
+    /**
+     * 集群名
+     */
     @CFNotNull
     private String clusterName;
+    /**
+     * 是否为主节点标识
+     */
     @CFNotNull
     private Long brokerId;
 

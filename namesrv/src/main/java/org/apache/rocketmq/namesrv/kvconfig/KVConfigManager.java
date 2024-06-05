@@ -34,6 +34,9 @@ public class KVConfigManager {
     private final NamesrvController namesrvController;
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    /**
+     *
+     */
     private final HashMap<String/* Namespace */, HashMap<String/* Key */, String/* Value */>> configTable =
         new HashMap<>();
 
@@ -44,6 +47,7 @@ public class KVConfigManager {
     public void load() {
         String content = null;
         try {
+            // 默认  System.getProperty("user.home")/namesrv/kvConfig.json 文件
             content = MixAll.file2String(this.namesrvController.getNamesrvConfig().getKvConfigPath());
         } catch (IOException e) {
             log.warn("Load KV config table exception", e);

@@ -166,7 +166,7 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
         }
         // 创建 共有线程池
         this.publicExecutor = Executors.newFixedThreadPool(publicThreadNums, new ThreadFactoryImpl("NettyClientPublicExecutor_"));
-        // 创建 浏览线程池
+        // 创建 浏览线程池：用来查找可用的 nameSrv
         this.scanExecutor = ThreadUtils.newThreadPoolExecutor(4, 10, 60, TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(32), new ThreadFactoryImpl("NettyClientScan_thread_"));
 

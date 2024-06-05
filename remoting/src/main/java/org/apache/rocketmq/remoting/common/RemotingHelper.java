@@ -216,6 +216,9 @@ public class RemotingHelper {
         return addr;
     }
 
+    /**
+     * 在 channel 的AttributeMap中获取
+     */
     private static String getProxyProtocolAddress(Channel channel) {
         if (!channel.hasAttr(AttributeKeys.PROXY_PROTOCOL_ADDR)) {
             return null;
@@ -330,6 +333,7 @@ public class RemotingHelper {
         if ("".equals(addrRemote)) {
             channel.close();
         } else {
+            //关闭 channel ，添加监听器输出日志
             channel.close().addListener(new ChannelFutureListener() {
                 @Override
                 public void operationComplete(ChannelFuture future) throws Exception {

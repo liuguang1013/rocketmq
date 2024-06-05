@@ -41,12 +41,14 @@ public class ZoneRouteRPCHook implements RPCHook {
 
     @Override
     public void doAfterResponse(String remoteAddr, RemotingCommand request, RemotingCommand response) {
+        // 只针对 通过topic获取路由信息请求
         if (RequestCode.GET_ROUTEINFO_BY_TOPIC != request.getCode()) {
             return;
         }
         if (response == null || response.getBody() == null || ResponseCode.SUCCESS != response.getCode()) {
             return;
         }
+        //
         boolean zoneMode = Boolean.parseBoolean(request.getExtFields().get(MixAll.ZONE_MODE));
         if (!zoneMode) {
             return;
@@ -61,10 +63,12 @@ public class ZoneRouteRPCHook implements RPCHook {
     }
 
     private TopicRouteData filterByZoneName(TopicRouteData topicRouteData, String zoneName) {
+        // 过滤broker信息
         List<BrokerData> brokerDataReserved = new ArrayList<>();
         Map<String, BrokerData> brokerDataRemoved = new HashMap<>();
         for (BrokerData brokerData : topicRouteData.getBrokerDatas()) {
             //master down, consume from slave. break nearby route rule.
+            // 主节点宕机、消费从节点。打破就近路由规则
             if (brokerData.getBrokerAddrs().get(MixAll.MASTER_ID) == null
                 || StringUtils.equalsIgnoreCase(brokerData.getZoneName(), zoneName)) {
                 brokerDataReserved.add(brokerData);
@@ -73,7 +77,7 @@ public class ZoneRouteRPCHook implements RPCHook {
             }
         }
         topicRouteData.setBrokerDatas(brokerDataReserved);
-
+        // 过滤队列信息
         List<QueueData> queueDataReserved = new ArrayList<>();
         for (QueueData queueData : topicRouteData.getQueueDatas()) {
             if (!brokerDataRemoved.containsKey(queueData.getBrokerName())) {

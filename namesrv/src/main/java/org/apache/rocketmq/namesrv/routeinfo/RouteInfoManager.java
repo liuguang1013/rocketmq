@@ -800,6 +800,9 @@ public class RouteInfoManager {
         return null;
     }
 
+    /**
+     * 当没有心跳上传的时候，清除关闭与broker的channel
+     */
     public void scanNotActiveBroker() {
         try {
             log.info("start scanNotActiveBroker");
@@ -809,6 +812,7 @@ public class RouteInfoManager {
                 if ((last + timeoutMillis) < System.currentTimeMillis()) {
                     RemotingHelper.closeChannel(next.getValue().getChannel());
                     log.warn("The broker channel expired, {} {}ms", next.getKey(), timeoutMillis);
+                    // 向 BatchUnregistrationService 的阻塞队列中添加元素，
                     this.onChannelDestroy(next.getKey());
                 }
             }
@@ -824,6 +828,7 @@ public class RouteInfoManager {
             try {
                 try {
                     this.lock.readLock().lockInterruptibly();
+                    // 设置取消注册请求
                     needUnRegister = setupUnRegisterRequest(unRegisterRequest, brokerAddrInfo);
                 } finally {
                     this.lock.readLock().unlock();
@@ -834,6 +839,7 @@ public class RouteInfoManager {
         }
 
         if (needUnRegister) {
+            // 向 BatchUnregistrationService 的阻塞队列中添加元素
             boolean result = this.submitUnRegisterBrokerRequest(unRegisterRequest);
             log.info("the broker's channel destroyed, submit the unregister request at once, " +
                 "broker info: {}, submit result: {}", unRegisterRequest, result);
@@ -875,6 +881,7 @@ public class RouteInfoManager {
 
     private boolean setupUnRegisterRequest(UnRegisterBrokerRequestHeader unRegisterRequest,
         BrokerAddrInfo brokerAddrInfo) {
+        // 设置 broker 集群名，ip地址
         unRegisterRequest.setClusterName(brokerAddrInfo.getClusterName());
         unRegisterRequest.setBrokerAddr(brokerAddrInfo.getBrokerAddr());
 
@@ -1117,6 +1124,9 @@ public class RouteInfoManager {
  * broker address information
  */
 class BrokerAddrInfo {
+    /**
+     * 和 BrokerData 中的 cluster 字段对映
+     */
     private String clusterName;
     private String brokerAddr;
 

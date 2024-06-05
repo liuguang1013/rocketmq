@@ -130,16 +130,17 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         this(nettyServerConfig, null);
     }
 
-    public NettyRemotingServer(final NettyServerConfig nettyServerConfig,
-        final ChannelEventListener channelEventListener) {
+    public NettyRemotingServer(final NettyServerConfig nettyServerConfig, final ChannelEventListener channelEventListener) {
+        //  256 、64
         super(nettyServerConfig.getServerOnewaySemaphoreValue(), nettyServerConfig.getServerAsyncSemaphoreValue());
+        // 创建ServerBootstrap
         this.serverBootstrap = new ServerBootstrap();
         this.nettyServerConfig = nettyServerConfig;
         this.channelEventListener = channelEventListener;
-
+        // 创建线程池
         this.publicExecutor = buildPublicExecutor(nettyServerConfig);
         this.scheduledExecutorService = buildScheduleExecutor();
-
+        // 创建nettyServer的参数
         this.eventLoopGroupBoss = buildBossEventLoopGroup();
         this.eventLoopGroupSelector = buildEventLoopGroupSelector();
 

@@ -42,7 +42,7 @@ import org.apache.rocketmq.srvutil.ServerUtil;
 import org.apache.rocketmq.srvutil.ShutdownHookThread;
 
 /**
- * rocketmq 服务注册中心
+ * rocketmq broker服务注册中心
  */
 public class NamesrvStartup {
 
@@ -56,12 +56,15 @@ public class NamesrvStartup {
 
     public static void main(String[] args) {
         main0(args);
+
         controllerManagerMain();
     }
 
     public static NamesrvController main0(String[] args) {
         try {
+            // 解析命令行和配置文件
             parseCommandlineAndConfigFile(args);
+            // 创建并开始 NamesrvController
             NamesrvController controller = createAndStartNamesrvController();
             return controller;
         } catch (Throwable e) {
@@ -85,9 +88,11 @@ public class NamesrvStartup {
     }
 
     public static void parseCommandlineAndConfigFile(String[] args) throws Exception {
+        // 指定版本
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
-
+        // options 中添加 help、namesrvAddr
         Options options = ServerUtil.buildCommandlineOptions(new Options());
+        // 解析命令行:options 中增加 configFile、printConfigItem
         CommandLine commandLine = ServerUtil.parseCmdLine("mqnamesrv", args, buildCommandlineOptions(options), new DefaultParser());
         if (null == commandLine) {
             System.exit(-1);
@@ -136,15 +141,18 @@ public class NamesrvStartup {
             System.out.printf("Please set the %s variable in your environment to match the location of the RocketMQ installation%n", MixAll.ROCKETMQ_HOME_ENV);
             System.exit(-2);
         }
+        // 打印配置文件属性
         MixAll.printObjectProperties(log, namesrvConfig);
         MixAll.printObjectProperties(log, nettyServerConfig);
 
     }
 
     public static NamesrvController createAndStartNamesrvController() throws Exception {
-
+        // 创建
         NamesrvController controller = createNamesrvController();
+        // 开始
         start(controller);
+
         NettyServerConfig serverConfig = controller.getNettyServerConfig();
         String tip = String.format("The Name Server boot success. serializeType=%s, address %s:%d", RemotingCommand.getSerializeTypeConfigInThisServer(), serverConfig.getBindAddress(), serverConfig.getListenPort());
         log.info(tip);
@@ -156,6 +164,7 @@ public class NamesrvStartup {
 
         final NamesrvController controller = new NamesrvController(namesrvConfig, nettyServerConfig, nettyClientConfig);
         // remember all configs to prevent discard
+        // 合并参数到 allConfigs 中
         controller.getConfiguration().registerConfig(properties);
         return controller;
     }
@@ -171,12 +180,13 @@ public class NamesrvStartup {
             controller.shutdown();
             System.exit(-3);
         }
-
+        // 添加程序关闭的钩子函数
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, (Callable<Void>) () -> {
+            // 关闭netty服务端/客户端、线程池
             controller.shutdown();
             return null;
         }));
-
+        //
         controller.start();
 
         return controller;

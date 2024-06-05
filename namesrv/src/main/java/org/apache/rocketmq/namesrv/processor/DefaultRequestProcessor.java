@@ -78,6 +78,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
 
     public DefaultRequestProcessor(NamesrvController namesrvController) {
         this.namesrvController = namesrvController;
+        // 初始化配置白名单
         initConfigBlackList();
     }
 

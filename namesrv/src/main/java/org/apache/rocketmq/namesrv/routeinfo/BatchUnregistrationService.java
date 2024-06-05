@@ -31,6 +31,7 @@ import org.apache.rocketmq.remoting.protocol.header.namesrv.UnRegisterBrokerRequ
 /**
  * BatchUnregistrationService provides a mechanism to unregister brokers in batch manner, which speeds up broker-offline
  * process.
+ * BatchUnregistrationService提供了一种以批处理方式注销代理的机制，从而加快了代理脱机过程。
  */
 public class BatchUnregistrationService extends ServiceThread {
     private final RouteInfoManager routeInfoManager;
@@ -44,7 +45,8 @@ public class BatchUnregistrationService extends ServiceThread {
 
     /**
      * Submits an unregister request to this queue.
-     *
+     * 向此队列提交取消注册请求。
+     * 定时任务扫描到 broker 发送心跳超时，并关闭channel的时候，会添加。
      * @param unRegisterRequest the request to submit
      * @return {@code true} if the request was added to this queue, else {@code false}
      */
