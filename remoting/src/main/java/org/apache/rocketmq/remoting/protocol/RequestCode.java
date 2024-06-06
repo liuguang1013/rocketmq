@@ -231,6 +231,10 @@ public class RequestCode {
 
     public static final int BROKER_HEARTBEAT = 904;
 
+    /**
+     * 当broker超时未发送心跳时，定时任务扫描到后添加到 BatchUnregistrationService 的阻塞的队列
+     * while(true) take任务后，移除RouteInfoManager中相关缓存，在是主节点并且配置允许下，发送该类请求到所有broker
+     */
     public static final int NOTIFY_MIN_BROKER_ID_CHANGE = 905;
 
     public static final int EXCHANGE_BROKER_HA_INFO = 906;

@@ -21,10 +21,21 @@
 package org.apache.rocketmq.remoting.protocol.route;
 
 public class QueueData implements Comparable<QueueData> {
+
     private String brokerName;
+    /**
+     * 读队列数
+     */
     private int readQueueNums;
+    /**
+     * 写队列数
+     */
     private int writeQueueNums;
+    /**
+     * 表示消息队列的权限
+     */
     private int perm;
+
     private int topicSysFlag;
 
     public QueueData() {

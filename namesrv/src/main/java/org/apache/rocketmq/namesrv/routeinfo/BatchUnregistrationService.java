@@ -46,7 +46,7 @@ public class BatchUnregistrationService extends ServiceThread {
     /**
      * Submits an unregister request to this queue.
      * 向此队列提交取消注册请求。
-     * 定时任务扫描到 broker 发送心跳超时，并关闭channel的时候，会添加。
+     *  scanNotActiveBroker（） 定时任务扫描到 broker 发送心跳超时，并关闭channel的时候，会添加。
      * @param unRegisterRequest the request to submit
      * @return {@code true} if the request was added to this queue, else {@code false}
      */

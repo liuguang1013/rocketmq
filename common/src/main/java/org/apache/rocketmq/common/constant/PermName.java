@@ -22,10 +22,21 @@ public class PermName {
     public static final int INDEX_PERM_WRITE = 1;
     public static final int INDEX_PERM_INHERIT = 0;
 
-
+    /**
+     * 8
+     */
     public static final int PERM_PRIORITY = 0x1 << INDEX_PERM_PRIORITY;
+    /**
+     * 4 读权限
+     */
     public static final int PERM_READ = 0x1 << INDEX_PERM_READ;
+    /**
+     * 2 写权限
+     */
     public static final int PERM_WRITE = 0x1 << INDEX_PERM_WRITE;
+    /**
+     * 1
+     */
     public static final int PERM_INHERIT = 0x1 << INDEX_PERM_INHERIT;
 
     public static String perm2String(final int perm) {
