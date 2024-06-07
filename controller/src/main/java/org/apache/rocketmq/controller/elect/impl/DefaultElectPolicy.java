@@ -28,11 +28,20 @@ import java.util.stream.Collectors;
 
 public class DefaultElectPolicy implements ElectPolicy {
 
-    // <clusterName, brokerName, brokerAddr>, Used to judge whether a broker
-    // has preliminary qualification to be selected as master
+    //
+    //
+    /**
+     *  <clusterName, brokerName, brokerAddr>, Used to judge whether a broker
+     *  has preliminary qualification to be selected as master
+     *
+     *  用于判断是否有资格去参加 master 选举
+     */
     private BrokerValidPredicate validPredicate;
 
-    // <clusterName, brokerName, brokerAddr, BrokerLiveInfo>, Used to obtain the BrokerLiveInfo information of a broker
+    /**
+     * <clusterName, brokerName, brokerAddr, BrokerLiveInfo>, Used to obtain the BrokerLiveInfo information of a broker
+     * <clusterName, brokerName, brokerAddr, BrokerLiveInfo>，用于获取broker的BrokerLiveInfo信息
+     */
     private BrokerLiveInfoGetter brokerLiveInfoGetter;
 
     // Sort in descending order according to<epoch, offset>, and sort in ascending order according to priority

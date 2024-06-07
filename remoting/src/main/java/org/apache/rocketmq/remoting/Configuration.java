@@ -120,6 +120,7 @@ public class Configuration {
 
     /**
      * The store path will be gotten from the field of object.
+     * 存储路径将从对象的字段中获取。
      *
      * @throws java.lang.RuntimeException if the field of object is not exist.
      */

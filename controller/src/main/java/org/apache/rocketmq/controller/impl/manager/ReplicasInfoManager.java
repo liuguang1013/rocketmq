@@ -72,6 +72,8 @@ import java.util.stream.Stream;
 /**
  * The manager that manages the replicas info for all brokers. We can think of this class as the controller's memory
  * state machine. If the upper layer want to update the statemachine, it must sequentially call its methods.
+ * 管理所有 broker 的副本，可以认为是 controller 的内存状态机，
+ * 如果上层想要更新状态机，它必须顺序调用它的方法。
  */
 public class ReplicasInfoManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.CONTROLLER_LOGGER_NAME);
@@ -365,12 +367,18 @@ public class ReplicasInfoManager {
         return result;
     }
 
+    /**
+     * @see org.apache.rocketmq.controller.impl.DLedgerController $ControllerEventHandler
+     */
     public ControllerResult<GetReplicaInfoResponseHeader> getReplicaInfo(final GetReplicaInfoRequestHeader request) {
+
         final String brokerName = request.getBrokerName();
         final ControllerResult<GetReplicaInfoResponseHeader> result = new ControllerResult<>(new GetReplicaInfoResponseHeader());
         final GetReplicaInfoResponseHeader response = result.getResponse();
+        // 内存中是否有该 brokerName
         if (isContainsBroker(brokerName)) {
             // If exist broker metadata, just return metadata
+            // 存在元数据，直接返回
             final SyncStateInfo syncStateInfo = this.syncStateSetInfoTable.get(brokerName);
             final BrokerReplicaInfo brokerReplicaInfo = this.replicaInfoTable.get(brokerName);
             final Long masterBrokerId = syncStateInfo.getMasterBrokerId();

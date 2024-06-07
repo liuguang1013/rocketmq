@@ -55,8 +55,9 @@ public class NamesrvStartup {
     private static ControllerConfig controllerConfig = null;
 
     public static void main(String[] args) {
-        main0(args);
 
+        main0(args);
+        // todo：创建  controllerManager 的作用是什么？
         controllerManagerMain();
     }
 
@@ -194,6 +195,7 @@ public class NamesrvStartup {
 
     public static ControllerManager createAndStartControllerManager() throws Exception {
         ControllerManager controllerManager = createControllerManager();
+        // 启动流程和 nameServerController 相似
         start(controllerManager);
         String tip = "The ControllerManager boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
         log.info(tip);
@@ -202,7 +204,9 @@ public class NamesrvStartup {
     }
 
     public static ControllerManager createControllerManager() throws Exception {
+        //复制配置文件
         NettyServerConfig controllerNettyServerConfig = (NettyServerConfig) nettyServerConfig.clone();
+        //
         ControllerManager controllerManager = new ControllerManager(controllerConfig, controllerNettyServerConfig, nettyClientConfig);
         // remember all configs to prevent discard
         controllerManager.getConfiguration().registerConfig(properties);

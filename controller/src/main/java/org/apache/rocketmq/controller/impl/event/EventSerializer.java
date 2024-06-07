@@ -50,6 +50,12 @@ public class EventSerializer {
         return null;
     }
 
+    /**
+     * 反序列化：根据不同的时间类型反序列化不同对象
+     * @param bytes
+     * @return
+     * @throws SerializationException
+     */
     public EventMessage deserialize(byte[] bytes) throws SerializationException {
         if (bytes.length < 2) {
             return null;

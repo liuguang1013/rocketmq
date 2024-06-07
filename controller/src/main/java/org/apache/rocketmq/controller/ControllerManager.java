@@ -74,21 +74,29 @@ public class ControllerManager {
     private final NotifyService notifyService;
     private ControllerMetricsManager controllerMetricsManager;
 
-    public ControllerManager(ControllerConfig controllerConfig, NettyServerConfig nettyServerConfig,
-        NettyClientConfig nettyClientConfig) {
+    public ControllerManager(ControllerConfig controllerConfig, NettyServerConfig nettyServerConfig, NettyClientConfig nettyClientConfig) {
+
         this.controllerConfig = controllerConfig;
         this.nettyServerConfig = nettyServerConfig;
         this.nettyClientConfig = nettyClientConfig;
+        //
         this.brokerHousekeepingService = new BrokerHousekeepingService(this);
+        // 配置文件进行合并保存
         this.configuration = new Configuration(log, this.controllerConfig, this.nettyServerConfig);
+        // 从 controllerConfig中，通过反射获取字段的值
         this.configuration.setStorePathFromConfig(this.controllerConfig, "configStorePath");
+        // 创建netty客户端
         this.remotingClient = new NettyRemotingClient(nettyClientConfig);
+        // 创建broker心跳管理器：默认模式、Raft模式
         this.heartbeatManager = BrokerHeartbeatManager.newBrokerHeartbeatManager(controllerConfig);
+        // 创建通知服务
         this.notifyService = new NotifyService();
     }
 
     public boolean initialize() {
+        // 阻塞队列
         this.controllerRequestThreadPoolQueue = new LinkedBlockingQueue<>(this.controllerConfig.getControllerRequestThreadPoolQueueCapacity());
+        // 处理器请求线程池：
         this.controllerRequestExecutor = ThreadUtils.newThreadPoolExecutor(
             this.controllerConfig.getControllerThreadPoolNums(),
             this.controllerConfig.getControllerThreadPoolNums(),
@@ -96,9 +104,9 @@ public class ControllerManager {
             TimeUnit.MILLISECONDS,
             this.controllerRequestThreadPoolQueue,
             new ThreadFactoryImpl("ControllerRequestExecutorThread_"));
-
+        // 通知服务初始化：创建线程池
         this.notifyService.initialize();
-
+        // 根据不同的 controller 类型创建 controller
         if (controllerConfig.getControllerType().equals(ControllerConfig.JRAFT_CONTROLLER)) {
             if (StringUtils.isEmpty(this.controllerConfig.getJraftConfig().getjRaftInitConf())) {
                 throw new IllegalArgumentException("Attribute value jRaftInitConf of ControllerConfig is null or empty");
@@ -108,7 +116,9 @@ public class ControllerManager {
             }
             try {
                 this.controller = new JRaftController(controllerConfig, this.brokerHousekeepingService);
-                ((RaftBrokerHeartBeatManager) this.heartbeatManager).setController((JRaftController) this.controller);
+
+                ((RaftBrokerHeartBeatManager) this.heartbeatManager)
+                        .setController((JRaftController) this.controller);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }
@@ -125,12 +135,17 @@ public class ControllerManager {
         }
 
         // Initialize the basic resources
+        // 初始化基础资源：RaftBrokerHeartBeatManager什么也不做，DefaultBrokerHeartbeatManager初始化线程池
         this.heartbeatManager.initialize();
 
         // Register broker inactive listener
+        // 注册 broker 失联监听者
         this.heartbeatManager.registerBrokerLifecycleListener(this::onBrokerInactive);
+
         this.controller.registerBrokerLifecycleListener(this::onBrokerInactive);
+        // 注册各种类型请求的处理器，缓存到processorTable中
         registerProcessor();
+
         this.controllerMetricsManager = ControllerMetricsManager.getInstance(this);
         return true;
     }
@@ -138,21 +153,25 @@ public class ControllerManager {
     /**
      * When the heartbeatManager detects the "Broker is not active", we call this method to elect a master and do
      * something else.
+     * 当heartbeatManager检测到“Broker不活跃”时，我们调用该方法来选择一个主节点并执行其他操作。
      *
      * @param clusterName The cluster name of this inactive broker
      * @param brokerName  The inactive broker name
      * @param brokerId    The inactive broker id, null means that the election forced to be triggered
      */
     private void onBrokerInactive(String clusterName, String brokerName, Long brokerId) {
-        log.info("Controller Manager received broker inactive event, clusterName: {}, brokerName: {}, brokerId: {}",
-            clusterName, brokerName, brokerId);
+        log.info("Controller Manager received broker inactive event, clusterName: {}, brokerName: {}, brokerId: {}", clusterName, brokerName, brokerId);
+
+        // 判断当前节点是不是 leader
         if (controller.isLeaderState()) {
             if (brokerId == null) {
                 // Means that force triggering election for this broker-set
                 triggerElectMaster(brokerName);
                 return;
             }
+            // 获取 brokerName 的副本信息
             final CompletableFuture<RemotingCommand> replicaInfoFuture = controller.getReplicaInfo(new GetReplicaInfoRequestHeader(brokerName));
+
             replicaInfoFuture.whenCompleteAsync((replicaInfoResponse, err) -> {
                 if (err != null || replicaInfoResponse == null) {
                     log.error("Failed to get replica-info for broker-set: {} when OnBrokerInactive", brokerName, err);
@@ -160,11 +179,13 @@ public class ControllerManager {
                 }
                 final GetReplicaInfoResponseHeader replicaInfoResponseHeader = (GetReplicaInfoResponseHeader) replicaInfoResponse.readCustomHeader();
                 // Not master broker offline
+                // 不是 broker 的主节点 离线，不回触发 选举
                 if (!brokerId.equals(replicaInfoResponseHeader.getMasterBrokerId())) {
                     log.warn("The broker with brokerId: {} in broker-set: {} has been inactive", brokerId, brokerName);
                     return;
                 }
                 // Trigger election
+                // 触发选举
                 triggerElectMaster(brokerName);
             });
         } else {
@@ -247,9 +268,13 @@ public class ControllerManager {
     }
 
     public void registerProcessor() {
+        // 创建请求处理器
         final ControllerRequestProcessor controllerRequestProcessor = new ControllerRequestProcessor(this);
+        // 获取controller的服务端
         RemotingServer controllerRemotingServer = this.controller.getRemotingServer();
+
         assert controllerRemotingServer != null;
+        //注册实际就是 放入 processorTable 缓存中
         controllerRemotingServer.registerProcessor(RequestCode.CONTROLLER_ALTER_SYNC_STATE_SET, controllerRequestProcessor, this.controllerRequestExecutor);
         controllerRemotingServer.registerProcessor(RequestCode.CONTROLLER_ELECT_MASTER, controllerRequestProcessor, this.controllerRequestExecutor);
         controllerRemotingServer.registerProcessor(RequestCode.CONTROLLER_REGISTER_BROKER, controllerRequestProcessor, this.controllerRequestExecutor);

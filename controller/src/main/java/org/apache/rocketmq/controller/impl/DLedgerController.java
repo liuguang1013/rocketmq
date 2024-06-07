@@ -116,11 +116,17 @@ public class DLedgerController implements Controller {
         final BrokerValidPredicate brokerAlivePredicate, final NettyServerConfig nettyServerConfig,
         final NettyClientConfig nettyClientConfig, final ChannelEventListener channelEventListener,
         final ElectPolicy electPolicy) {
+
         this.controllerConfig = controllerConfig;
+        // 根据不同的时间类型反序列化不同对象
         this.eventSerializer = new EventSerializer();
+        // 创建事件定时器：初始化阻塞队列
         this.scheduler = new EventScheduler();
+        //
         this.brokerAlivePredicate = brokerAlivePredicate;
+        // 指定选举策略
         this.electPolicy = electPolicy == null ? new DefaultElectPolicy() : electPolicy;
+        // 创建 DLedger 配置
         this.dLedgerConfig = new DLedgerConfig();
         this.dLedgerConfig.setGroup(controllerConfig.getControllerDLegerGroup());
         this.dLedgerConfig.setPeers(controllerConfig.getControllerDLegerPeers());
@@ -128,14 +134,17 @@ public class DLedgerController implements Controller {
         this.dLedgerConfig.setStoreBaseDir(controllerConfig.getControllerStorePath());
         this.dLedgerConfig.setMappedFileSizeForEntryData(controllerConfig.getMappedFileSize());
 
+        // 角色处理器：根据不同角色处理
         this.roleHandler = new RoleChangeHandler(dLedgerConfig.getSelfId());
         this.replicasInfoManager = new ReplicasInfoManager(controllerConfig);
         this.statemachine = new DLedgerControllerStateMachine(replicasInfoManager, this.eventSerializer, dLedgerConfig.getGroup(), dLedgerConfig.getSelfId());
 
         // Register statemachine and role handler.
+        // 注册状态机、角色处理器
         this.dLedgerServer = new DLedgerServer(dLedgerConfig, nettyServerConfig, nettyClientConfig, channelEventListener);
         this.dLedgerServer.registerStateMachine(this.statemachine);
         this.dLedgerServer.getDLedgerLeaderElector().addRoleChangeHandler(this.roleHandler);
+        // 创建 扫描不活跃的主节点 服务
         this.scanInactiveMasterService = ThreadUtils.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("DLedgerController_scanInactiveService_"));
         this.brokerLifecycleListeners = new ArrayList<>();
     }
@@ -229,6 +238,7 @@ public class DLedgerController implements Controller {
 
     @Override
     public CompletableFuture<RemotingCommand> getReplicaInfo(final GetReplicaInfoRequestHeader request) {
+        // 向 定时器中添加 事件
         return this.scheduler.appendEvent("getReplicaInfo",
             () -> this.replicasInfoManager.getReplicaInfo(request), false);
     }
@@ -273,6 +283,8 @@ public class DLedgerController implements Controller {
      * Scan all broker-set in statemachine, find that the broker-set which
      * its master has been timeout but still has at least one broker keep alive with controller,
      * and we trigger an election to update its state.
+     * 扫描状态机中所有 brokerSets，找出其中主节点已经超时，但是还有至少一个broker和controller保持连接
+     * 触发一次选举更新状态
      */
     private void scanInactiveMasterAndTriggerReelect() {
         if (!this.roleHandler.isLeaderState()) {
@@ -288,15 +300,19 @@ public class DLedgerController implements Controller {
 
     /**
      * Append the request to DLedger, and wait for DLedger to commit the request.
+     * 将请求追加到DLedger，并等待DLedger提交请求。
      */
     private boolean appendToDLedgerAndWait(final AppendEntryRequest request) {
         if (request != null) {
             request.setGroup(this.dLedgerConfig.getGroup());
             request.setRemoteId(this.dLedgerConfig.getSelfId());
             Stopwatch stopwatch = Stopwatch.createStarted();
+
             AttributesBuilder attributesBuilder = ControllerMetricsManager.newAttributesBuilder()
                 .put(LABEL_DLEDGER_OPERATION, ControllerMetricsConstant.DLedgerOperation.APPEND.getLowerCaseName());
+
             try {
+                // todo：待看
                 final AppendFuture<AppendEntryResponse> dLedgerFuture = (AppendFuture<AppendEntryResponse>) dLedgerServer.handleAppend(request);
                 if (dLedgerFuture.getPos() == -1) {
                     ControllerMetricsManager.dLedgerOpTotal.add(1,
@@ -304,6 +320,7 @@ public class DLedgerController implements Controller {
                     return false;
                 }
                 dLedgerFuture.get(5, TimeUnit.SECONDS);
+                //
                 ControllerMetricsManager.dLedgerOpTotal.add(1,
                     attributesBuilder.put(LABEL_DLEDGER_OPERATION_STATUS, ControllerMetricsConstant.DLedgerOperationStatus.SUCCESS.getLowerCaseName()).build());
                 ControllerMetricsManager.dLedgerOpLatency.record(stopwatch.elapsed(TimeUnit.MICROSECONDS),
@@ -391,6 +408,7 @@ public class DLedgerController implements Controller {
                 }
                 try {
                     if (handler != null) {
+                        //
                         handler.run();
                     }
                 } catch (final Throwable e) {
@@ -399,15 +417,18 @@ public class DLedgerController implements Controller {
             }
         }
 
-        public <T> CompletableFuture<RemotingCommand> appendEvent(final String name,
-            final Supplier<ControllerResult<T>> supplier, boolean isWriteEvent) {
+        public <T> CompletableFuture<RemotingCommand> appendEvent(final String name, final Supplier<ControllerResult<T>> supplier, boolean isWriteEvent) {
+
+            // 判断是够停止、是否是leader节点
             if (isStopped() || !DLedgerController.this.roleHandler.isLeaderState()) {
+                // 直接返回：不是leader 节点
                 final RemotingCommand command = RemotingCommand.createResponseCommand(ResponseCode.CONTROLLER_NOT_LEADER, "The controller is not in leader state");
                 final CompletableFuture<RemotingCommand> future = new CompletableFuture<>();
                 future.complete(command);
                 return future;
             }
 
+            // supplier: replicasInfoManager.getReplicaInfo(request)
             final EventHandler<T> event = new ControllerEventHandler<>(name, supplier, isWriteEvent);
             int tryTimes = 0;
             while (true) {
@@ -444,14 +465,21 @@ public class DLedgerController implements Controller {
             this.isWriteEvent = isWriteEvent;
         }
 
+        /**
+         * 当heartbeatManager检测到“Broker不活跃”时，监听到事件后
+         * 选取controller主节点，获取 brokerName 的副本信息：向 EventScheduler 阻塞队列中添加 getReplicaInfo 事件
+         * EventScheduler 中 while（true） 获取阻塞队列元素，执行ControllerEventHandler 方法，进入该方法
+         */
         @Override
         public void run() throws Throwable {
+            // ReplicasInfoManager.getReplicaInfo
             final ControllerResult<T> result = this.supplier.get();
             log.info("Event queue run event {}, get the result {}", this.name, result);
             boolean appendSuccess = true;
 
             if (!this.isWriteEvent || result.getEvents() == null || result.getEvents().isEmpty()) {
                 // read event, or write event with empty events in response which also equals to read event
+                //读事件，或写事件，响应中有空事件，也等于读事件
                 if (DLedgerController.this.controllerConfig.isProcessReadEvent()) {
                     // Now the DLedger don't have the function of Read-Index or Lease-Read,
                     // So we still need to propose an empty request to DLedger.
@@ -522,8 +550,12 @@ public class DLedgerController implements Controller {
 
         @Override
         public void handle(long term, MemberState.Role role) {
+            /**
+             * 候选人、 跟随者 角色下，取消定时任务、取消扫描不活跃的Future
+             */
             Runnable runnable = () -> {
                 switch (role) {
+                    // 候选人
                     case CANDIDATE:
                         ControllerMetricsManager.recordRole(role, this.currentRole);
                         this.currentRole = MemberState.Role.CANDIDATE;
@@ -531,6 +563,7 @@ public class DLedgerController implements Controller {
                         DLedgerController.this.stopScheduling();
                         DLedgerController.this.cancelScanInactiveFuture();
                         break;
+                    // 跟随者
                     case FOLLOWER:
                         ControllerMetricsManager.recordRole(role, this.currentRole);
                         this.currentRole = MemberState.Role.FOLLOWER;
@@ -538,11 +571,16 @@ public class DLedgerController implements Controller {
                         DLedgerController.this.stopScheduling();
                         DLedgerController.this.cancelScanInactiveFuture();
                         break;
+                    // 领导
                     case LEADER: {
                         log.info("Controller {} change role to leader, try process a initial proposal", this.selfId);
-                        // Because the role becomes to leader, but the memory statemachine of the controller is still in the old point,
-                        // some committed logs have not been applied. Therefore, we must first process an empty request to DLedger,
-                        // and after the request is committed, the controller can provide services(startScheduling).
+                        /**
+                         * Because the role becomes to leader, but the memory statemachine of the controller is still in the old point,
+                         * some committed logs have not been applied. Therefore, we must first process an empty request to DLedger,
+                         * and after the request is committed, the controller can provide services(startScheduling).
+                         * 由于角色变为leader，但控制器的内存状态机还在旧点，导致一些提交的日志没有应用。
+                         * 因此，我们必须先处理一个对DLedger的空请求，请求提交后，控制器才能提供服务(startScheduling)。
+                         */
                         int tryTimes = 0;
                         while (true) {
                             final AppendEntryRequest request = new AppendEntryRequest();
@@ -551,6 +589,7 @@ public class DLedgerController implements Controller {
                                 if (appendToDLedgerAndWait(request)) {
                                     ControllerMetricsManager.recordRole(role, this.currentRole);
                                     this.currentRole = MemberState.Role.LEADER;
+                                    // 开始定时任务
                                     DLedgerController.this.startScheduling();
                                     if (DLedgerController.this.scanInactiveMasterFuture == null) {
                                         long scanInactiveMasterInterval = DLedgerController.this.controllerConfig.getScanInactiveMasterInterval();

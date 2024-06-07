@@ -946,8 +946,11 @@ public class RouteInfoManager {
             BrokerData brokerData = brokerAddrTable.get(brokerName);
             // brokerName 下存在从节点，并且配置可以成为主节点
             if (brokerData != null && brokerData.isEnableActingMaster()) {
-                notifyMinBrokerIdChanged(brokerStatusChangeInfo.getBrokerAddrs(),
-                    brokerStatusChangeInfo.getOfflineBrokerAddr(), brokerStatusChangeInfo.getHaBrokerAddr());
+                Map<Long, String> brokerAddrs = brokerStatusChangeInfo.getBrokerAddrs();
+                String offlineBrokerAddr = brokerStatusChangeInfo.getOfflineBrokerAddr();
+                String haBrokerAddr = brokerStatusChangeInfo.getHaBrokerAddr();
+
+                notifyMinBrokerIdChanged(brokerAddrs, offlineBrokerAddr, haBrokerAddr);
             }
         }
     }

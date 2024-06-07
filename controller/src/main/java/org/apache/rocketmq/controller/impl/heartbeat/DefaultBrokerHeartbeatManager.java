@@ -45,6 +45,7 @@ public class DefaultBrokerHeartbeatManager implements BrokerHeartbeatManager {
     private ExecutorService executor;
 
     private final ControllerConfig controllerConfig;
+
     private final Map<BrokerIdentityInfo/* brokerIdentity*/, BrokerLiveInfo> brokerLiveTable;
     private final List<BrokerLifecycleListener> brokerLifecycleListeners;
 
@@ -167,6 +168,7 @@ public class DefaultBrokerHeartbeatManager implements BrokerHeartbeatManager {
 
     @Override
     public boolean isBrokerActive(String clusterName, String brokerName, Long brokerId) {
+        //判断broker是否存活
         final BrokerLiveInfo info = this.brokerLiveTable.get(new BrokerIdentityInfo(clusterName, brokerName, brokerId));
         if (info != null) {
             long last = info.getLastUpdateTimestamp();
