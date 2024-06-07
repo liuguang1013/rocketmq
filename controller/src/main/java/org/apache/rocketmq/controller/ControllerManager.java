@@ -85,7 +85,8 @@ public class ControllerManager {
         this.configuration = new Configuration(log, this.controllerConfig, this.nettyServerConfig);
         // 从 controllerConfig中，通过反射获取字段的值
         this.configuration.setStorePathFromConfig(this.controllerConfig, "configStorePath");
-        // 创建netty客户端
+        // 创建netty客户端，在初次发送请求的时候创建连接
+        // todo:这是连接哪里的？
         this.remotingClient = new NettyRemotingClient(nettyClientConfig);
         // 创建broker心跳管理器：默认模式、Raft模式
         this.heartbeatManager = BrokerHeartbeatManager.newBrokerHeartbeatManager(controllerConfig);

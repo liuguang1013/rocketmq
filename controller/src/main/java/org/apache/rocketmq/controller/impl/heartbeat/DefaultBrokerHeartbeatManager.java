@@ -57,6 +57,7 @@ public class DefaultBrokerHeartbeatManager implements BrokerHeartbeatManager {
 
     @Override
     public void start() {
+        // 检查broker 连接状态
         this.scheduledService.scheduleAtFixedRate(this::scanNotActiveBroker, 2000, this.controllerConfig.getScanNotActiveBrokerInterval(), TimeUnit.MILLISECONDS);
     }
 
@@ -86,6 +87,7 @@ public class DefaultBrokerHeartbeatManager implements BrokerHeartbeatManager {
                     if (channel != null) {
                         RemotingHelper.closeChannel(channel);
                     }
+                    // 心跳超时后，发出通知
                     this.executor.submit(() ->
                         notifyBrokerInActive(next.getKey().getClusterName(), next.getValue().getBrokerName(), next.getValue().getBrokerId()));
                     log.warn("The broker channel {} expired, brokerInfo {}, expired {}ms", next.getValue().getChannel(), next.getKey(), timeoutMillis);
