@@ -61,11 +61,15 @@ public class SubscriptionGroupManager extends ConfigManager {
 
     public SubscriptionGroupManager(BrokerController brokerController, boolean init) {
         this.brokerController = brokerController;
+        // 默认初始化
         if (init) {
             init();
         }
     }
 
+    /**
+     * 初始化 很多 订阅组配置 到缓存
+     */
     protected void init() {
         {
             SubscriptionGroupConfig subscriptionGroupConfig = new SubscriptionGroupConfig();

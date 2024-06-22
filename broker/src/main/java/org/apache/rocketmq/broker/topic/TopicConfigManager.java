@@ -60,6 +60,10 @@ public class TopicConfigManager extends ConfigManager {
     private static final int SCHEDULE_TOPIC_QUEUE_NUM = 18;
 
     private transient final Lock topicConfigTableLock = new ReentrantLock();
+    /**
+     * key： topic name
+     * value： topic 配置
+     */
     protected ConcurrentMap<String, TopicConfig> topicConfigTable = new ConcurrentHashMap<>(1024);
     private DataVersion dataVersion = new DataVersion();
     protected transient BrokerController brokerController;
@@ -74,12 +78,18 @@ public class TopicConfigManager extends ConfigManager {
 
     public TopicConfigManager(BrokerController brokerController, boolean init) {
         this.brokerController = brokerController;
+        // 默认初始化
         if (init) {
+
             init();
         }
     }
 
+    /**
+     * 创建 多个 系统级别的 topic
+     */
     protected void init() {
+        // 创建 测试 topic
         {
             String topic = TopicValidator.RMQ_SYS_SELF_TEST_TOPIC;
             TopicConfig topicConfig = new TopicConfig(topic);
@@ -88,6 +98,7 @@ public class TopicConfigManager extends ConfigManager {
             topicConfig.setWriteQueueNums(1);
             putTopicConfig(topicConfig);
         }
+        // 在 允许自动创建 topic 的配置下，创建 TBW102 topic 放入缓存
         {
             if (this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
                 String topic = TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC;
@@ -97,11 +108,13 @@ public class TopicConfigManager extends ConfigManager {
                     .getDefaultTopicQueueNums());
                 topicConfig.setWriteQueueNums(this.brokerController.getBrokerConfig()
                     .getDefaultTopicQueueNums());
+                // 拥有 继承、读写权限
                 int perm = PermName.PERM_INHERIT | PermName.PERM_READ | PermName.PERM_WRITE;
                 topicConfig.setPerm(perm);
                 putTopicConfig(topicConfig);
             }
         }
+        // 创建用于性能测试、基准测试的 topic
         {
             String topic = TopicValidator.RMQ_SYS_BENCHMARK_TOPIC;
             TopicConfig topicConfig = new TopicConfig(topic);
@@ -110,6 +123,7 @@ public class TopicConfigManager extends ConfigManager {
             topicConfig.setWriteQueueNums(1024);
             putTopicConfig(topicConfig);
         }
+        // 创建 broker 名、集群名的 topic
         {
             String topic = this.brokerController.getBrokerConfig().getBrokerClusterName();
             TopicConfig topicConfig = new TopicConfig(topic);
@@ -135,6 +149,7 @@ public class TopicConfigManager extends ConfigManager {
             topicConfig.setPerm(perm);
             putTopicConfig(topicConfig);
         }
+        // 偏移量移动事件 topic
         {
             String topic = TopicValidator.RMQ_SYS_OFFSET_MOVED_EVENT;
             TopicConfig topicConfig = new TopicConfig(topic);
@@ -143,6 +158,7 @@ public class TopicConfigManager extends ConfigManager {
             topicConfig.setWriteQueueNums(1);
             putTopicConfig(topicConfig);
         }
+        // 定时 topic
         {
             String topic = TopicValidator.RMQ_SYS_SCHEDULE_TOPIC;
             TopicConfig topicConfig = new TopicConfig(topic);
@@ -151,6 +167,7 @@ public class TopicConfigManager extends ConfigManager {
             topicConfig.setWriteQueueNums(SCHEDULE_TOPIC_QUEUE_NUM);
             putTopicConfig(topicConfig);
         }
+        // 在开启消息追踪下，消息追踪 tpic
         {
             if (this.brokerController.getBrokerConfig().isTraceTopicEnable()) {
                 String topic = this.brokerController.getBrokerConfig().getMsgTraceTopicName();
@@ -161,6 +178,7 @@ public class TopicConfigManager extends ConfigManager {
                 putTopicConfig(topicConfig);
             }
         }
+        // 某集群下 回复 topic 的 topic
         {
             String topic = this.brokerController.getBrokerConfig().getBrokerClusterName() + "_" + MixAll.REPLY_TOPIC_POSTFIX;
             TopicConfig topicConfig = new TopicConfig(topic);
@@ -169,6 +187,7 @@ public class TopicConfigManager extends ConfigManager {
             topicConfig.setWriteQueueNums(1);
             putTopicConfig(topicConfig);
         }
+
         {
             // PopAckConstants.REVIVE_TOPIC
             String topic = PopAckConstants.buildClusterReviveTopic(this.brokerController.getBrokerConfig().getBrokerClusterName());
@@ -178,6 +197,7 @@ public class TopicConfigManager extends ConfigManager {
             topicConfig.setWriteQueueNums(this.brokerController.getBrokerConfig().getReviveQueueNum());
             putTopicConfig(topicConfig);
         }
+        // 同步 broker 成员组 topic
         {
             // sync broker member group topic
             String topic = TopicValidator.SYNC_BROKER_MEMBER_GROUP_PREFIX + this.brokerController.getBrokerConfig().getBrokerName();

@@ -40,14 +40,17 @@ public class ServerUtil {
         return options;
     }
 
-    public static CommandLine parseCmdLine(final String appName, String[] args, Options options,
-        CommandLineParser parser) {
+    /**
+     * 使用 commons-cli 依赖包解析命令行
+     */
+    public static CommandLine parseCmdLine(final String appName, String[] args, Options options, CommandLineParser parser) {
         HelpFormatter hf = new HelpFormatter();
         hf.setWidth(110);
         CommandLine commandLine = null;
         try {
             commandLine = parser.parse(options, args);
             if (commandLine.hasOption('h')) {
+                // 打印帮助信息
                 hf.printHelp(appName, options, true);
                 System.exit(0);
             }

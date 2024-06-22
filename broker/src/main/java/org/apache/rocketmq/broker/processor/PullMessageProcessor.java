@@ -85,6 +85,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
     public PullMessageProcessor(final BrokerController brokerController) {
         this.brokerController = brokerController;
+        // 创建 拉取消息处理器
         this.pullMessageResultHandler = new DefaultPullMessageResultHandler(brokerController);
     }
 

@@ -29,6 +29,8 @@ import org.apache.rocketmq.common.ServiceThread;
 /**
  * manage the offset of broadcast.
  * now, use this to support switch remoting client between proxy and broker
+ * 管理 广播模式下的 偏移量
+ * 现在 使用该类支持 代理和broker 之间的客户端转换
  */
 public class BroadcastOffsetManager extends ServiceThread {
     private static final String TOPIC_GROUP_SEPARATOR = "@";

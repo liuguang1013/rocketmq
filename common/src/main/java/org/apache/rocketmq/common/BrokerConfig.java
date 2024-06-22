@@ -292,6 +292,7 @@ public class BrokerConfig extends BrokerIdentity {
 
     /**
      * Whether to distinguish log paths when multiple brokers are deployed on the same machine
+     * 当在同一台机器上部署多个代理时，是否区分日志路径
      */
     private boolean isolateLogEnable = false;
 

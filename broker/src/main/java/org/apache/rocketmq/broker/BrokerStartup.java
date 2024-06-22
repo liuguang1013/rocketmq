@@ -81,14 +81,17 @@ public class BrokerStartup {
 
     public static BrokerController buildBrokerController(String[] args) throws Exception {
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
-
+        // broker配置、netty 服务端/客户端配置、消息存储配置
         final BrokerConfig brokerConfig = new BrokerConfig();
         final NettyServerConfig nettyServerConfig = new NettyServerConfig();
         final NettyClientConfig nettyClientConfig = new NettyClientConfig();
         final MessageStoreConfig messageStoreConfig = new MessageStoreConfig();
+        // 服务端监听端口
         nettyServerConfig.setListenPort(10911);
+        // 设置HA高可用消息存储端口为0，下面代码中 有默认的指定：nettyServerConfig.setListenPort + 1
         messageStoreConfig.setHaListenPort(0);
 
+        // 解析命令行：options：configFile、printConfigItem、printImportantConfig
         Options options = ServerUtil.buildCommandlineOptions(new Options());
         CommandLine commandLine = ServerUtil.parseCmdLine(
             "mqbroker", args, buildCommandlineOptions(options), new DefaultParser());
@@ -97,6 +100,7 @@ public class BrokerStartup {
         }
 
         Properties properties = null;
+        // 命令行中，配置 -c 指定配置文件
         if (commandLine.hasOption('c')) {
             String file = commandLine.getOptionValue('c');
             if (file != null) {
@@ -106,6 +110,7 @@ public class BrokerStartup {
             }
         }
 
+        // 配置文件解析成 对象
         if (properties != null) {
             properties2SystemEnv(properties);
             MixAll.properties2Object(properties, brokerConfig);
@@ -135,13 +140,15 @@ public class BrokerStartup {
                 System.exit(-3);
             }
         }
-
+        // 判断 broker 的角色，是否是 slave
         if (BrokerRole.SLAVE == messageStoreConfig.getBrokerRole()) {
             int ratio = messageStoreConfig.getAccessMessageInMemoryMaxRatio() - 10;
             messageStoreConfig.setAccessMessageInMemoryMaxRatio(ratio);
         }
 
         // Set broker role according to ha config
+        // 根据 HA（High Availability）高可用配置，设置 brokerId，
+        // master 节点 BrokerId 为 0 ，slave 节点的 BrokerId 大于 0
         if (!brokerConfig.isEnableControllerMode()) {
             switch (messageStoreConfig.getBrokerRole()) {
                 case ASYNC_MASTER:
@@ -158,7 +165,10 @@ public class BrokerStartup {
                     break;
             }
         }
-
+        // 消息存储是够采用 DLedger 模式：
+        // RocketMQ会采用DLedger模式来管理Commit Log，这意呀着消息的物理存储和主从选举逻辑会遵循DLedger的机制。
+        //DLedger支持多副本，可以保证即使在部分节点故障的情况下，消息依然能够正常写入和读取，增强了系统的高可用性。
+        //由于DLedger实现了强一致性的数据复制，因此可以确保每个Broker上的数据副本是一致的，这对于要求严格数据一致性的应用场景非常关键。
         if (messageStoreConfig.isEnableDLegerCommitLog()) {
             brokerConfig.setBrokerId(-1);
         }
@@ -168,12 +178,14 @@ public class BrokerStartup {
             System.exit(-4);
         }
 
+        // 设置 HA 监听端口号
         if (messageStoreConfig.getHaListenPort() <= 0) {
             messageStoreConfig.setHaListenPort(nettyServerConfig.getListenPort() + 1);
         }
 
         brokerConfig.setInBrokerContainer(false);
 
+        //IsolateLogEnable：当在同一台机器上部署多个代理时，是否区分日志路径
         System.setProperty("brokerLogDir", "");
         if (brokerConfig.isIsolateLogEnable()) {
             System.setProperty("brokerLogDir", brokerConfig.getBrokerName() + "_" + brokerConfig.getBrokerId());
@@ -236,6 +248,7 @@ public class BrokerStartup {
 
     public static BrokerController createBrokerController(String[] args) {
         try {
+            // 创建BrokerController对象
             BrokerController controller = buildBrokerController(args);
             boolean initResult = controller.initialize();
             if (!initResult) {

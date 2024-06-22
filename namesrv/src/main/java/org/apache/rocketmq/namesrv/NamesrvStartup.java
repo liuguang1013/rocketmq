@@ -57,7 +57,7 @@ public class NamesrvStartup {
     public static void main(String[] args) {
 
         main0(args);
-        // todo：创建  controllerManager 的作用是什么？
+        // todo：创建  controllerManager 的作用是什么？broker 节点宕机，发起选举
         controllerManagerMain();
     }
 

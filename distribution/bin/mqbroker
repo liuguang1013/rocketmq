@@ -15,6 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# -z 标识检测 变量 $ROCKETMQ_HOME 是否有值
 if [ -z "$ROCKETMQ_HOME" ] ; then
   ## resolve links - $0 may be a link to maven's home
   PRG="$0"
@@ -45,12 +46,16 @@ export ROCKETMQ_HOME
 other_args=" "
 enable_proxy=false
 
+#  $# 标识脚本参数的个数
 while [ $# -gt 0 ]; do
   case $1 in
+    # 允许代理
     --enable-proxy)
       enable_proxy=true
+      # 使脚本中的下个参数，赋值当前参数。也就是说:第二个参数 $2，作为 $1 继续执行 case 判断
       shift
       ;;
+    # 执行配置文件
     -c|--configFile)
       broker_config="$2"
       shift
@@ -64,10 +69,13 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$enable_proxy" = true ]; then
+  # 定义变量 args_for_proxy ，在开启代理情况下，添加参数
   args_for_proxy=$other_args" -pm local"
   if [ "$broker_config" != "" ]; then
+      # 将 broker 的配置文件拼接到变量后
       args_for_proxy=${args_for_proxy}" -bc "${broker_config}
   fi
+  # 在参数合并为一个变量后，执行脚本 runbroker.sh， 并增加传入参数：日志配置 xml 、代理启动类
   sh ${ROCKETMQ_HOME}/bin/runbroker.sh -Drmq.logback.configurationFile=$ROCKETMQ_HOME/conf/rmq.proxy.logback.xml org.apache.rocketmq.proxy.ProxyStartup ${args_for_proxy}
 else
   args_for_broker=$other_args

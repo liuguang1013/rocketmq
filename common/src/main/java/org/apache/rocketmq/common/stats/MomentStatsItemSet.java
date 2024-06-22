@@ -26,7 +26,13 @@ import java.util.concurrent.TimeUnit;
 import org.apache.rocketmq.common.UtilAll;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 
+/**
+ * 用于收集数据并在固定时间间隔输出统计结果，便于监控系统性能。
+ */
 public class MomentStatsItemSet {
+    /**
+     * 状态子项 缓存
+     */
     private final ConcurrentMap<String/* key */, MomentStatsItem> statsItemTable =
         new ConcurrentHashMap<>(128);
     private final String statsName;
@@ -49,7 +55,7 @@ public class MomentStatsItemSet {
     }
 
     public void init() {
-
+        // 从下一个整分钟开始，5分钟输出一次日志
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
             @Override
             public void run() {

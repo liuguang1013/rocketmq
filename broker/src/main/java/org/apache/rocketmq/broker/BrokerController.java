@@ -308,33 +308,73 @@ public class BrokerController {
         this.nettyServerConfig = nettyServerConfig;
         this.nettyClientConfig = nettyClientConfig;
         this.messageStoreConfig = messageStoreConfig;
+        // 设置存储 host 信息： ip： 本机IP 、端口：10911
         this.setStoreHost(new InetSocketAddress(this.getBrokerConfig().getBrokerIP1(), getListenPort()));
-        this.brokerStatsManager = messageStoreConfig.isEnableLmq() ? new LmqBrokerStatsManager(this.brokerConfig.getBrokerClusterName(), this.brokerConfig.isEnableDetailStat()) : new BrokerStatsManager(this.brokerConfig.getBrokerClusterName(), this.brokerConfig.isEnableDetailStat());
+        // 根据 是否启用延时消息队列，创建不同的 BrokerStatsManager
+        // BrokerStatsManager 通过 ScheduledExecutor 定时打印broker 各项指标状态
+        this.brokerStatsManager = messageStoreConfig.isEnableLmq()
+                // 参数：broker 集群名、是否需要记录队列的统计数据
+                ? new LmqBrokerStatsManager(this.brokerConfig.getBrokerClusterName(), this.brokerConfig.isEnableDetailStat())
+                : new BrokerStatsManager(this.brokerConfig.getBrokerClusterName(), this.brokerConfig.isEnableDetailStat());
+        // 广播模式下偏移量 管理器
         this.broadcastOffsetManager = new BroadcastOffsetManager(this);
+        // 是否使用 RocksDB 存储
+        // todo： RocksDB 待了解
         if (this.messageStoreConfig.isEnableRocksDBStore()) {
-            this.topicConfigManager = messageStoreConfig.isEnableLmq() ? new RocksDBLmqTopicConfigManager(this) : new RocksDBTopicConfigManager(this);
-            this.subscriptionGroupManager = messageStoreConfig.isEnableLmq() ? new RocksDBLmqSubscriptionGroupManager(this) : new RocksDBSubscriptionGroupManager(this);
-            this.consumerOffsetManager = messageStoreConfig.isEnableLmq() ? new RocksDBLmqConsumerOffsetManager(this) : new RocksDBConsumerOffsetManager(this);
+            this.topicConfigManager = messageStoreConfig.isEnableLmq()
+                    ? new RocksDBLmqTopicConfigManager(this)
+                    : new RocksDBTopicConfigManager(this);
+
+            this.subscriptionGroupManager = messageStoreConfig.isEnableLmq()
+                    ? new RocksDBLmqSubscriptionGroupManager(this)
+                    : new RocksDBSubscriptionGroupManager(this);
+
+            this.consumerOffsetManager = messageStoreConfig.isEnableLmq()
+                    ? new RocksDBLmqConsumerOffsetManager(this)
+                    : new RocksDBConsumerOffsetManager(this);
         } else {
-            this.topicConfigManager = messageStoreConfig.isEnableLmq() ? new LmqTopicConfigManager(this) : new TopicConfigManager(this);
-            this.subscriptionGroupManager = messageStoreConfig.isEnableLmq() ? new LmqSubscriptionGroupManager(this) : new SubscriptionGroupManager(this);
-            this.consumerOffsetManager = messageStoreConfig.isEnableLmq() ? new LmqConsumerOffsetManager(this) : new ConsumerOffsetManager(this);
+            // TopicConfigManager 构造方法中初始化很多系统级别的 topic，并缓存 topic 的配置信息到 map
+            this.topicConfigManager = messageStoreConfig.isEnableLmq()
+                    ? new LmqTopicConfigManager(this)
+                    : new TopicConfigManager(this);
+            // SubscriptionGroupManager 初始化 很多 订阅组配置 到缓存
+            this.subscriptionGroupManager = messageStoreConfig.isEnableLmq()
+                    ? new LmqSubscriptionGroupManager(this)
+                    : new SubscriptionGroupManager(this);
+            // ConsumerOffsetManager 构造方法并未做什么
+            this.consumerOffsetManager = messageStoreConfig.isEnableLmq()
+                    ? new LmqConsumerOffsetManager(this)
+                    : new ConsumerOffsetManager(this);
         }
+        //
         this.topicQueueMappingManager = new TopicQueueMappingManager(this);
+        // 处理 MQ的拉取（Pull）消费模式，适用范围更广，不仅限于特定的POP场景
         this.pullMessageProcessor = new PullMessageProcessor(this);
+        //
         this.peekMessageProcessor = new PeekMessageProcessor(this);
-        this.pullRequestHoldService = messageStoreConfig.isEnableLmq() ? new LmqPullRequestHoldService(this) : new PullRequestHoldService(this);
+
+        // 继承 ServiceThread
+        this.pullRequestHoldService = messageStoreConfig.isEnableLmq()
+                ? new LmqPullRequestHoldService(this) : new PullRequestHoldService(this);
+        // POP（Pull-Only Pattern，仅拉取模式） 专门处理拉取消息模式。
+        // 包含PopLongPollingService、PopBufferMergeService、QueueLockManager
         this.popMessageProcessor = new PopMessageProcessor(this);
+        // 包含PopLongPollingService
         this.notificationProcessor = new NotificationProcessor(this);
+        this.messageArrivingListener = new NotifyMessageArrivingListener(this.pullRequestHoldService, this.popMessageProcessor, this.notificationProcessor);
+
+        //
         this.pollingInfoProcessor = new PollingInfoProcessor(this);
         this.ackMessageProcessor = new AckMessageProcessor(this);
         this.changeInvisibleTimeProcessor = new ChangeInvisibleTimeProcessor(this);
         this.sendMessageProcessor = new SendMessageProcessor(this);
         this.replyMessageProcessor = new ReplyMessageProcessor(this);
-        this.messageArrivingListener = new NotifyMessageArrivingListener(this.pullRequestHoldService, this.popMessageProcessor, this.notificationProcessor);
+
         this.consumerIdsChangeListener = new DefaultConsumerIdsChangeListener(this);
+
         this.consumerManager = new ConsumerManager(this.consumerIdsChangeListener, this.brokerStatsManager, this.brokerConfig);
         this.producerManager = new ProducerManager(this.brokerStatsManager);
+
         this.consumerFilterManager = new ConsumerFilterManager(this);
         this.consumerOrderInfoManager = new ConsumerOrderInfoManager(this);
         this.popInflightMessageCounter = new PopInflightMessageCounter(this);
@@ -352,7 +392,7 @@ public class BrokerController {
         this.clientManageProcessor = new ClientManageProcessor(this);
         this.slaveSynchronize = new SlaveSynchronize(this);
         this.endTransactionProcessor = new EndTransactionProcessor(this);
-
+        // 初始化 阻塞队列
         this.sendThreadPoolQueue = new LinkedBlockingQueue<>(this.brokerConfig.getSendThreadPoolQueueCapacity());
         this.putThreadPoolQueue = new LinkedBlockingQueue<>(this.brokerConfig.getPutThreadPoolQueueCapacity());
         this.pullThreadPoolQueue = new LinkedBlockingQueue<>(this.brokerConfig.getPullThreadPoolQueueCapacity());

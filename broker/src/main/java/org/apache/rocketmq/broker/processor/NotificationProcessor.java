@@ -50,6 +50,7 @@ public class NotificationProcessor implements NettyRequestProcessor {
 
     public NotificationProcessor(final BrokerController brokerController) {
         this.brokerController = brokerController;
+        // 创建
         this.popLongPollingService = new PopLongPollingService(brokerController, this);
     }
 

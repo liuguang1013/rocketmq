@@ -163,44 +163,46 @@ public class BrokerStatsManager {
     }
 
     public void init() {
+        // MomentStatsItemSet 中使用map 对 MomentStatsItem 进行缓存，并且通过定时任务，从下一个整分钟开始，5分钟输出一次日志
+        // 创建记录 GROUP_GET 失败次数和时间
         momentStatsItemSetFallSize = new MomentStatsItemSet(GROUP_GET_FALL_SIZE,
             scheduledExecutorService, log);
 
         momentStatsItemSetFallTime = new MomentStatsItemSet(GROUP_GET_FALL_TIME,
             scheduledExecutorService, log);
 
+        // 构造函数中传入的属性：是否打印队列相关的状态
         if (enableQueueStat) {
+            // 队列放入次数、每次大小
             this.statsTable.put(Stats.QUEUE_PUT_NUMS, new StatsItemSet(Stats.QUEUE_PUT_NUMS, this.scheduledExecutorService, log));
             this.statsTable.put(Stats.QUEUE_PUT_SIZE, new StatsItemSet(Stats.QUEUE_PUT_SIZE, this.scheduledExecutorService, log));
             this.statsTable.put(Stats.QUEUE_GET_NUMS, new StatsItemSet(Stats.QUEUE_GET_NUMS, this.scheduledExecutorService, log));
             this.statsTable.put(Stats.QUEUE_GET_SIZE, new StatsItemSet(Stats.QUEUE_GET_SIZE, this.scheduledExecutorService, log));
         }
+        // topic
         this.statsTable.put(Stats.TOPIC_PUT_NUMS, new StatsItemSet(Stats.TOPIC_PUT_NUMS, this.scheduledExecutorService, log));
         this.statsTable.put(Stats.TOPIC_PUT_SIZE, new StatsItemSet(Stats.TOPIC_PUT_SIZE, this.scheduledExecutorService, log));
+        // group
         this.statsTable.put(Stats.GROUP_GET_NUMS, new StatsItemSet(Stats.GROUP_GET_NUMS, this.scheduledExecutorService, log));
         this.statsTable.put(Stats.GROUP_GET_SIZE, new StatsItemSet(Stats.GROUP_GET_SIZE, this.scheduledExecutorService, log));
         this.statsTable.put(GROUP_ACK_NUMS, new StatsItemSet(GROUP_ACK_NUMS, this.scheduledExecutorService, log));
         this.statsTable.put(GROUP_CK_NUMS, new StatsItemSet(GROUP_CK_NUMS, this.scheduledExecutorService, log));
+        // 延迟相关
         this.statsTable.put(Stats.GROUP_GET_LATENCY, new StatsItemSet(Stats.GROUP_GET_LATENCY, this.scheduledExecutorService, log));
         this.statsTable.put(TOPIC_PUT_LATENCY, new StatsItemSet(TOPIC_PUT_LATENCY, this.scheduledExecutorService, log));
         this.statsTable.put(Stats.SNDBCK_PUT_NUMS, new StatsItemSet(Stats.SNDBCK_PUT_NUMS, this.scheduledExecutorService, log));
         this.statsTable.put(DLQ_PUT_NUMS, new StatsItemSet(DLQ_PUT_NUMS, this.scheduledExecutorService, log));
+        // broker
         this.statsTable.put(Stats.BROKER_PUT_NUMS, new StatsItemSet(Stats.BROKER_PUT_NUMS, this.scheduledExecutorService, log));
         this.statsTable.put(Stats.BROKER_GET_NUMS, new StatsItemSet(Stats.BROKER_GET_NUMS, this.scheduledExecutorService, log));
         this.statsTable.put(BROKER_ACK_NUMS, new StatsItemSet(BROKER_ACK_NUMS, this.scheduledExecutorService, log));
         this.statsTable.put(BROKER_CK_NUMS, new StatsItemSet(BROKER_CK_NUMS, this.scheduledExecutorService, log));
-        this.statsTable.put(BROKER_GET_NUMS_WITHOUT_SYSTEM_TOPIC,
-            new StatsItemSet(BROKER_GET_NUMS_WITHOUT_SYSTEM_TOPIC, this.scheduledExecutorService, log));
-        this.statsTable.put(BROKER_PUT_NUMS_WITHOUT_SYSTEM_TOPIC,
-            new StatsItemSet(BROKER_PUT_NUMS_WITHOUT_SYSTEM_TOPIC, this.scheduledExecutorService, log));
-        this.statsTable.put(Stats.GROUP_GET_FROM_DISK_NUMS,
-            new StatsItemSet(Stats.GROUP_GET_FROM_DISK_NUMS, this.scheduledExecutorService, log));
-        this.statsTable.put(Stats.GROUP_GET_FROM_DISK_SIZE,
-            new StatsItemSet(Stats.GROUP_GET_FROM_DISK_SIZE, this.scheduledExecutorService, log));
-        this.statsTable.put(Stats.BROKER_GET_FROM_DISK_NUMS,
-            new StatsItemSet(Stats.BROKER_GET_FROM_DISK_NUMS, this.scheduledExecutorService, log));
-        this.statsTable.put(Stats.BROKER_GET_FROM_DISK_SIZE,
-            new StatsItemSet(Stats.BROKER_GET_FROM_DISK_SIZE, this.scheduledExecutorService, log));
+        this.statsTable.put(BROKER_GET_NUMS_WITHOUT_SYSTEM_TOPIC, new StatsItemSet(BROKER_GET_NUMS_WITHOUT_SYSTEM_TOPIC, this.scheduledExecutorService, log));
+        this.statsTable.put(BROKER_PUT_NUMS_WITHOUT_SYSTEM_TOPIC, new StatsItemSet(BROKER_PUT_NUMS_WITHOUT_SYSTEM_TOPIC, this.scheduledExecutorService, log));
+        this.statsTable.put(Stats.GROUP_GET_FROM_DISK_NUMS, new StatsItemSet(Stats.GROUP_GET_FROM_DISK_NUMS, this.scheduledExecutorService, log));
+        this.statsTable.put(Stats.GROUP_GET_FROM_DISK_SIZE, new StatsItemSet(Stats.GROUP_GET_FROM_DISK_SIZE, this.scheduledExecutorService, log));
+        this.statsTable.put(Stats.BROKER_GET_FROM_DISK_NUMS, new StatsItemSet(Stats.BROKER_GET_FROM_DISK_NUMS, this.scheduledExecutorService, log));
+        this.statsTable.put(Stats.BROKER_GET_FROM_DISK_SIZE, new StatsItemSet(Stats.BROKER_GET_FROM_DISK_SIZE, this.scheduledExecutorService, log));
 
         this.statsTable.put(SNDBCK2DLQ_TIMES,
             new StatsItemSet(SNDBCK2DLQ_TIMES, this.scheduledExecutorService, DLQ_STAT_LOG));
@@ -227,6 +229,7 @@ public class BrokerStatsManager {
 
         this.statsTable.put(CHANNEL_ACTIVITY, new StatsItemSet(CHANNEL_ACTIVITY, this.scheduledExecutorService, log));
 
+        //
         StatisticsItemFormatter formatter = new StatisticsItemFormatter();
         accountStatManager.setBriefMeta(new Pair[] {
             Pair.of(RT, new long[][] {{50, 50}, {100, 10}, {1000, 10}}),

@@ -24,8 +24,13 @@ import java.util.Set;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.rocketmq.common.MixAll;
 
+/**
+ * 消费者组的属性
+ */
 public class SubscriptionGroupConfig {
-
+    /**
+     * 消费者组名
+     */
     private String groupName;
 
     private boolean consumeEnable = true;
