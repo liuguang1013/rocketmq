@@ -87,16 +87,14 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
     protected ConcurrentSkipListMap<Long, MappedFile> offsetCache = new ConcurrentSkipListMap<>();
     protected ConcurrentSkipListMap<Long, MappedFile> timeCache = new ConcurrentSkipListMap<>();
 
-    public BatchConsumeQueue(
-        final String topic,
-        final int queueId,
-        final String storePath,
-        final int mappedFileSize,
-        final MessageStore messageStore,
-        final String subfolder) {
+    public BatchConsumeQueue(final String topic, final int queueId, final String storePath,
+                             final int mappedFileSize, final MessageStore messageStore, final String subfolder) {
+
         this.storePath = storePath;
+        // 默认 30W  * 46
         this.mappedFileSize = mappedFileSize;
         this.messageStore = messageStore;
+        // 默认 1G
         this.commitLogSize = messageStore.getCommitLog().getCommitLogSize();
 
         this.topic = topic;
@@ -110,15 +108,12 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
             this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
         }
 
+        // 创建 46 字节的  堆内存
         this.byteBufferItem = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
     }
 
-    public BatchConsumeQueue(
-        final String topic,
-        final int queueId,
-        final String storePath,
-        final int mappedFileSize,
-        final MessageStore defaultMessageStore) {
+    public BatchConsumeQueue(final String topic, final int queueId, final String storePath,
+                             final int mappedFileSize, final MessageStore defaultMessageStore) {
         this(topic, queueId, storePath, mappedFileSize, defaultMessageStore, StringUtils.EMPTY);
     }
 
@@ -207,6 +202,11 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
         }
     }
 
+    /**
+     * 与 SparseConsumeQueue recover() 的区别
+     * 当遇到没有写满的文件时候，BatchConsumeQueue 不在 MappedFile 中记录写到、刷新、提交的的偏移量
+     * 而 SparseConsumeQueue 中记录
+     */
     @Override
     public void recover() {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();

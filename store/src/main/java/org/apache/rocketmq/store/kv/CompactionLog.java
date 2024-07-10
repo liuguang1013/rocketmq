@@ -95,31 +95,38 @@ public class CompactionLog {
     private final CompactionPositionMgr positionMgr;
     private final AtomicReference<State> state;
 
-    public CompactionLog(final MessageStore messageStore, final CompactionStore compactionStore, final String topic, final int queueId)
-        throws IOException {
+    public CompactionLog(final MessageStore messageStore, final CompactionStore compactionStore, final String topic, final int queueId) throws IOException {
         this.topic = topic;
         this.queueId = queueId;
         this.defaultMessageStore = messageStore;
         this.compactionStore = compactionStore;
         this.messageStoreConfig = messageStore.getMessageStoreConfig();
+        //  每个线程 处理的 OffsetMapSize
         this.offsetMapMemorySize = compactionStore.getOffsetMapSize();
+
+        // 每个压缩消息队列 映射文件大小 = 10 M / 每条存储数据固定大小 46 字节 * 每条存储数据固定大小 46 字节
+        // 先除再乘，实际上除的时候向下取整，最终达到效果就是 除数的整数倍
         this.compactionCqMappedFileSize =
             messageStoreConfig.getCompactionCqMappedFileSize() / BatchConsumeQueue.CQ_STORE_UNIT_SIZE
                 * BatchConsumeQueue.CQ_STORE_UNIT_SIZE;
-        this.compactionLogMappedFileSize = getCompactionLogSize(compactionCqMappedFileSize,
-            messageStoreConfig.getCompactionMappedFileSize());
-        this.compactionLogFilePath = Paths.get(compactionStore.getCompactionLogPath(),
-            topic, String.valueOf(queueId)).toString();
+
+        // 设置压缩日志映射文件大小：文件默认配置 100 M ，需要根据每个文件大小计算；最小是每个消费队列大小的 5 倍
+        this.compactionLogMappedFileSize = getCompactionLogSize(compactionCqMappedFileSize, messageStoreConfig.getCompactionMappedFileSize());
+
+        this.compactionLogFilePath = Paths.get(compactionStore.getCompactionLogPath(), topic, String.valueOf(queueId)).toString();
+
         this.compactionCqFilePath = compactionStore.getCompactionCqPath();        // batch consume queue already separated
+
         this.positionMgr = compactionStore.getPositionMgr();
 
-        this.putMessageLock =
-            messageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage() ? new PutMessageReentrantLock() :
-                new PutMessageSpinLock();
-        this.readMessageLock =
-            messageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage() ? new PutMessageReentrantLock() :
-                new PutMessageSpinLock();
+        this.putMessageLock = messageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage()
+                ? new PutMessageReentrantLock() : new PutMessageSpinLock();
+
+        this.readMessageLock = messageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage()
+                ? new PutMessageReentrantLock() : new PutMessageSpinLock();
+        // 添加压缩消息结束回调
         this.endMsgCallback = new CompactionAppendEndMsgCallback();
+
         this.state = new AtomicReference<>(State.INITIALIZING);
         log.info("CompactionLog {}:{} init completed.", topic, queueId);
     }
@@ -130,6 +137,7 @@ public class CompactionLog {
             return cqSize * 5;
         }
         int m = origLogSize % cqSize;
+        // 余数 是否大于 总数一半
         if (m > 0 && m < (cqSize >> 1)) {
             return n * cqSize;
         } else {
@@ -138,10 +146,14 @@ public class CompactionLog {
     }
 
     public void load(boolean exitOk) throws IOException, RuntimeException {
+        // 创建 TopicPartitionLog 对象，
+        // 对象中包含 DefaultMappedFile、SparseConsumeQueue
         initLogAndCq(exitOk);
+
         if (defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE
             && getLog().isMappedFilesEmpty()) {
             log.info("{}:{} load compactionLog from remote master", topic, queueId);
+            // 待看
             loadFromRemoteAsync();
         } else {
             state.compareAndSet(State.INITIALIZING, State.NORMAL);
@@ -149,7 +161,9 @@ public class CompactionLog {
     }
 
     private void initLogAndCq(boolean exitOk) throws IOException, RuntimeException {
+        // 对象中包含 DefaultMappedFile、SparseConsumeQueue
         current = new TopicPartitionLog(this);
+        //
         current.init(exitOk);
     }
 
@@ -583,17 +597,21 @@ public class CompactionLog {
     }
 
     ProcessFileList getCompactionFile() {
+        // 获取 compactionLog/topic/queueId/  下的内存映射文件的 封装对象
         List<MappedFile> mappedFileList = Lists.newArrayList(getLog().getMappedFiles());
+        // 当文件小于两个的时候，不压缩
         if (mappedFileList.size() < 2) {
             return null;
         }
-
+        // 去除最后文件，因为还写满文件，不进行压缩
         List<MappedFile> toCompactFiles = mappedFileList.subList(0, mappedFileList.size() - 1);
 
         //exclude the last writing file
+        // 排除最后一个写入文件
         List<MappedFile> newFiles = Lists.newArrayList();
         for (int i = 0; i < mappedFileList.size() - 1; i++) {
             MappedFile mf = mappedFileList.get(i);
+            // 获取 SparseConsumeQueue 队列的 最大的消息偏移量
             long maxQueueOffsetInFile = getCQ().getMaxMsgOffsetFromFile(mf.getFile().getName());
             if (maxQueueOffsetInFile > positionMgr.getOffset(topic, queueId)) {
                 newFiles.add(mf);
@@ -625,12 +643,14 @@ public class CompactionLog {
     }
 
     void doCompaction() {
+        // 使用 CAS 替换当前状态
         if (!state.compareAndSet(State.NORMAL, State.COMPACTING)) {
             log.warn("compactionLog state is {}, skip this time", state.get());
             return;
         }
 
         try {
+            // 压缩 并且替换
             compactAndReplace(getCompactionFile());
         } catch (Throwable e) {
             log.error("do compaction exception: ", e);
@@ -787,6 +807,7 @@ public class CompactionLog {
     }
 
     public MappedFileQueue getLog() {
+        // TopicPartitionLog
         return current.mappedFileQueue;
     }
 
@@ -991,8 +1012,10 @@ public class CompactionLog {
         }
         public TopicPartitionLog(CompactionLog compactionLog, String subFolder) {
             if (StringUtils.isBlank(subFolder)) {
+                // 创建 compactionLogFile 的 映射文件对象
                 mappedFileQueue = new MappedFileQueue(compactionLog.compactionLogFilePath,
-                    compactionLog.compactionLogMappedFileSize, null);
+                        compactionLog.compactionLogMappedFileSize, null);
+                // 创建稀疏消费队列，继承 批量消费队列
                 consumeQueue = new SparseConsumeQueue(compactionLog.topic, compactionLog.queueId,
                     compactionLog.compactionCqFilePath, compactionLog.compactionCqMappedFileSize,
                     compactionLog.defaultMessageStore);
@@ -1011,17 +1034,19 @@ public class CompactionLog {
         }
 
         public void init(boolean exitOk) throws IOException, RuntimeException {
+            // 完成 mmap 文件映射
             if (!mappedFileQueue.load()) {
                 shutdown();
                 throw new IOException("load log exception");
             }
-
+            // 通过调用消息队列中的 mappedFileQueue ，完成最终的 mmap 文件映射
             if (!consumeQueue.load()) {
                 shutdown();
                 throw new IOException("load consume queue exception");
             }
 
             try {
+                // SparseConsumeQueue
                 consumeQueue.recover();
                 recover();
                 sanityCheck();

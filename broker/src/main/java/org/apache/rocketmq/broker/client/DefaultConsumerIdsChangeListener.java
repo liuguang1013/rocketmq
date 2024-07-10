@@ -43,11 +43,12 @@ public class DefaultConsumerIdsChangeListener implements ConsumerIdsChangeListen
 
     public DefaultConsumerIdsChangeListener(BrokerController brokerController) {
         this.brokerController = brokerController;
-
+        // 延时 30秒，每 15s执行一次
         scheduledExecutorService.scheduleAtFixedRate(new AbstractBrokerRunnable(brokerController.getBrokerConfig()) {
             @Override
             public void run0() {
                 try {
+                    // 通知消费者改变
                     notifyConsumerChange();
                 } catch (Exception e) {
                     log.error(
@@ -106,11 +107,14 @@ public class DefaultConsumerIdsChangeListener implements ConsumerIdsChangeListen
         consumerChannelMap = new ConcurrentHashMap<>(cacheSize);
 
         for (Map.Entry<String, List<Channel>> entry : processMap.entrySet()) {
+            // 消费者组名称
             String consumerId = entry.getKey();
             List<Channel> channelList = entry.getValue();
+
             try {
                 if (channelList != null && brokerController.getBrokerConfig().isNotifyConsumerIdsChangedEnable()) {
                     for (Channel chl : channelList) {
+
                         this.brokerController.getBroker2Client().notifyConsumerIdsChanged(chl, consumerId);
                     }
                 }

@@ -39,10 +39,16 @@ public class MessageSysFlag {
     public final static int BORNHOST_V6_FLAG = 0x1 << 4;
     public final static int STOREHOSTADDRESS_V6_FLAG = 0x1 << 5;
     //Mark the flag for batch to avoid conflict
+    /**
+     * 为批次标记标志以避免冲突
+     */
     public final static int NEED_UNWRAP_FLAG = 0x1 << 6;
     public final static int INNER_BATCH_FLAG = 0x1 << 7;
 
-    // COMPRESSION_TYPE
+    /**
+     * COMPRESSION_TYPE
+     * 压缩类型
+     */
     public final static int COMPRESSION_LZ4_TYPE = 0x1 << 8;
     public final static int COMPRESSION_ZSTD_TYPE = 0x2 << 8;
     public final static int COMPRESSION_ZLIB_TYPE = 0x3 << 8;

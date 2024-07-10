@@ -65,7 +65,9 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
 
     @Override
     public boolean load() {
+        // 加载 已经存在的 简单消费对列
         boolean cqLoadResult = loadConsumeQueues(getStorePathConsumeQueue(this.messageStoreConfig.getStorePathRootDir()), CQType.SimpleCQ);
+        // 加载 已经存在的 批量消费队列
         boolean bcqLoadResult = loadConsumeQueues(getStorePathBatchConsumeQueue(this.messageStoreConfig.getStorePathRootDir()), CQType.BatchCQ);
         return cqLoadResult && bcqLoadResult;
     }
@@ -186,22 +188,32 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
     }
 
     private FileQueueLifeCycle getLifeCycle(String topic, int queueId) {
+        // 查找或者创建消息队列
         return findOrCreateConsumeQueue(topic, queueId);
     }
 
+    /**
+     *
+     */
     public boolean load(ConsumeQueueInterface consumeQueue) {
         FileQueueLifeCycle fileQueueLifeCycle = getLifeCycle(consumeQueue.getTopic(), consumeQueue.getQueueId());
         return fileQueueLifeCycle.load();
     }
 
+    /**
+     * 加载 已经存在 的消息队列
+     *
+     */
     private boolean loadConsumeQueues(String storePath, CQType cqType) {
         File dirLogic = new File(storePath);
         File[] fileTopicList = dirLogic.listFiles();
+
         if (fileTopicList != null) {
 
             for (File fileTopic : fileTopicList) {
+                // topic 文件夹
                 String topic = fileTopic.getName();
-
+                // 队列名
                 File[] fileQueueIdList = fileTopic.listFiles();
                 if (fileQueueIdList != null) {
                     for (File fileQueueId : fileQueueIdList) {
@@ -211,11 +223,14 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
                         } catch (NumberFormatException e) {
                             continue;
                         }
-
+                        // 验证消费队列类型 是否和 TopicConfig 一致
                         queueTypeShouldBe(topic, cqType);
-
+                        // 根据类型创建 topic 的消息队列
                         ConsumeQueueInterface logic = createConsumeQueueByType(cqType, topic, queueId, storePath);
+                        // 缓存消息队列信息 到 consumeQueueTable 中
                         this.putConsumeQueue(topic, queueId, logic);
+                        // 消息队列加载方法，最终就是真正执行 mmap 文件内存映射
+                        //
                         if (!this.load(logic)) {
                             return false;
                         }
@@ -229,19 +244,33 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
         return true;
     }
 
+    /**
+     * 根据类型创建不同类型的消息队列
+     */
     private ConsumeQueueInterface createConsumeQueueByType(CQType cqType, String topic, int queueId, String storePath) {
         if (Objects.equals(CQType.SimpleCQ, cqType)) {
+            /**
+             * 创建普通 topic 的消费队列
+             * ConsumeQueue 中创建 MappedFileQueue ，并根据消息存储的enableConsumeQueueExt配置，创建ConsumeQueueExt
+             * topic 作为存储目录文件夹名，每个的队列对映一个文件，并建立内存映射
+             */
             return new ConsumeQueue(
                 topic,
                 queueId,
                 storePath,
+                // 默认大小  30W * 20字节
                 this.messageStoreConfig.getMappedFileSizeConsumeQueue(),
                 this.messageStore);
+
         } else if (Objects.equals(CQType.BatchCQ, cqType)) {
+            /**
+             * 创建批量 topic 的消费队列
+             */
             return new BatchConsumeQueue(
                 topic,
                 queueId,
                 storePath,
+                // 默认大小 30W * 46字节
                 this.messageStoreConfig.getMapperFileSizeBatchConsumeQueue(),
                 this.messageStore);
         } else {
@@ -249,6 +278,9 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
         }
     }
 
+    /**
+     * 验证消费队列类型 是否和 TopicConfig 一致
+     */
     private void queueTypeShouldBe(String topic, CQType cqTypeExpected) {
         Optional<TopicConfig> topicConfig = this.messageStore.getTopicConfig(topic);
 
@@ -368,6 +400,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
 
     @Override
     public ConsumeQueueInterface findOrCreateConsumeQueue(String topic, int queueId) {
+        //
         ConcurrentMap<Integer, ConsumeQueueInterface> map = consumeQueueTable.get(topic);
         if (null == map) {
             ConcurrentMap<Integer, ConsumeQueueInterface> newMap = new ConcurrentHashMap<>(128);
@@ -379,6 +412,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
             }
         }
 
+        // 创建消费队列
         ConsumeQueueInterface logic = map.get(queueId);
         if (logic != null) {
             return logic;

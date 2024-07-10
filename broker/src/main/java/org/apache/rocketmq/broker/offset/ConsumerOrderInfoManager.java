@@ -54,6 +54,7 @@ public class ConsumerOrderInfoManager extends ConfigManager {
 
     public ConsumerOrderInfoManager(BrokerController brokerController) {
         this.brokerController = brokerController;
+        //
         this.consumerOrderInfoLockManager = new ConsumerOrderInfoLockManager(brokerController);
     }
 

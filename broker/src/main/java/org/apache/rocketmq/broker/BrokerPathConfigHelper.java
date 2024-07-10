@@ -72,6 +72,7 @@ public class BrokerPathConfigHelper {
     }
 
     public static String getMessageRequestModePath(final String rootDir) {
+       // /store/config
         return rootDir + File.separator + "config" + File.separator + "messageRequestMode.json";
     }
 }

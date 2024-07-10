@@ -43,8 +43,15 @@ public class MappedFileQueue implements Swappable {
 
     protected final String storePath;
 
+    /**
+     * 默认 1 G
+     */
     protected final int mappedFileSize;
 
+    /**
+     * 保存 mmap 文件映射
+     * 在 load 方法中，会加载之前存在的文件，使用内存映射
+     */
     protected final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<>();
 
     protected final AllocateMappedFileService allocateMappedFileService;
@@ -54,13 +61,16 @@ public class MappedFileQueue implements Swappable {
 
     protected volatile long storeTimestamp = 0;
 
-    public MappedFileQueue(final String storePath, int mappedFileSize,
-        AllocateMappedFileService allocateMappedFileService) {
+    public MappedFileQueue(final String storePath, int mappedFileSize, AllocateMappedFileService allocateMappedFileService) {
+        // 文件名。如消费队列文件名    /topic/queueId
         this.storePath = storePath;
         this.mappedFileSize = mappedFileSize;
         this.allocateMappedFileService = allocateMappedFileService;
     }
 
+    /**
+     *
+     */
     public void checkSelf() {
         List<MappedFile> mappedFiles = new ArrayList<>(this.mappedFiles);
         if (!mappedFiles.isEmpty()) {
@@ -233,11 +243,14 @@ public class MappedFileQueue implements Swappable {
         }
     }
 
-
+    /**
+     * 内存映射方式 加载文件
+     */
     public boolean load() {
         File dir = new File(this.storePath);
         File[] ls = dir.listFiles();
         if (ls != null) {
+            // 加载文件
             return doLoad(Arrays.asList(ls));
         }
         return true;
@@ -245,6 +258,7 @@ public class MappedFileQueue implements Swappable {
 
     public boolean doLoad(List<File> files) {
         // ascending order
+        // 升序排序
         files.sort(Comparator.comparing(File::getName));
 
         for (int i = 0; i < files.size(); i++) {
@@ -253,12 +267,14 @@ public class MappedFileQueue implements Swappable {
                 continue;
             }
 
+            // 删除空文件
             if (file.length() == 0 && i == files.size() - 1) {
                 boolean ok = file.delete();
                 log.warn("{} size is 0, auto delete. is_ok: {}", file, ok);
                 continue;
             }
 
+            // 文件长度不符合配置，人工检查
             if (file.length() != this.mappedFileSize) {
                 log.warn(file + "\t" + file.length()
                         + " length not matched message store config value, please check it manually");
@@ -266,6 +282,7 @@ public class MappedFileQueue implements Swappable {
             }
 
             try {
+                // 创建 mmap 文件映射 内存区域：
                 MappedFile mappedFile = new DefaultMappedFile(file.getPath(), mappedFileSize);
 
                 mappedFile.setWrotePosition(this.mappedFileSize);

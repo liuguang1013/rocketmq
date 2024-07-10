@@ -163,8 +163,20 @@ public class DefaultMessageStore implements MessageStore {
     protected boolean notifyMessageArriveInBatch = false;
 
     private StoreCheckpoint storeCheckpoint;
+    /**
+     *  BrokerController.initializeMessageStore()时添加
+     */
     private TimerMessageStore timerMessageStore;
 
+    /**
+     * BrokerController.initializeMessageStore()时添加
+     *
+     * CommitLogDispatcherCalcBitMap
+     * 构造方法添加
+     * CommitLogDispatcherBuildConsumeQueue
+     * CommitLogDispatcherBuildIndex
+     * CommitLogDispatcherCompaction
+     */
     private final LinkedList<CommitLogDispatcher> dispatcherList;
 
     private RandomAccessFile lockFile;
@@ -187,6 +199,9 @@ public class DefaultMessageStore implements MessageStore {
 
     private volatile long brokerInitMaxOffset = -1L;
 
+    /**
+     * brokerController.registerMessageStoreHook() 添加钩子函数
+     */
     private List<PutMessageHook> putMessageHookList = new ArrayList<>();
 
     private SendMessageBackHook sendMessageBackHook;
@@ -212,31 +227,42 @@ public class DefaultMessageStore implements MessageStore {
     private final ScheduledExecutorService scheduledCleanQueueExecutorService =
         ThreadUtils.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreCleanQueueScheduledThread"));
 
-    public DefaultMessageStore(final MessageStoreConfig messageStoreConfig, final BrokerStatsManager brokerStatsManager,
-        final MessageArrivingListener messageArrivingListener, final BrokerConfig brokerConfig, final ConcurrentMap<String, TopicConfig> topicConfigTable) throws IOException {
+    public DefaultMessageStore(final MessageStoreConfig messageStoreConfig, final BrokerStatsManager brokerStatsManager
+            , final MessageArrivingListener messageArrivingListener
+            , final BrokerConfig brokerConfig
+            , final ConcurrentMap<String, TopicConfig> topicConfigTable) throws IOException {
+
         this.messageArrivingListener = messageArrivingListener;
         this.brokerConfig = brokerConfig;
         this.messageStoreConfig = messageStoreConfig;
+        // 默认是 1
         this.aliveReplicasNum = messageStoreConfig.getTotalReplicas();
+
         this.brokerStatsManager = brokerStatsManager;
         this.topicConfigTable = topicConfigTable;
+        // todo：待看作用
         this.allocateMappedFileService = new AllocateMappedFileService(this);
+
         if (messageStoreConfig.isEnableDLegerCommitLog()) {
             this.commitLog = new DLedgerCommitLog(this);
         } else {
+            // 创建CommitLog ： 文件存储路径/大小、指定刷盘策略、冷数据检查、创建topicQueueLock等
             this.commitLog = new CommitLog(this);
         }
-
+        // 只是创建 消费队列存储对象，加载在下一步进行
         this.consumeQueueStore = createConsumeQueueStore();
-
+        // 只是创建 服务对象，并未开启 todo：待看作用
         this.flushConsumeQueueService = createFlushConsumeQueueService();
         this.cleanCommitLogService = new CleanCommitLogService();
         this.cleanConsumeQueueService = createCleanConsumeQueueService();
         this.correctLogicOffsetService = createCorrectLogicOffsetService();
         this.storeStatsService = new StoreStatsService(getBrokerIdentity());
+        // 只是创建 索引服务，后面加载
         this.indexService = new IndexService(this);
 
+        // 未使用 DLeger 一致性算法提交 CommitLog，也未打开冗余存储功能
         if (!messageStoreConfig.isEnableDLegerCommitLog() && !this.messageStoreConfig.isDuplicationEnable()) {
+            // false
             if (brokerConfig.isEnableControllerMode()) {
                 this.haService = new AutoSwitchHAService();
                 LOGGER.warn("Load AutoSwitch HA Service: {}", AutoSwitchHAService.class.getSimpleName());
@@ -249,12 +275,13 @@ public class DefaultMessageStore implements MessageStore {
             }
         }
 
+        // 默认不支持 并发构建消息队列
         if (!messageStoreConfig.isEnableBuildConsumeQueueConcurrently()) {
             this.reputMessageService = new ReputMessageService();
         } else {
             this.reputMessageService = new ConcurrentReputMessageService();
         }
-
+        //  堆外内存池  5 、1G
         this.transientStorePool = new TransientStorePool(messageStoreConfig.getTransientStorePoolSize(), messageStoreConfig.getMappedFileSizeCommitLog());
 
         this.scheduledExecutorService =
@@ -263,18 +290,22 @@ public class DefaultMessageStore implements MessageStore {
         this.dispatcherList = new LinkedList<>();
         this.dispatcherList.addLast(new CommitLogDispatcherBuildConsumeQueue());
         this.dispatcherList.addLast(new CommitLogDispatcherBuildIndex());
+        // 启用消息存储压缩合并，默认是 true
         if (messageStoreConfig.isEnableCompaction()) {
             this.compactionStore = new CompactionStore(this);
             this.compactionService = new CompactionService(commitLog, this, compactionStore);
             this.dispatcherList.addLast(new CommitLogDispatcherCompaction(compactionService));
         }
 
+        // 创建锁文件
         File file = new File(StorePathConfigHelper.getLockFile(messageStoreConfig.getStorePathRootDir()));
+        // 确保路径存在
         UtilAll.ensureDirOK(file.getParent());
         UtilAll.ensureDirOK(getStorePathPhysic());
         UtilAll.ensureDirOK(getStorePathLogic());
         lockFile = new RandomAccessFile(file, "rw");
 
+        // 将 默认的 "1s 5s 10s 30s 1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h" 延迟消息等级放入缓存
         parseDelayLevel();
     }
 
@@ -301,6 +332,7 @@ public class DefaultMessageStore implements MessageStore {
         timeUnitTable.put("h", 1000L * 60 * 60);
         timeUnitTable.put("d", 1000L * 60 * 60 * 24);
 
+        // "1s 5s 10s 30s 1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h"
         String levelString = messageStoreConfig.getMessageDelayLevel();
         try {
             String[] levelArray = levelString.split(" ");
@@ -338,16 +370,20 @@ public class DefaultMessageStore implements MessageStore {
         boolean result = true;
 
         try {
+            // 判断上次是否正常关闭
             boolean lastExitOK = !this.isTempFileExist();
             LOGGER.info("last shutdown {}, store path root dir: {}",
                 lastExitOK ? "normally" : "abnormally", messageStoreConfig.getStorePathRootDir());
 
             // load Commit Log
+            // 加载 Commit Log：创建或加载 commit log 文件，检查文件基本信息
             result = this.commitLog.load();
 
             // load Consume Queue
+            //加载 已经存在的topic 的消费队列
             result = result && this.consumeQueueStore.load();
 
+            //消息合并压缩功能，默认是 true
             if (messageStoreConfig.isEnableCompaction()) {
                 result = result && this.compactionService.load(lastExitOK);
             }

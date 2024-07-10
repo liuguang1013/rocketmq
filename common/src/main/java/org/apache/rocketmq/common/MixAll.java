@@ -212,6 +212,9 @@ public class MixAll {
         IOTinyUtils.writeStringToFile(file, str, "UTF-8");
     }
 
+    /**
+     *  获取文件内容并转换为 字符串
+     */
     public static String file2String(final String fileName) throws IOException {
         File file = new File(fileName);
         return file2String(file);

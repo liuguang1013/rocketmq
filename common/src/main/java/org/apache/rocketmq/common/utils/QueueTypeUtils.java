@@ -26,17 +26,24 @@ import java.util.Optional;
 
 public class QueueTypeUtils {
 
+    /**
+     * 判断是否是批量消费队列类型
+     */
     public static boolean isBatchCq(Optional<TopicConfig> topicConfig) {
         return Objects.equals(CQType.BatchCQ, getCQType(topicConfig));
     }
 
+    /**
+     * 获取消费队列的类型
+     */
     public static CQType getCQType(Optional<TopicConfig> topicConfig) {
+        // topic配置不存在
         if (!topicConfig.isPresent()) {
             return CQType.valueOf(TopicAttributes.QUEUE_TYPE_ATTRIBUTE.getDefaultValue());
         }
-
+        //
         String attributeName = TopicAttributes.QUEUE_TYPE_ATTRIBUTE.getName();
-
+        // topic配置不存在属性
         Map<String, String> attributes = topicConfig.get().getAttributes();
         if (attributes == null || attributes.size() == 0) {
             return CQType.valueOf(TopicAttributes.QUEUE_TYPE_ATTRIBUTE.getDefaultValue());

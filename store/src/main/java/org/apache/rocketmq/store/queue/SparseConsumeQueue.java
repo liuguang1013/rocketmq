@@ -29,6 +29,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 
+/**
+ * 继承 批量消费队列
+ * 压缩消息 的消费队列
+ */
 public class SparseConsumeQueue extends BatchConsumeQueue {
 
     public SparseConsumeQueue(
@@ -50,20 +54,29 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         super(topic, queueId, storePath, mappedFileSize, defaultMessageStore, subfolder);
     }
 
+    /**
+     * 恢复：
+     * 将文件中的信息，恢复记录到 对映的 mappedFileQueue、DefaultMappedFile 对象中
+     */
     @Override
     public void recover() {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
+            // 文件夹下文件小于三个
             int index = mappedFiles.size() - 3;
             if (index < 0) {
                 index = 0;
             }
 
             MappedFile mappedFile = mappedFiles.get(index);
+            // 创建 ByteBuffer 切片
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
+            // 当前文件中，偏移量
             int mappedFileOffset = 0;
+            // 文件开始的偏移量（文件名）
             long processOffset = mappedFile.getFileFromOffset();
             while (true) {
+                //循环遍历，每次增加 一个消息的字节 46字节
                 for (int i = 0; i < mappedFileSize; i += CQ_STORE_UNIT_SIZE) {
                     byteBuffer.position(i);
                     long offset = byteBuffer.getLong();
@@ -78,8 +91,9 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
                     } else {
                         log.info("Recover current batch consume queue file over, " + "file:{} offset:{} size:{} msgBaseOffset:{} batchSize:{} mappedFileOffset:{}",
                             mappedFile.getFileName(), offset, size, msgBaseOffset, batchSize, mappedFileOffset);
-
+                        // 文件偏移量 ！= 单个文件大小，表示文件未写满
                         if (mappedFileOffset != mappedFileSize) {
+                            // 设置已经写到、刷新、提交的的偏移量
                             mappedFile.setWrotePosition(mappedFileOffset);
                             mappedFile.setFlushedPosition(mappedFileOffset);
                             mappedFile.setCommittedPosition(mappedFileOffset);
@@ -101,7 +115,7 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
                     log.info("Recover next batch consume queue file: " + mappedFile.getFileName());
                 }
             }
-
+            // 在mappedFileQueue中记录总体的 刷新、提交、截断脏文件 位置
             processOffset += mappedFileOffset;
             mappedFileQueue.setFlushedWhere(processOffset);
             mappedFileQueue.setCommittedWhere(processOffset);
@@ -340,6 +354,7 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
 
     @Override
     protected BatchOffsetIndex getMaxMsgOffset(MappedFile mappedFile, boolean getBatchSize, boolean getStoreTime) {
+        // 文件不存在、文件读指针小于最小的消息的大小，代表文件还未开始读取
         if (mappedFile == null || mappedFile.getReadPosition() < CQ_STORE_UNIT_SIZE) {
             return null;
         }
@@ -365,6 +380,7 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
     }
 
     public long getMaxMsgOffsetFromFile(String simpleFileName) {
+        // 查找内存映射文件
         MappedFile mappedFile = mappedFileQueue.getMappedFiles().stream()
             .filter(m -> Objects.equals(m.getFile().getName(), simpleFileName))
             .findFirst()
@@ -373,7 +389,7 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         if (mappedFile == null) {
             return -1;
         }
-
+        //
         BatchOffsetIndex max = getMaxMsgOffset(mappedFile, false, false);
         if (max == null) {
             return -1;

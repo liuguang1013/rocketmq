@@ -56,12 +56,17 @@ public class MessageStoreConfig {
     // CompactionLog consumeQueue file size, default is 10M
     private int compactionCqMappedFileSize = 10 * 1024 * 1024;
 
+    // 15 min
     private int compactionScheduleInternal = 15 * 60 * 1000;
 
     private int maxOffsetMapSize = 100 * 1024 * 1024;
 
     private int compactionThreadNum = 6;
 
+    /**
+     * 是够开启 合并功能
+     * 优化存储空间和提高读写性能
+     */
     private boolean enableCompaction = true;
 
     // TimerLog file size, default is 100M
@@ -108,9 +113,15 @@ public class MessageStoreConfig {
     // ConsumeQueue file size,default is 30W
     private int mappedFileSizeConsumeQueue = 300000 * ConsumeQueue.CQ_STORE_UNIT_SIZE;
     // enable consume queue ext
+    /**
+     * 是否开启消费队列额外信息存储功能
+     */
     private boolean enableConsumeQueueExt = false;
     // ConsumeQueue extend file size, 48M
     private int mappedFileSizeConsumeQueueExt = 48 * 1024 * 1024;
+    /**
+     *  30W * 46
+     */
     private int mapperFileSizeBatchConsumeQueue = 300000 * BatchConsumeQueue.CQ_STORE_UNIT_SIZE;
     // Bit count of filter bit map.
     // this will be set by pipe of calculate filter bit map.
@@ -275,6 +286,7 @@ public class MessageStoreConfig {
     /**
      * It cannot be changed after the broker is started.
      * Modifications need to be restarted to take effect.
+     * 它不能在代理启动后更改。修改需要重新启动才能生效。
      */
     private boolean enabledAppendPropCRC = false;
     private boolean forceVerifyPropCRC = false;
@@ -391,6 +403,9 @@ public class MessageStoreConfig {
      */
     private int sampleCountThreshold = 5000;
 
+    /**
+     * 是否对长期存储的消息实施流控机制，用于优化存储系统的性能和资源利用率
+     */
     private boolean coldDataFlowControlEnable = false;
     private boolean coldDataScanEnable = false;
     private boolean dataReadAheadEnable = true;
@@ -530,7 +545,9 @@ public class MessageStoreConfig {
     }
 
     public int getMappedFileSizeConsumeQueue() {
+        // 因子 ： 30 W
         int factor = (int) Math.ceil(this.mappedFileSizeConsumeQueue / (ConsumeQueue.CQ_STORE_UNIT_SIZE * 1.0));
+        // 消费队列 每个单位大小默认 20 字节
         return (int) (factor * ConsumeQueue.CQ_STORE_UNIT_SIZE);
     }
 

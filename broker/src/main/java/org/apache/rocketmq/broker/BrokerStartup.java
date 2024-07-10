@@ -250,11 +250,13 @@ public class BrokerStartup {
         try {
             // 创建BrokerController对象
             BrokerController controller = buildBrokerController(args);
+            // 初始化
             boolean initResult = controller.initialize();
             if (!initResult) {
                 controller.shutdown();
                 System.exit(-3);
             }
+            // 添加钩子函数
             Runtime.getRuntime().addShutdownHook(new Thread(buildShutdownHook(controller)));
             return controller;
         } catch (Throwable e) {

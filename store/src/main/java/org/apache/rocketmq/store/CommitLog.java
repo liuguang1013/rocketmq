@@ -106,37 +106,48 @@ public class CommitLog implements Swappable {
     protected final MultiDispatch multiDispatch;
 
     public CommitLog(final DefaultMessageStore messageStore) {
+        //user.home/store/commitlog
         String storePath = messageStore.getMessageStoreConfig().getStorePathCommitLog();
         if (storePath.contains(MixAll.MULTI_PATH_SPLITTER)) {
             this.mappedFileQueue = new MultiPathMappedFileQueue(messageStore.getMessageStoreConfig(),
                 messageStore.getMessageStoreConfig().getMappedFileSizeCommitLog(),
                 messageStore.getAllocateMappedFileService(), this::getFullStorePaths);
         } else {
+            // 入参：存储地址、commitlog 默认1G、
             this.mappedFileQueue = new MappedFileQueue(storePath,
                 messageStore.getMessageStoreConfig().getMappedFileSizeCommitLog(),
                 messageStore.getAllocateMappedFileService());
         }
 
         this.defaultMessageStore = messageStore;
-
+        // 刷新管理器：flushCommitLogService、commitRealTimeService todo：待看
         this.flushManager = new DefaultFlushManager();
-        this.coldDataCheckService = new ColdDataCheckService();
 
+        // todo：待看
+        this.coldDataCheckService = new ColdDataCheckService();
+        // todo：待看
         this.appendMessageCallback = new DefaultAppendMessageCallback(defaultMessageStore.getMessageStoreConfig());
+
         putMessageThreadLocal = new ThreadLocal<PutMessageThreadLocal>() {
             @Override
             protected PutMessageThreadLocal initialValue() {
                 return new PutMessageThreadLocal(defaultMessageStore.getMessageStoreConfig());
             }
         };
-        this.putMessageLock = messageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage() ? new PutMessageReentrantLock() : new PutMessageSpinLock();
 
+        // 自旋锁、可重入锁。默认使用 可重入锁
+        this.putMessageLock = messageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage()
+                ? new PutMessageReentrantLock() : new PutMessageSpinLock();
+        // todo：待看
         this.flushDiskWatcher = new FlushDiskWatcher();
 
+        // 默认 32 个 ReentrantLock
         this.topicQueueLock = new TopicQueueLock(messageStore.getMessageStoreConfig().getTopicQueueLockNum());
 
+        // 默认 1G
         this.commitLogSize = messageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
 
+        // 用于控制是否启用附加消息属性的 CRC（循环冗余校验）  默认是 false
         this.enabledAppendPropCRC = messageStore.getMessageStoreConfig().isEnabledAppendPropCRC();
 
         this.multiDispatch = new MultiDispatch(defaultMessageStore);
@@ -159,10 +170,14 @@ public class CommitLog implements Swappable {
     }
 
     public boolean load() {
+        // 加载 commit Log 文件，并创建 mmap 内存映射，多个 DefaultMappedFile 最后缓存到 mappedFileQueue 的 list 中
         boolean result = this.mappedFileQueue.load();
+        // MessageStoreConfig.dataReadAheadEnable 属性用于控制消息存储模块是否启用数据预读取功能。
+        // 数据预读取功能是指在进行磁盘 I/O 操作时，提前将一些数据读入内存，从而减少后续读取时的磁盘 I/O 延迟，提高读取性能。
         if (result && !defaultMessageStore.getMessageStoreConfig().isDataReadAheadEnable()) {
             scanFileAndSetReadMode(LibC.MADV_RANDOM);
         }
+        // 内存映射文件 自身检查，有序的多个文件名之间相差应该都是 1G
         this.mappedFileQueue.checkSelf();
         log.info("load commit log " + (result ? "OK" : "Failed"));
         return result;
@@ -1838,6 +1853,7 @@ public class CommitLog implements Swappable {
         private final MessageStoreConfig messageStoreConfig;
 
         DefaultAppendMessageCallback(MessageStoreConfig messageStoreConfig) {
+            //
             this.msgStoreItemMemory = ByteBuffer.allocate(END_FILE_MIN_BLANK_LENGTH);
             this.messageStoreConfig = messageStoreConfig;
         }
@@ -2104,9 +2120,11 @@ public class CommitLog implements Swappable {
         private final FlushCommitLogService flushCommitLogService;
 
         //If TransientStorePool enabled, we must flush message to FileChannel at fixed periods
+        //如果启用了TransientStorePool，我们必须在固定的时间内将消息刷新到FileChannel
         private final FlushCommitLogService commitRealTimeService;
 
         public DefaultFlushManager() {
+            // 默认刷盘策略：异步
             if (FlushDiskType.SYNC_FLUSH == CommitLog.this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
                 this.flushCommitLogService = new CommitLog.GroupCommitService();
             } else {
@@ -2118,7 +2136,7 @@ public class CommitLog implements Swappable {
 
         @Override public void start() {
             this.flushCommitLogService.start();
-
+            // 是否使用堆外内存 暂存消息，之后批量写入到 commitlog，避免频繁小块写入，提高磁盘写入效率，减少GC频率/停顿
             if (defaultMessageStore.isTransientStorePoolEnable()) {
                 this.commitRealTimeService.start();
             }
@@ -2255,7 +2273,9 @@ public class CommitLog implements Swappable {
             if (sampleSteps <= 0) {
                 sampleSteps = 32;
             }
+
             initPageSize();
+
             scanFilesInPageCache();
         }
 
@@ -2321,7 +2341,8 @@ public class CommitLog implements Swappable {
         }
 
         private void scanFilesInPageCache() {
-            if (MixAll.isWindows() || !defaultMessageStore.getMessageStoreConfig().isColdDataFlowControlEnable() || !defaultMessageStore.getMessageStoreConfig().isColdDataScanEnable() || pageSize <= 0) {
+            if (MixAll.isWindows() || !defaultMessageStore.getMessageStoreConfig().isColdDataFlowControlEnable()
+                    || !defaultMessageStore.getMessageStoreConfig().isColdDataScanEnable() || pageSize <= 0) {
                 return;
             }
             try {
@@ -2374,6 +2395,7 @@ public class CommitLog implements Swappable {
         }
 
         private void initPageSize() {
+            // coldDataFlowControlEnable 默认false
             if (pageSize < 0 && defaultMessageStore.getMessageStoreConfig().isColdDataFlowControlEnable()) {
                 try {
                     if (!MixAll.isWindows()) {
@@ -2421,6 +2443,7 @@ public class CommitLog implements Swappable {
             log.info("windows os stop scanFileAndSetReadMode");
             return;
         }
+        // 遍历 内存映射文件
         try {
             log.info("scanFileAndSetReadMode mode: {}", mode);
             mappedFileQueue.getMappedFiles().forEach(mappedFile -> {
@@ -2431,11 +2454,15 @@ public class CommitLog implements Swappable {
         }
     }
 
+    /**
+     * 这段代码的作用是调用本地（Native）方法 madvise，以建议操作系统如何管理一段内存区域。这在性能优化和资源管理中非常有用。
+     */
     private int setFileReadMode(MappedFile mappedFile, int mode) {
         if (null == mappedFile) {
             log.error("setFileReadMode mappedFile is null");
             return -1;
         }
+        // 设置文件预加载
         final long address = ((DirectBuffer) mappedFile.getMappedByteBuffer()).address();
         int madvise = LibC.INSTANCE.madvise(new Pointer(address), new NativeLong(mappedFile.getFileSize()), mode);
         if (madvise != 0) {

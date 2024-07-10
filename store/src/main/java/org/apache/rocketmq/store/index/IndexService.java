@@ -49,7 +49,9 @@ public class IndexService {
 
     public IndexService(final DefaultMessageStore store) {
         this.defaultMessageStore = store;
+        // 500 0000
         this.hashSlotNum = store.getMessageStoreConfig().getMaxHashSlotNum();
+        // 500 0000 * 4
         this.indexNum = store.getMessageStoreConfig().getMaxIndexNum();
         this.storePath =
             StorePathConfigHelper.getStorePathIndex(defaultMessageStore.getMessageStoreConfig().getStorePathRootDir());

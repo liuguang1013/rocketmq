@@ -77,12 +77,9 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
     private volatile long minLogicOffset = 0;
     private ConsumeQueueExt consumeQueueExt = null;
 
-    public ConsumeQueue(
-        final String topic,
-        final int queueId,
-        final String storePath,
-        final int mappedFileSize,
-        final MessageStore messageStore) {
+    public ConsumeQueue(final String topic, final int queueId, final String storePath,
+                        final int mappedFileSize, final MessageStore messageStore) {
+
         this.storePath = storePath;
         this.mappedFileSize = mappedFileSize;
         this.messageStore = messageStore;
@@ -96,14 +93,18 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
 
         this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
 
+        // 获取 20字节 堆内存
         this.byteBufferIndex = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
 
+        // 消费队列额外信息存储功能
         if (messageStore.getMessageStoreConfig().isEnableConsumeQueueExt()) {
             this.consumeQueueExt = new ConsumeQueueExt(
                 topic,
                 queueId,
                 StorePathConfigHelper.getStorePathConsumeQueueExt(messageStore.getMessageStoreConfig().getStorePathRootDir()),
+                // 默认 48 M
                 messageStore.getMessageStoreConfig().getMappedFileSizeConsumeQueueExt(),
+                // 默认 64
                 messageStore.getMessageStoreConfig().getBitMapLengthConsumeQueueExt()
             );
         }
@@ -111,8 +112,10 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
 
     @Override
     public boolean load() {
+
         boolean result = this.mappedFileQueue.load();
         log.info("load consume queue " + this.topic + "-" + this.queueId + " " + (result ? "OK" : "Failed"));
+        //
         if (isExtReadEnable()) {
             result &= this.consumeQueueExt.load();
         }

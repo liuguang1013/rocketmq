@@ -80,6 +80,10 @@ public class TimerMessageStore {
     public static final int INITIAL = 0, RUNNING = 1, HAULT = 2, SHUTDOWN = 3;
     private volatile int state = INITIAL;
 
+    /**
+     * 定时消息 topic
+     * rmq_sys_wheel_timer
+     */
     public static final String TIMER_TOPIC = TopicValidator.SYSTEM_TOPIC_PREFIX + "wheel_timer";
     public static final String TIMER_OUT_MS = MessageConst.PROPERTY_TIMER_OUT_MS;
     public static final String TIMER_ENQUEUE_MS = MessageConst.PROPERTY_TIMER_ENQUEUE_MS;
@@ -94,6 +98,8 @@ public class TimerMessageStore {
 
     // The total days in the timer wheel when precision is 1000ms.
     // If the broker shutdown last more than the configured days, will cause message loss
+    //当精度为1000ms时，计时轮的总天数。
+    // 如果broker关闭的时间超过了配置的天数，将导致消息丢失
     public static final int TIMER_WHEEL_TTL_DAY = 7;
     public static final int TIMER_BLANK_SLOTS = 60;
     public static final int MAGIC_DEFAULT = 1;
@@ -165,15 +171,22 @@ public class TimerMessageStore {
 
         this.messageStore = messageStore;
         this.storeConfig = storeConfig;
+        // 1G
         this.commitLogFileSize = storeConfig.getMappedFileSizeCommitLog();
+        // 100 M
         this.timerLogFileSize = storeConfig.getMappedFileSizeTimerLog();
+        // 1000 ms
         this.precisionMs = storeConfig.getTimerPrecisionMs();
 
         // TimerWheel contains the fixed number of slots regardless of precision.
+        // 时间轮 根据槽位计算，无视精度
+        // 7天 总秒数
         this.slotsTotal = TIMER_WHEEL_TTL_DAY * DAY_SECS;
-        this.timerWheel = new TimerWheel(
-            getTimerWheelPath(storeConfig.getStorePathRootDir()), this.slotsTotal, precisionMs);
+        // 通过 mmap 建立文件映射，文件路径 $user.home/store/timerwheel
+        this.timerWheel = new TimerWheel(getTimerWheelPath(storeConfig.getStorePathRootDir()), this.slotsTotal, precisionMs);
+        //文件路径 $user.home/store/timerlog
         this.timerLog = new TimerLog(getTimerLogPath(storeConfig.getStorePathRootDir()), timerLogFileSize);
+
         this.timerMetrics = timerMetrics;
         this.timerCheckpoint = timerCheckpoint;
         this.lastBrokerRole = storeConfig.getBrokerRole();
@@ -188,13 +201,17 @@ public class TimerMessageStore {
         }
 
         // timerRollWindow contains the fixed number of slots regardless of precision.
+        //timerRollWindow 包含固定数量的槽，而不考虑精度。
+
         if (storeConfig.getTimerRollWindowSlot() > slotsTotal - TIMER_BLANK_SLOTS
             || storeConfig.getTimerRollWindowSlot() < 2) {
             this.timerRollWindowSlots = slotsTotal - TIMER_BLANK_SLOTS;
         } else {
+            // 默认 2天的槽数
             this.timerRollWindowSlots = storeConfig.getTimerRollWindowSlot();
         }
 
+        // 创建 直接内存
         bufferLocal = new ThreadLocal<ByteBuffer>() {
             @Override
             protected ByteBuffer initialValue() {
@@ -202,13 +219,17 @@ public class TimerMessageStore {
             }
         };
 
+        // 默认是 false，
         if (storeConfig.isTimerEnableDisruptor()) {
             enqueuePutQueue = new DisruptorBlockingQueue<>(DEFAULT_CAPACITY);
             dequeueGetQueue = new DisruptorBlockingQueue<>(DEFAULT_CAPACITY);
             dequeuePutQueue = new DisruptorBlockingQueue<>(DEFAULT_CAPACITY);
         } else {
+            // 排队放入
             enqueuePutQueue = new LinkedBlockingDeque<>(DEFAULT_CAPACITY);
+            // 出列获取
             dequeueGetQueue = new LinkedBlockingDeque<>(DEFAULT_CAPACITY);
+            // 出列放入
             dequeuePutQueue = new LinkedBlockingDeque<>(DEFAULT_CAPACITY);
         }
         this.brokerStatsManager = brokerStatsManager;
@@ -1698,13 +1719,17 @@ public class TimerMessageStore {
     }
 
     public boolean isReject(long deliverTimeMs) {
+        // 获取时间轮槽中的任务数量
         long congestNum = timerWheel.getNum(deliverTimeMs);
+        // 每个 时间轮 槽使用 int 4字节存储，
         if (congestNum <= storeConfig.getTimerCongestNumEachSlot()) {
             return false;
         }
+        //
         if (congestNum >= storeConfig.getTimerCongestNumEachSlot() * 2L) {
             return true;
         }
+        // 当槽中任务数量在  1-2倍 配置的数量之间，todo：这个计算作用是啥
         if (RANDOM.nextInt(1000) > 1000 * (congestNum - storeConfig.getTimerCongestNumEachSlot()) / (storeConfig.getTimerCongestNumEachSlot() + 0.1)) {
             return true;
         }

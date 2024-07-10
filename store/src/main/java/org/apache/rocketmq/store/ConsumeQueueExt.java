@@ -83,6 +83,7 @@ public class ConsumeQueueExt {
 
         this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
 
+        // 默认传入 64 ，计算后 获取堆内存 8字节
         if (bitMapLength > 0) {
             this.tempContainer = ByteBuffer.allocate(
                 bitMapLength / Byte.SIZE

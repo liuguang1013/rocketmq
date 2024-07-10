@@ -154,19 +154,27 @@ public class DefaultMappedFile extends AbstractMappedFile {
         this.transientStorePool = transientStorePool;
     }
 
+    /**
+     * 文件映射
+     */
     private void init(final String fileName, final int fileSize) throws IOException {
         this.fileName = fileName;
         this.fileSize = fileSize;
+        // 创建文件
         this.file = new File(fileName);
+        // 文件名代表 文件开始偏移量
         this.fileFromOffset = Long.parseLong(this.file.getName());
         boolean ok = false;
-
+        // 确保文件夹存在
         UtilAll.ensureDirOK(this.file.getParent());
 
+        // 使用 mmap 文件映射
         try {
             this.fileChannel = new RandomAccessFile(this.file, "rw").getChannel();
             this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
+            // 增加 进程虚拟内存 映射的大小，每个commitlog 都是 1G
             TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(fileSize);
+            // 增加 内存映射文件的个数
             TOTAL_MAPPED_FILES.incrementAndGet();
             ok = true;
         } catch (FileNotFoundException e) {
@@ -712,6 +720,13 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return mappedByteBuffer;
     }
 
+    /**
+     * 创建 ByteBuffer 切片
+     * 共享原始 MappedByteBuffer 的底层数据
+     * 具有自己的位置（position）、界限（limit）和容量（capacity）
+     * MappedByteBuffer，其容量为100字节，位置在20字节处，界限在80字节处。
+     * 如果你在这个时候调用 slice() 方法，那么新创建的缓冲区将从20字节开始，到80字节结束，容量和界限均为60字节（即80-20），位置则被重置为0。
+     */
     @Override
     public ByteBuffer sliceByteBuffer() {
         this.mappedByteBufferAccessCountSinceLastSwap++;

@@ -48,10 +48,18 @@ public class TimerWheel {
     };
     private final int wheelLength;
 
+    /**
+     *
+     * @param fileName
+     * @param slotsTotal 总共槽位数：7 * 24 * 3600
+     * @param precisionMs 时间精度：1s
+     * @throws IOException
+     */
     public TimerWheel(String fileName, int slotsTotal, int precisionMs) throws IOException {
         this.slotsTotal = slotsTotal;
         this.precisionMs = precisionMs;
         this.fileName = fileName;
+        // 时间轮字节数
         this.wheelLength = this.slotsTotal * 2 * Slot.SIZE;
 
         File file = new File(fileName);
@@ -59,6 +67,7 @@ public class TimerWheel {
 
         try {
             randomAccessFile = new RandomAccessFile(this.fileName, "rw");
+            // 检查 时间轮文件 格式
             if (file.exists() && randomAccessFile.length() != 0 &&
                 randomAccessFile.length() != wheelLength) {
                 throw new RuntimeException(String.format("Timer wheel length:%d != expected:%s",
@@ -67,8 +76,11 @@ public class TimerWheel {
             randomAccessFile.setLength(wheelLength);
             fileChannel = randomAccessFile.getChannel();
             mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, wheelLength);
+            //
             assert wheelLength == mappedByteBuffer.remaining();
+            // 申请直接内存
             this.byteBuffer = ByteBuffer.allocateDirect(wheelLength);
+            // todo：这是把 直接 内存和 文件直接关联？
             this.byteBuffer.put(mappedByteBuffer);
         } catch (FileNotFoundException e) {
             log.error("create file channel " + this.fileName + " Failed. ", e);
@@ -114,6 +126,7 @@ public class TimerWheel {
 
     public Slot getSlot(long timeMs) {
         Slot slot = getRawSlot(timeMs);
+
         if (slot.timeMs != timeMs / precisionMs * precisionMs) {
             return new Slot(-1, -1, -1);
         }
@@ -122,12 +135,18 @@ public class TimerWheel {
 
     //testable
     public Slot getRawSlot(long timeMs) {
+        // 获取当前槽位，在整体字节数组中的偏移量
         localBuffer.get().position(getSlotIndex(timeMs) * Slot.SIZE);
+        // 构建 Slot 对象：
         return new Slot(localBuffer.get().getLong() * precisionMs,
-            localBuffer.get().getLong(), localBuffer.get().getLong(), localBuffer.get().getInt(), localBuffer.get().getInt());
+                localBuffer.get().getLong(),
+                localBuffer.get().getLong(),
+                localBuffer.get().getInt(),
+                localBuffer.get().getInt());
     }
 
     public int getSlotIndex(long timeMs) {
+        // 获取 槽下标
         return (int) (timeMs / precisionMs % (slotsTotal * 2));
     }
 

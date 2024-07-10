@@ -68,40 +68,59 @@ public class CompactionStore {
         this.defaultMessageStore = defaultMessageStore;
         this.compactionLogTable = new ConcurrentHashMap<>();
         MessageStoreConfig config = defaultMessageStore.getMessageStoreConfig();
+        // user.home/store/
         String storeRootPath = config.getStorePathRootDir();
         this.compactionPath = Paths.get(storeRootPath, COMPACTION_DIR).toString();
         this.compactionLogPath = Paths.get(compactionPath, COMPACTION_LOG_DIR).toString();
         this.compactionCqPath = Paths.get(compactionPath, COMPACTION_CQ_DIR).toString();
+        // 创建对象，并加载文件，解析出 队列偏移脸属性
         this.positionMgr = new CompactionPositionMgr(compactionPath);
-        this.compactionThreadNum = Math.min(Runtime.getRuntime().availableProcessors(), Math.max(1, config.getCompactionThreadNum()));
 
+        // 线程数
+        this.compactionThreadNum = Math.min(Runtime.getRuntime().availableProcessors(),
+                // 6
+                Math.max(1, config.getCompactionThreadNum()));
+
+        // 线程池创建
         this.compactionSchedule = ThreadUtils.newScheduledThreadPool(this.compactionThreadNum,
             new ThreadFactoryImpl("compactionSchedule_"));
+
+        // 100 M / 压缩线程数
         this.offsetMapSize = config.getMaxOffsetMapSize() / compactionThreadNum;
 
+        // 压缩间隔 默认 15 分钟
         this.compactionInterval = defaultMessageStore.getMessageStoreConfig().getCompactionScheduleInternal();
     }
 
+
+    /**
+     * 加载 压缩日志文件
+     */
     public void load(boolean exitOk) throws Exception {
+        // user.home/store/compactionLog
         File logRoot = new File(compactionLogPath);
         File[] fileTopicList = logRoot.listFiles();
         if (fileTopicList != null) {
+            // 遍历文件夹下，topic
             for (File fileTopic : fileTopicList) {
                 if (!fileTopic.isDirectory()) {
                     continue;
                 }
 
+                // 遍历 topic 下队列文件
                 File[] fileQueueIdList = fileTopic.listFiles();
                 if (fileQueueIdList != null) {
                     for (File fileQueueId : fileQueueIdList) {
+                        // todo：为啥此处消息队列是文件夹？
                         if (!fileQueueId.isDirectory()) {
                             continue;
                         }
                         try {
                             String topic = fileTopic.getName();
                             int queueId = Integer.parseInt(fileQueueId.getName());
-
+                            // 判断 对映topic下的消息队列文件 是否是目录
                             if (Files.isDirectory(Paths.get(compactionCqPath, topic, String.valueOf(queueId)))) {
+
                                 loadAndGetClog(topic, queueId);
                             } else {
                                 log.error("{}:{} compactionLog mismatch with compactionCq", topic, queueId);
@@ -144,12 +163,19 @@ public class CompactionStore {
     }
 
     private CompactionLog loadAndGetClog(String topic, int queueId) {
+        // 处理缓存值
         CompactionLog clog = compactionLogTable.compute(topic + "_" + queueId, (k, v) -> {
+            // 缓存值不存在
             if (v == null) {
                 try {
+                    // 创建压缩日志对象
                     v = new CompactionLog(defaultMessageStore, this, topic, queueId);
+                    // 执行加载方法
                     v.load(true);
+
+                    // 默认15分钟
                     int randomDelay = 1000 + new Random(System.currentTimeMillis()).nextInt(compactionInterval);
+                    // 定时任务中增加任务：
                     compactionSchedule.scheduleWithFixedDelay(v::doCompaction, compactionInterval + randomDelay, compactionInterval + randomDelay, TimeUnit.MILLISECONDS);
                 } catch (IOException e) {
                     log.error("create compactionLog exception: ", e);

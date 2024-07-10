@@ -33,9 +33,11 @@ public abstract class ConfigManager {
     public boolean load() {
         String fileName = null;
         try {
+            // 获取文件名
             fileName = this.configFilePath();
-            String jsonString = MixAll.file2String(fileName);
 
+            String jsonString = MixAll.file2String(fileName);
+            // 加载备份文件
             if (null == jsonString || jsonString.length() == 0) {
                 return this.loadBak();
             } else {

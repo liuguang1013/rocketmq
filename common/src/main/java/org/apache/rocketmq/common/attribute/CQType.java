@@ -18,7 +18,14 @@
 package org.apache.rocketmq.common.attribute;
 
 public enum CQType {
+    /**
+     * 简单消费队列，这是最常用的一种消费队列类型。它只包含消息的基本信息，如消息偏移量和消息大小等。
+     */
     SimpleCQ,
+    /**
+     * 批量消费队列
+     */
     BatchCQ,
+
     RocksDBCQ
 }

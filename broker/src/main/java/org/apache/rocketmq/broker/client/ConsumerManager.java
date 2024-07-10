@@ -56,8 +56,7 @@ public class ConsumerManager {
         this.subscriptionExpiredTimeout = expiredTimeout;
     }
 
-    public ConsumerManager(final ConsumerIdsChangeListener consumerIdsChangeListener,
-        final BrokerStatsManager brokerStatsManager, BrokerConfig brokerConfig) {
+    public ConsumerManager(final ConsumerIdsChangeListener consumerIdsChangeListener, final BrokerStatsManager brokerStatsManager, BrokerConfig brokerConfig) {
         this.consumerIdsChangeListenerList.add(consumerIdsChangeListener);
         this.brokerStatsManager = brokerStatsManager;
         this.channelExpiredTimeout = brokerConfig.getChannelExpiredTimeout();

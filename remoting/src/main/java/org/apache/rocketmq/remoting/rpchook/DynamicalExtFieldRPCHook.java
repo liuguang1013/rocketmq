@@ -21,6 +21,9 @@ import org.apache.rocketmq.common.MixAll;
 import org.apache.rocketmq.remoting.RPCHook;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
+/**
+ * brokerController 创建时候创建BrokerOuterAPI 中，创建 RpcClient 时候注册了和这个钩子函数
+ */
 public class DynamicalExtFieldRPCHook implements RPCHook {
 
     @Override

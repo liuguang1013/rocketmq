@@ -55,9 +55,11 @@ public class BloomFilter {
      * @param n num will mapping to bit
      */
     private BloomFilter(int f, int n) {
+        // 错误率 在 1-100 之间
         if (f < 1 || f >= 100) {
             throw new IllegalArgumentException("f must be greater or equal than 1 and less than 100");
         }
+        // 映射的位 的数量
         if (n < 1) {
             throw new IllegalArgumentException("n must be greater than 0");
         }
@@ -69,6 +71,7 @@ public class BloomFilter {
         // f = (1 - p)^k = e^(kln(1-p))
         // when p = 0.5, k = ln2 * (m/n), f = (1/2)^k = (0.618)^(m/n)
         double errorRate = f / 100.0;
+        // 向上取整
         this.k = (int) Math.ceil(logMN(0.5, errorRate));
 
         if (this.k < 1) {
@@ -299,6 +302,7 @@ public class BloomFilter {
     }
 
     protected double logMN(double m, double n) {
+        // n>=1    1<m<100
         return Math.log(n) / Math.log(m);
     }
 }

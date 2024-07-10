@@ -361,29 +361,33 @@ public class BrokerController {
         this.popMessageProcessor = new PopMessageProcessor(this);
         // 包含PopLongPollingService
         this.notificationProcessor = new NotificationProcessor(this);
+
         this.messageArrivingListener = new NotifyMessageArrivingListener(this.pullRequestHoldService, this.popMessageProcessor, this.notificationProcessor);
 
-        //
+        //处理器
         this.pollingInfoProcessor = new PollingInfoProcessor(this);
         this.ackMessageProcessor = new AckMessageProcessor(this);
         this.changeInvisibleTimeProcessor = new ChangeInvisibleTimeProcessor(this);
         this.sendMessageProcessor = new SendMessageProcessor(this);
         this.replyMessageProcessor = new ReplyMessageProcessor(this);
 
+        // 监听器
         this.consumerIdsChangeListener = new DefaultConsumerIdsChangeListener(this);
-
+        // 生产/消费者 管理器
         this.consumerManager = new ConsumerManager(this.consumerIdsChangeListener, this.brokerStatsManager, this.brokerConfig);
         this.producerManager = new ProducerManager(this.brokerStatsManager);
-
+        // 消费者过滤器 管理器：布隆过滤器
         this.consumerFilterManager = new ConsumerFilterManager(this);
         this.consumerOrderInfoManager = new ConsumerOrderInfoManager(this);
         this.popInflightMessageCounter = new PopInflightMessageCounter(this);
         this.clientHousekeepingService = new ClientHousekeepingService(this);
+
         this.broker2Client = new Broker2Client(this);
         this.scheduleMessageService = new ScheduleMessageService(this);
         this.coldDataPullRequestHoldService = new ColdDataPullRequestHoldService(this);
         this.coldDataCgCtrService = new ColdDataCgCtrService(this);
 
+        // broker 外部 API ：创建了 NettyRemotingClient，并封装成了 RpcClient
         if (nettyClientConfig != null) {
             this.brokerOuterAPI = new BrokerOuterAPI(nettyClientConfig);
         }
@@ -422,6 +426,7 @@ public class BrokerController {
             this.brokerConfig, this.nettyServerConfig, this.nettyClientConfig, this.messageStoreConfig
         );
 
+
         this.brokerStatsManager.setProduerStateGetter(new BrokerStatsManager.StateGetter() {
             @Override
             public boolean online(String instanceId, String group, String topic) {
@@ -444,6 +449,7 @@ public class BrokerController {
             }
         });
 
+        // 创建 broker 集群信息
         this.brokerMemberGroup = new BrokerMemberGroup(this.brokerConfig.getBrokerClusterName(), this.brokerConfig.getBrokerName());
         this.brokerMemberGroup.getBrokerAddrs().put(this.brokerConfig.getBrokerId(), this.getBrokerAddr());
 
@@ -787,16 +793,28 @@ public class BrokerController {
         return result;
     }
 
+    /**
+     * 初始化消息存储：
+     * 默认使用 commitlog 文件形式存储
+     * 创建 DefaultMessageStore ：创建 commitLog 及大量的相关服务
+     * 创建 timerMessageStore 定时消息存粗，并设置到 DefaultMessageStore 中
+     * @return
+     */
     public boolean initializeMessageStore() {
         boolean result = true;
         try {
             DefaultMessageStore defaultMessageStore;
             if (this.messageStoreConfig.isEnableRocksDBStore()) {
-                defaultMessageStore = new RocksDBMessageStore(this.messageStoreConfig, this.brokerStatsManager, this.messageArrivingListener, this.brokerConfig, topicConfigManager.getTopicConfigTable());
+                //RocksDBMessageStore 是一个基于 RocksDB 的消息存储实现，旨在提供一种使用键值数据库进行消息存储的替代方案。
+                defaultMessageStore = new RocksDBMessageStore(this.messageStoreConfig, this.brokerStatsManager,
+                        this.messageArrivingListener, this.brokerConfig, topicConfigManager.getTopicConfigTable());
             } else {
-                defaultMessageStore = new DefaultMessageStore(this.messageStoreConfig, this.brokerStatsManager, this.messageArrivingListener, this.brokerConfig, topicConfigManager.getTopicConfigTable());
+                //DefaultMessageStore 是 RocketMQ 的默认消息存储机制，基于文件系统进行消息存储。它使用了 CommitLog 和 ConsumeQueue 作为主要的存储结构
+                defaultMessageStore = new DefaultMessageStore(this.messageStoreConfig, this.brokerStatsManager,
+                        this.messageArrivingListener, this.brokerConfig, topicConfigManager.getTopicConfigTable());
             }
 
+            // 默认是 false
             if (messageStoreConfig.isEnableDLegerCommitLog()) {
                 DLedgerRoleChangeHandler roleChangeHandler =
                     new DLedgerRoleChangeHandler(this, defaultMessageStore);
@@ -809,12 +827,21 @@ public class BrokerController {
             // Load store plugin
             MessageStorePluginContext context = new MessageStorePluginContext(
                 messageStoreConfig, brokerStatsManager, messageArrivingListener, brokerConfig, configuration);
+
             this.messageStore = MessageStoreFactory.build(context, defaultMessageStore);
+            // todo：待看作用
+            // 消息存储和检索相关的组件，尤其涉及到消息的快速过滤和定位。这个类主要关注于优化消息的查找效率，
+            // 尤其是在大规模消息存储场景下，通过使用布隆过滤器（Bloom Filter）来加速消息过滤过程。
             this.messageStore.getDispatcherList().addFirst(new CommitLogDispatcherCalcBitMap(this.brokerConfig, this.consumerFilterManager));
+
+            // 默认时 true，定时消息的存储使用时间轮，可以自定义延迟
             if (messageStoreConfig.isTimerWheelEnable()) {
+
+
                 this.timerCheckpoint = new TimerCheckpoint(BrokerPathConfigHelper.getTimerCheckPath(messageStoreConfig.getStorePathRootDir()));
                 TimerMetrics timerMetrics = new TimerMetrics(BrokerPathConfigHelper.getTimerMetricsPath(messageStoreConfig.getStorePathRootDir()));
                 this.timerMessageStore = new TimerMessageStore(messageStore, messageStoreConfig, timerCheckpoint, timerMetrics, brokerStatsManager);
+
                 this.timerMessageStore.registerEscapeBridgeHook(msg -> escapeBridge.putMessage(msg));
                 this.messageStore.setTimerMessageStore(this.timerMessageStore);
             }
@@ -826,31 +853,34 @@ public class BrokerController {
     }
 
     public boolean initialize() throws CloneNotSupportedException {
-
+        // 初始化 元数据
         boolean result = this.initializeMetadata();
         if (!result) {
             return false;
         }
-
+        // 初始化消息存储
         result = this.initializeMessageStore();
         if (!result) {
             return false;
         }
 
+        // 恢复和初始化服务
         return this.recoverAndInitService();
     }
 
     public boolean recoverAndInitService() throws CloneNotSupportedException {
 
         boolean result = true;
-
+        // 启动控制器模式，支持自动切换代理的角色。默认 false
         if (this.brokerConfig.isEnableControllerMode()) {
             this.replicasManager = new ReplicasManager(this);
             this.replicasManager.setFenced(true);
         }
-
+        // 消息存储 注册钩子函数、加载相关文件
         if (messageStore != null) {
+            // 注册消息存储服务请求的相关钩子函数
             registerMessageStoreHook();
+            // 加载
             result = this.messageStore.load();
         }
 
@@ -932,6 +962,7 @@ public class BrokerController {
     }
 
     public void registerMessageStoreHook() {
+
         List<PutMessageHook> putMessageHookList = messageStore.getPutMessageHookList();
 
         putMessageHookList.add(new PutMessageHook() {
@@ -942,6 +973,7 @@ public class BrokerController {
 
             @Override
             public PutMessageResult executeBeforePutMessage(MessageExt msg) {
+                // 放入消息前的检查
                 return HookUtils.checkBeforePutMessage(BrokerController.this, msg);
             }
         });
@@ -954,6 +986,7 @@ public class BrokerController {
 
             @Override
             public PutMessageResult executeBeforePutMessage(MessageExt msg) {
+                // 消息属于 broker 内部消息，批量消息检查
                 if (msg instanceof MessageExtBrokerInner) {
                     return HookUtils.checkInnerBatch(BrokerController.this, msg);
                 }
@@ -969,6 +1002,7 @@ public class BrokerController {
 
             @Override
             public PutMessageResult executeBeforePutMessage(MessageExt msg) {
+                // 处理定时消息，向消息中添加属性值
                 if (msg instanceof MessageExtBrokerInner) {
                     return HookUtils.handleScheduleMessage(BrokerController.this, (MessageExtBrokerInner) msg);
                 }
@@ -979,6 +1013,7 @@ public class BrokerController {
         SendMessageBackHook sendMessageBackHook = new SendMessageBackHook() {
             @Override
             public boolean executeSendMessageBack(List<MessageExt> msgList, String brokerName, String brokerAddr) {
+                // 遍历消息列表，向指定的 broker 发送消息
                 return HookUtils.sendMessageBack(BrokerController.this, msgList, brokerName, brokerAddr);
             }
         };

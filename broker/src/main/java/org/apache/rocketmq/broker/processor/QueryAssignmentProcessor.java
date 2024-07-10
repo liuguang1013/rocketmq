@@ -64,12 +64,15 @@ public class QueryAssignmentProcessor implements NettyRequestProcessor {
 
         //register strategy
         //NOTE: init with broker's log instead of init with ClientLogger.getLog();
+        // 平均哈希队列算法
         AllocateMessageQueueAveragely allocateMessageQueueAveragely = new AllocateMessageQueueAveragely();
         name2LoadStrategy.put(allocateMessageQueueAveragely.getName(), allocateMessageQueueAveragely);
+        // 周期平均哈希队列算法
         AllocateMessageQueueAveragelyByCircle allocateMessageQueueAveragelyByCircle = new AllocateMessageQueueAveragelyByCircle();
         name2LoadStrategy.put(allocateMessageQueueAveragelyByCircle.getName(), allocateMessageQueueAveragelyByCircle);
 
         this.messageRequestModeManager = new MessageRequestModeManager(brokerController);
+        // 加载 messageRequestMode.json
         this.messageRequestModeManager.load();
     }
 

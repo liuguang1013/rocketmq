@@ -21,16 +21,37 @@ public enum PutMessageStatus {
     FLUSH_DISK_TIMEOUT,
     FLUSH_SLAVE_TIMEOUT,
     SLAVE_NOT_AVAILABLE,
+    /**
+     * HookUtils.checkBeforePutMessage
+     * 服务不可用情况：
+     * 1、消息存储服务已经关闭
+     * 2、钩子函数中，当前节点为从节点，并未开启冗余存储功能，返回该状态
+     */
     SERVICE_NOT_AVAILABLE,
     CREATE_MAPPED_FILE_FAILED,
+    /**
+     * HookUtils.checkBeforePutMessage
+     * 1、topic 长度检查失败
+     * 2、消息体为空
+     */
     MESSAGE_ILLEGAL,
     PROPERTIES_SIZE_EXCEEDED,
+    /**
+     * todo：使用背景
+     */
     OS_PAGE_CACHE_BUSY,
     UNKNOWN_ERROR,
     IN_SYNC_REPLICAS_NOT_ENOUGH,
     PUT_TO_REMOTE_BROKER_FAIL,
     LMQ_CONSUME_QUEUE_NUM_EXCEEDED,
+    /**
+     * HookUtils.handleScheduleMessage transformTimerMessage
+     * 触发时间轮流控
+     */
     WHEEL_TIMER_FLOW_CONTROL,
+    /**
+     *
+     */
     WHEEL_TIMER_MSG_ILLEGAL,
     WHEEL_TIMER_NOT_ENABLE
 }

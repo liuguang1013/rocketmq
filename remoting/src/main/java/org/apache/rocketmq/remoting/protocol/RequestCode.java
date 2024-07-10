@@ -59,6 +59,13 @@ public class RequestCode {
 
     public static final int CHECK_TRANSACTION_STATE = 39;
 
+    /**
+     * broker 启动时，
+     * new BrokerController 创建对象中，
+     * new DefaultConsumerIdsChangeListener 创建对象时，
+     * 定时任务 15 s 执行一次，遍历缓存 consumerChannelMap，
+     * 通过 Broker2Client，实际是 NettyRemotingServer 给消费者组下的每个消费者发送该请求，只发送一次
+     */
     public static final int NOTIFY_CONSUMER_IDS_CHANGED = 40;
 
     public static final int LOCK_BATCH_MQ = 41;
@@ -165,6 +172,16 @@ public class RequestCode {
     public static final int QUERY_CORRECTION_OFFSET = 308;
     public static final int CONSUME_MESSAGE_DIRECTLY = 309;
 
+    /**
+     * broker 启动时，
+     * createBrokerController
+     * initialize()
+     * recoverAndInitService()
+     * registerMessageStoreHook（）
+     * 向messageStore.setSendMessageBackHook(sendMessageBackHook);
+     *
+     * 遍历消息列表：给某个 broker 发送消息
+     */
     public static final int SEND_MESSAGE_V2 = 310;
 
     public static final int GET_UNIT_TOPIC_LIST = 311;

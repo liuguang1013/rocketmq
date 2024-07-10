@@ -58,20 +58,20 @@ public class HookUtils {
     private static final Integer MAX_TOPIC_LENGTH = 255;
 
     public static PutMessageResult checkBeforePutMessage(BrokerController brokerController, final MessageExt msg) {
+        // 消息存储是否关闭
         if (brokerController.getMessageStore().isShutdown()) {
             LOG.warn("message store has shutdown, so putMessage is forbidden");
             return new PutMessageResult(PutMessageStatus.SERVICE_NOT_AVAILABLE, null);
         }
-
+        // 从节点 并且未打开冗余存储功能
         if (!brokerController.getMessageStoreConfig().isDuplicationEnable() && BrokerRole.SLAVE == brokerController.getMessageStoreConfig().getBrokerRole()) {
             long value = PRINT_TIMES.getAndIncrement();
             if ((value % 50000) == 0) {
                 LOG.warn("message store is in slave mode, so putMessage is forbidden ");
             }
-
             return new PutMessageResult(PutMessageStatus.SERVICE_NOT_AVAILABLE, null);
         }
-
+        // 不可写
         if (!brokerController.getMessageStore().getRunningFlags().isWriteable()) {
             long value = PRINT_TIMES.getAndIncrement();
             if ((value % 50000) == 0) {
@@ -85,12 +85,13 @@ public class HookUtils {
 
         final byte[] topicData = msg.getTopic().getBytes(MessageDecoder.CHARSET_UTF8);
         boolean retryTopic = msg.getTopic() != null && msg.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX);
+        // 检查 topic 长度，不能大于127 字节
         if (!retryTopic && topicData.length > Byte.MAX_VALUE) {
             LOG.warn("putMessage message topic[{}] length too long {}, but it is not supported by broker",
                 msg.getTopic(), topicData.length);
             return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null);
         }
-
+        // topic 长度不能大于 255
         if (topicData.length > MAX_TOPIC_LENGTH) {
             LOG.warn("putMessage message topic[{}] length too long {}, but it is not supported by broker",
                 msg.getTopic(), topicData.length);
@@ -101,7 +102,8 @@ public class HookUtils {
             LOG.warn("putMessage message topic[{}], but message body is null", msg.getTopic());
             return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null);
         }
-
+        // 系统 PageCache 是否繁忙
+        // todo：待看
         if (brokerController.getMessageStore().isOSPageCacheBusy()) {
             return new PutMessageResult(PutMessageStatus.OS_PAGE_CACHE_BUSY, null);
         }
@@ -109,12 +111,13 @@ public class HookUtils {
     }
 
     public static PutMessageResult checkInnerBatch(BrokerController brokerController, final MessageExt msg) {
+        // 检查包含 INNER_NUM 属性，但是不存在值
         if (msg.getProperties().containsKey(MessageConst.PROPERTY_INNER_NUM)
             && !MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
             LOG.warn("[BUG]The message had property {} but is not an inner batch", MessageConst.PROPERTY_INNER_NUM);
             return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null);
         }
-
+        // 判断 topic 的配置中attributes 中是否存在 批量配置
         if (MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
             Optional<TopicConfig> topicConfig = Optional.ofNullable(brokerController.getTopicConfigManager().getTopicConfigTable().get(msg.getTopic()));
             if (!QueueTypeUtils.isBatchCq(topicConfig)) {
@@ -126,17 +129,32 @@ public class HookUtils {
         return null;
     }
 
-    public static PutMessageResult handleScheduleMessage(BrokerController brokerController,
-        final MessageExtBrokerInner msg) {
+    /**
+     * 为消息设置属性：
+     * PROPERTY_REAL_TOPIC
+     * PROPERTY_REAL_QUEUE_ID
+     * topic
+     * queueId
+     *
+     * 根据是否指定定时发送等级，分为：时间轮、定时发送等级两类
+     * 分别进行了相关的约束信息校验
+     */
+    public static PutMessageResult handleScheduleMessage(BrokerController brokerController, final MessageExtBrokerInner msg) {
+        // 获取事物消息类型
         final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
-        if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE
-            || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
+        // 不是事物消息、事物消息的提交类型
+        if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
+            // 判断 topic 不是 rmq_sys_wheel_timer
             if (!isRolledTimerMessage(msg)) {
+                // 判断消息指定 定时等级 返回 false
                 if (checkIfTimerMessage(msg)) {
+
                     if (!brokerController.getMessageStoreConfig().isTimerWheelEnable()) {
                         //wheel timer is not enabled, reject the message
+                        // 时间轮不允许，拒绝消息
                         return new PutMessageResult(PutMessageStatus.WHEEL_TIMER_NOT_ENABLE, null);
                     }
+                    // 当不满足条件时候，返回 PutMessageResult 对象
                     PutMessageResult transformRes = transformTimerMessage(brokerController, msg);
                     if (null != transformRes) {
                         return transformRes;
@@ -144,7 +162,9 @@ public class HookUtils {
                 }
             }
             // Delay Delivery
+            //
             if (msg.getDelayTimeLevel() > 0) {
+
                 transformDelayLevelMessage(brokerController, msg);
             }
         }
@@ -152,11 +172,14 @@ public class HookUtils {
     }
 
     private static boolean isRolledTimerMessage(MessageExtBrokerInner msg) {
+        // 定时消息
         return TimerMessageStore.TIMER_TOPIC.equals(msg.getTopic());
     }
 
     public static boolean checkIfTimerMessage(MessageExtBrokerInner msg) {
+        // 定时消息
         if (msg.getDelayTimeLevel() > 0) {
+            // 清除定时发送延迟 ms
             if (null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELIVER_MS)) {
                 MessageAccessor.clearProperty(msg, MessageConst.PROPERTY_TIMER_DELIVER_MS);
             }
@@ -170,10 +193,13 @@ public class HookUtils {
             //return this.defaultMessageStore.getMessageStoreConfig().isTimerInterceptDelayLevel();
         }
         //double check
+        // topic 是 rmq_sys_wheel_timer  或者 TIMER_OUT_MS 属性不为空
         if (TimerMessageStore.TIMER_TOPIC.equals(msg.getTopic()) || null != msg.getProperty(MessageConst.PROPERTY_TIMER_OUT_MS)) {
             return false;
         }
-        return null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELIVER_MS) || null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_MS) || null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC);
+        return null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELIVER_MS)
+                || null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_MS)
+                || null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC);
     }
 
     private static PutMessageResult transformTimerMessage(BrokerController brokerController,
@@ -181,6 +207,8 @@ public class HookUtils {
         //do transform
         int delayLevel = msg.getDelayTimeLevel();
         long deliverMs;
+
+        // 获取定时消息，发送时间
         try {
             if (msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC) != null) {
                 deliverMs = System.currentTimeMillis() + Long.parseLong(msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC)) * 1000;
@@ -192,35 +220,41 @@ public class HookUtils {
         } catch (Exception e) {
             return new PutMessageResult(PutMessageStatus.WHEEL_TIMER_MSG_ILLEGAL, null);
         }
+        // 大于当前时间
         if (deliverMs > System.currentTimeMillis()) {
+            // 定时发送时间大于 3天
             if (delayLevel <= 0 && deliverMs - System.currentTimeMillis() > brokerController.getMessageStoreConfig().getTimerMaxDelaySec() * 1000L) {
                 return new PutMessageResult(PutMessageStatus.WHEEL_TIMER_MSG_ILLEGAL, null);
             }
-
+            // 获取 精度 ：1s
             int timerPrecisionMs = brokerController.getMessageStoreConfig().getTimerPrecisionMs();
+            // 对时间进行
             if (deliverMs % timerPrecisionMs == 0) {
                 deliverMs -= timerPrecisionMs;
             } else {
                 deliverMs = deliverMs / timerPrecisionMs * timerPrecisionMs;
             }
-
+            // 判断时间轮存储 是否拒绝存储：
             if (brokerController.getTimerMessageStore().isReject(deliverMs)) {
                 return new PutMessageResult(PutMessageStatus.WHEEL_TIMER_FLOW_CONTROL, null);
             }
+            // 设置属性
             MessageAccessor.putProperty(msg, MessageConst.PROPERTY_TIMER_OUT_MS, deliverMs + "");
             MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_TOPIC, msg.getTopic());
             MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msg.getQueueId()));
             msg.setPropertiesString(MessageDecoder.messageProperties2String(msg.getProperties()));
             msg.setTopic(TimerMessageStore.TIMER_TOPIC);
             msg.setQueueId(0);
-        } else if (null != msg.getProperty(MessageConst.PROPERTY_TIMER_DEL_UNIQKEY)) {
+        }
+        // todo：为什么此处还要判断是够有这个属性？
+        else if (null != msg.getProperty(MessageConst.PROPERTY_TIMER_DEL_UNIQKEY)) {
             return new PutMessageResult(PutMessageStatus.WHEEL_TIMER_MSG_ILLEGAL, null);
         }
         return null;
     }
 
     public static void transformDelayLevelMessage(BrokerController brokerController, MessageExtBrokerInner msg) {
-
+        // 定时时间等级，不能超过最大 18
         if (msg.getDelayTimeLevel() > brokerController.getScheduleMessageService().getMaxDelayLevel()) {
             msg.setDelayTimeLevel(brokerController.getScheduleMessageService().getMaxDelayLevel());
         }
@@ -231,16 +265,20 @@ public class HookUtils {
         msg.setPropertiesString(MessageDecoder.messageProperties2String(msg.getProperties()));
 
         msg.setTopic(TopicValidator.RMQ_SYS_SCHEDULE_TOPIC);
+        // 队列 id ：delayLevel - 1;
         msg.setQueueId(ScheduleMessageService.delayLevel2QueueId(msg.getDelayTimeLevel()));
     }
 
-    public static boolean sendMessageBack(BrokerController brokerController, List<MessageExt> msgList,
-        String brokerName, String brokerAddr) {
+    /**
+     * 遍历消息：给某个 broker 发送消息
+     */
+    public static boolean sendMessageBack(BrokerController brokerController, List<MessageExt> msgList, String brokerName, String brokerAddr) {
         try {
             Iterator<MessageExt> it = msgList.iterator();
             while (it.hasNext()) {
                 MessageExt msg = it.next();
                 msg.setWaitStoreMsgOK(false);
+                //
                 brokerController.getBrokerOuterAPI().sendMessageToSpecificBroker(brokerAddr, brokerName, msg, "InnerSendMessageBackGroup", 3000);
                 it.remove();
             }

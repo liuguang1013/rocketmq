@@ -23,6 +23,7 @@ public interface SendMessageBackHook {
 
     /**
      * Slave send message back to master at certain offset when HA handshake
+     * 当HA握手时，从端以一定的偏移量将消息发送回主端
      *
      * @param msgList
      * @param brokerName
