@@ -411,13 +411,11 @@ public class MessageDecoder {
         return byteBuffer.array();
     }
 
-    public static MessageExt decode(
-        ByteBuffer byteBuffer, final boolean readBody, final boolean deCompressBody) {
+    public static MessageExt decode(ByteBuffer byteBuffer, final boolean readBody, final boolean deCompressBody) {
         return decode(byteBuffer, readBody, deCompressBody, false);
     }
 
-    public static MessageExt decode(
-        java.nio.ByteBuffer byteBuffer, final boolean readBody, final boolean deCompressBody, final boolean isClient) {
+    public static MessageExt decode(java.nio.ByteBuffer byteBuffer, final boolean readBody, final boolean deCompressBody, final boolean isClient) {
         return decode(byteBuffer, readBody, deCompressBody, isClient, false, false);
     }
 
@@ -427,51 +425,57 @@ public class MessageDecoder {
         return decode(byteBuffer, readBody, deCompressBody, isClient, isSetPropertiesString, false);
     }
 
-    public static MessageExt decode(
-        java.nio.ByteBuffer byteBuffer, final boolean readBody, final boolean deCompressBody, final boolean isClient,
-        final boolean isSetPropertiesString, final boolean checkCRC) {
+    /**
+     * 在 byteBuffer 中获取字节，并封装到 MessageExt 中
+     */
+    public static MessageExt decode(java.nio.ByteBuffer byteBuffer, final boolean readBody,
+                                    final boolean deCompressBody, final boolean isClient,
+                                    final boolean isSetPropertiesString, final boolean checkCRC) {
+
         try {
 
             MessageExt msgExt;
+            // CompactionLog 默认传入 false
             if (isClient) {
                 msgExt = new MessageClientExt();
             } else {
+                // 创建消息额外信息对象
                 msgExt = new MessageExt();
             }
 
-            // 1 TOTALSIZE
+            // 1 TOTALSIZE 4
             int storeSize = byteBuffer.getInt();
             msgExt.setStoreSize(storeSize);
 
-            // 2 MAGICCODE
+            // 2 MAGICCODE 4
             int magicCode = byteBuffer.getInt();
             MessageVersion version = MessageVersion.valueOfMagicCode(magicCode);
 
-            // 3 BODYCRC
+            // 3 BODYCRC 4
             int bodyCRC = byteBuffer.getInt();
             msgExt.setBodyCRC(bodyCRC);
 
-            // 4 QUEUEID
+            // 4 QUEUEID 4
             int queueId = byteBuffer.getInt();
             msgExt.setQueueId(queueId);
 
-            // 5 FLAG
+            // 5 FLAG 4
             int flag = byteBuffer.getInt();
             msgExt.setFlag(flag);
 
-            // 6 QUEUEOFFSET
+            // 6 QUEUEOFFSET 8
             long queueOffset = byteBuffer.getLong();
             msgExt.setQueueOffset(queueOffset);
 
-            // 7 PHYSICALOFFSET
+            // 7 PHYSICALOFFSET 8
             long physicOffset = byteBuffer.getLong();
             msgExt.setCommitLogOffset(physicOffset);
 
-            // 8 SYSFLAG
+            // 8 SYSFLAG 4
             int sysFlag = byteBuffer.getInt();
             msgExt.setSysFlag(sysFlag);
 
-            // 9 BORNTIMESTAMP
+            // 9 BORNTIMESTAMP 8
             long bornTimeStamp = byteBuffer.getLong();
             msgExt.setBornTimestamp(bornTimeStamp);
 
@@ -493,7 +497,7 @@ public class MessageDecoder {
             port = byteBuffer.getInt();
             msgExt.setStoreHost(new InetSocketAddress(InetAddress.getByAddress(storeHost), port));
 
-            // 13 RECONSUMETIMES
+            // 13 RECONSUMETIMES 重新消费次数
             int reconsumeTimes = byteBuffer.getInt();
             msgExt.setReconsumeTimes(reconsumeTimes);
 

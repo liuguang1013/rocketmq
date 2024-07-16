@@ -108,7 +108,7 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
             this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
         }
 
-        // 创建 46 字节的  堆内存
+        // 创建 46 字节的  堆内存：用于文件结尾写最后46字节数据
         this.byteBufferItem = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
     }
 

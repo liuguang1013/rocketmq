@@ -49,7 +49,13 @@ public class CompactionStore {
     public static final String COMPACTION_LOG_DIR = "compactionLog";
     public static final String COMPACTION_CQ_DIR = "compactionCq";
 
+    /**
+     *
+     */
     private final String compactionPath;
+    /**
+     *
+     */
     private final String compactionLogPath;
     private final String compactionCqPath;
     private final DefaultMessageStore defaultMessageStore;
@@ -111,7 +117,7 @@ public class CompactionStore {
                 File[] fileQueueIdList = fileTopic.listFiles();
                 if (fileQueueIdList != null) {
                     for (File fileQueueId : fileQueueIdList) {
-                        // todo：为啥此处消息队列是文件夹？
+                        // todo：为啥此处消息队列是文件夹？ 一个队列下存在多个文件
                         if (!fileQueueId.isDirectory()) {
                             continue;
                         }
@@ -120,7 +126,7 @@ public class CompactionStore {
                             int queueId = Integer.parseInt(fileQueueId.getName());
                             // 判断 对映topic下的消息队列文件 是否是目录
                             if (Files.isDirectory(Paths.get(compactionCqPath, topic, String.valueOf(queueId)))) {
-
+                                // 加载获取压缩日志文件
                                 loadAndGetClog(topic, queueId);
                             } else {
                                 log.error("{}:{} compactionLog mismatch with compactionCq", topic, queueId);
@@ -136,7 +142,7 @@ public class CompactionStore {
             }
         }
         log.info("compactionStore {}:{} load completed.", compactionLogPath, compactionCqPath);
-
+        // 开启定时任务：30s 执行一次，扫描所有 topic 配置
         compactionSchedule.scheduleWithFixedDelay(this::scanAllTopicConfig, scanInterval, scanInterval, TimeUnit.MILLISECONDS);
         log.info("loop to scan all topicConfig with fixed delay {}ms", scanInterval);
     }
@@ -150,8 +156,11 @@ public class CompactionStore {
                 TopicConfig topicConfig = it.getValue();
                 CleanupPolicy policy = CleanupPolicyUtils.getDeletePolicy(Optional.ofNullable(topicConfig));
                 //check topic flag
+                // 检查清除策略：为压缩
                 if (Objects.equals(policy, CleanupPolicy.COMPACTION)) {
+
                     for (int queueId = 0; queueId < topicConfig.getWriteQueueNums(); queueId++) {
+
                         loadAndGetClog(it.getKey(), queueId);
                     }
                 }

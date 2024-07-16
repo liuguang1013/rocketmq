@@ -147,8 +147,8 @@ public class DefaultMappedFile extends AbstractMappedFile {
     }
 
     @Override
-    public void init(final String fileName, final int fileSize,
-        final TransientStorePool transientStorePool) throws IOException {
+    public void init(final String fileName, final int fileSize, final TransientStorePool transientStorePool) throws IOException {
+
         init(fileName, fileSize);
         this.writeBuffer = transientStorePool.borrowBuffer();
         this.transientStorePool = transientStorePool;
@@ -251,10 +251,15 @@ public class DefaultMappedFile extends AbstractMappedFile {
         assert cb != null;
 
         int currentPos = WROTE_POSITION_UPDATER.get(this);
+        // 文件未写满
         if (currentPos < this.fileSize) {
             ByteBuffer byteBuffer = appendMessageBuffer().slice();
+            // 指定写指针位置
             byteBuffer.position(currentPos);
-            AppendMessageResult result = cb.doAppend(byteBuffer, this.fileFromOffset, this.fileSize - currentPos, byteBufferMsg);
+
+            AppendMessageResult result = cb.doAppend(byteBuffer, this.fileFromOffset,
+                    this.fileSize - currentPos, byteBufferMsg);
+            // 更新写指针的位置
             WROTE_POSITION_UPDATER.addAndGet(this, result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
             return result;
@@ -305,6 +310,9 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
     }
 
+    /**
+     * 获取 ByteBuffer
+     */
     protected ByteBuffer appendMessageBuffer() {
         this.mappedByteBufferAccessCountSinceLastSwap++;
         return writeBuffer != null ? writeBuffer : this.mappedByteBuffer;
@@ -366,11 +374,15 @@ public class DefaultMappedFile extends AbstractMappedFile {
     }
 
     /**
-     * @return The current flushed position
+     *
+     * @param flushLeastPages the least pages to flush  最少刷新的数据页数
+     * @return
      */
     @Override
     public int flush(final int flushLeastPages) {
+        // 文件写满 或者 写的数据页 - 刷新的数据页 >= 最少刷新的数据页数 可以刷新
         if (this.isAbleToFlush(flushLeastPages)) {
+
             if (this.hold()) {
                 int value = getReadPosition();
 
@@ -448,11 +460,13 @@ public class DefaultMappedFile extends AbstractMappedFile {
         int flush = FLUSHED_POSITION_UPDATER.get(this);
         int write = getReadPosition();
 
+        // 文件写满可以刷新
         if (this.isFull()) {
             return true;
         }
 
         if (flushLeastPages > 0) {
+            //   4K  写的数据页 - 刷新的数据页 >= 最少刷新的数据页数
             return ((write / OS_PAGE_SIZE) - (flush / OS_PAGE_SIZE)) >= flushLeastPages;
         }
 
@@ -565,6 +579,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
                 log.info("close file channel " + this.fileName + " OK");
 
                 long beginTime = System.currentTimeMillis();
+                // 删除文件
                 boolean result = this.file.delete();
                 log.info("delete file[REF:" + this.getRefCount() + "] " + this.fileName
                     + (result ? " OK, " : " Failed, ") + "W:" + this.getWrotePosition() + " M:"
@@ -596,6 +611,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
 
     /**
      * @return The max position which have valid data
+     * 获取 最大的可读的位置
      */
     @Override
     public int getReadPosition() {
@@ -799,6 +815,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
                         this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
                     }
                 } else {
+                    //
                     Files.move(Paths.get(fileName), newFilePath, StandardCopyOption.ATOMIC_MOVE);
                 }
                 this.fileName = newFileName;
@@ -895,6 +912,10 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return true;
     }
 
+    /**
+     * 自定义遍历器
+     * 用于遍历 ByteBuffer
+     */
     private class Itr implements Iterator<SelectMappedBufferResult> {
         private int start;
         private int current;
@@ -909,20 +930,27 @@ public class DefaultMappedFile extends AbstractMappedFile {
 
         @Override
         public boolean hasNext() {
+            // 获取 WROTE_POSITION_UPDATER ，当 load 函数加载写满的文件后，会将 WROTE_POSITION_UPDATER 设置为写满文件的大小
             return current < getReadPosition();
         }
 
         @Override
         public SelectMappedBufferResult next() {
+            // 获取可读的指针位置
             int readPosition = getReadPosition();
             if (current < readPosition && current >= 0) {
                 if (hold()) {
                     ByteBuffer byteBuffer = buf.slice();
+                    // 重置读取的位置到 之前读的位置
                     byteBuffer.position(current);
+                    // 获取消息的大小 ：是 46 吗？通过解码来看很明显不是 46字节
                     int size = byteBuffer.getInt(current);
                     ByteBuffer bufferResult = byteBuffer.slice();
+                    // 设置消息可以读的最大位置
                     bufferResult.limit(size);
+                    // 当前指针向后移动读取数据
                     current += size;
+                    // startOffset = 文件第一个消息的偏移量+ 当前消息的偏移量
                     return new SelectMappedBufferResult(fileFromOffset + current, bufferResult, size,
                         DefaultMappedFile.this);
                 }

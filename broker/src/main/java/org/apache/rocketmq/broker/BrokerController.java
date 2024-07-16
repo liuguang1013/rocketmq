@@ -816,10 +816,12 @@ public class BrokerController {
 
             // 默认是 false
             if (messageStoreConfig.isEnableDLegerCommitLog()) {
-                DLedgerRoleChangeHandler roleChangeHandler =
-                    new DLedgerRoleChangeHandler(this, defaultMessageStore);
+                DLedgerRoleChangeHandler roleChangeHandler = new DLedgerRoleChangeHandler(this, defaultMessageStore);
+
                 ((DLedgerCommitLog) defaultMessageStore.getCommitLog())
-                    .getdLedgerServer().getDLedgerLeaderElector().addRoleChangeHandler(roleChangeHandler);
+                    .getdLedgerServer()
+                        .getDLedgerLeaderElector()
+                        .addRoleChangeHandler(roleChangeHandler);
             }
 
             this.brokerStats = new BrokerStats(defaultMessageStore);
@@ -828,6 +830,7 @@ public class BrokerController {
             MessageStorePluginContext context = new MessageStorePluginContext(
                 messageStoreConfig, brokerStatsManager, messageArrivingListener, brokerConfig, configuration);
 
+            // 将 DefaultMessageStore 赋值  this.messageStore
             this.messageStore = MessageStoreFactory.build(context, defaultMessageStore);
             // todo：待看作用
             // 消息存储和检索相关的组件，尤其涉及到消息的快速过滤和定位。这个类主要关注于优化消息的查找效率，

@@ -283,8 +283,10 @@ public class MappedFileQueue implements Swappable {
 
             try {
                 // 创建 mmap 文件映射 内存区域：
+                // 此种方式并未指定 TransientStorePool
                 MappedFile mappedFile = new DefaultMappedFile(file.getPath(), mappedFileSize);
-
+                // 设置 mappedFile 已经写、提交的位置，在遍历的时候会获取该值，
+                // 例如 getOffsetMap 遍历 mappedFile 使用自定义的 iterator 中，hasNext会使用到
                 mappedFile.setWrotePosition(this.mappedFileSize);
                 mappedFile.setFlushedPosition(this.mappedFileSize);
                 mappedFile.setCommittedPosition(this.mappedFileSize);
@@ -314,17 +316,19 @@ public class MappedFileQueue implements Swappable {
     }
 
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
+        // 创建新文件的时候，开始的偏移量
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
 
+        //
         if (mappedFileLast == null) {
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
-
+        // 最后一个文件写满了
         if (mappedFileLast != null && mappedFileLast.isFull()) {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
-
+        // 创建新的 文件
         if (createOffset != -1 && needCreate) {
             return tryCreateMappedFile(createOffset);
         }
@@ -337,10 +341,12 @@ public class MappedFileQueue implements Swappable {
     }
 
     public boolean isEmptyOrCurrentFileFull() {
+
         MappedFile mappedFileLast = getLastMappedFile();
         if (mappedFileLast == null) {
             return true;
         }
+        // 判断是够 写满
         if (mappedFileLast.isFull()) {
             return true;
         }
@@ -362,12 +368,17 @@ public class MappedFileQueue implements Swappable {
         String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
         String nextNextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset
                 + this.mappedFileSize);
+        // 创建 内存映射文件
         return doCreateMappedFile(nextFilePath, nextNextFilePath);
     }
 
+    /**
+     * 创建映射文件
+     */
     protected MappedFile doCreateMappedFile(String nextFilePath, String nextNextFilePath) {
         MappedFile mappedFile = null;
 
+        // allocateMappedFileService 作用：创建当前文件，及下个文件，并进行预热。内部通过阻塞队列+循环完成
         if (this.allocateMappedFileService != null) {
             mappedFile = this.allocateMappedFileService.putRequestAndReturnMappedFile(nextFilePath,
                     nextNextFilePath, this.mappedFileSize);
@@ -390,13 +401,16 @@ public class MappedFileQueue implements Swappable {
     }
 
     public MappedFile getLastMappedFile(final long startOffset) {
+
         return getLastMappedFile(startOffset, true);
     }
 
     public MappedFile getLastMappedFile() {
         MappedFile mappedFileLast = null;
+
         while (!this.mappedFiles.isEmpty()) {
             try {
+                //todo：什么情况下会导致是 获取不到？
                 mappedFileLast = this.mappedFiles.get(this.mappedFiles.size() - 1);
                 break;
             } catch (IndexOutOfBoundsException e) {

@@ -24,6 +24,7 @@ public abstract class ReferenceResource {
     protected volatile boolean cleanupOver = false;
     private volatile long firstShutdownTimestamp = 0;
 
+
     public synchronized boolean hold() {
         if (this.isAvailable()) {
             if (this.refCount.getAndIncrement() > 0) {
@@ -59,7 +60,7 @@ public abstract class ReferenceResource {
             return;
 
         synchronized (this) {
-
+            // 清除
             this.cleanupOver = this.cleanup(value);
         }
     }

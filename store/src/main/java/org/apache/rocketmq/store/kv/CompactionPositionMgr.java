@@ -37,6 +37,7 @@ public class CompactionPositionMgr extends ConfigManager {
 
     public CompactionPositionMgr(final String compactionPath) {
         this.compactionPath = compactionPath;
+        //      user.home/store/compaction/position-checkpoint
         this.checkpointFileName = compactionPath + File.separator + CHECKPOINT_FILE;
         // 加载文件内容，并解析成 queueOffsetMap 属性
         this.load();

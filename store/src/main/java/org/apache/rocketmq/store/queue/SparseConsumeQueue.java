@@ -245,6 +245,7 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
     private void cacheOffset(MappedFile file, Function<MappedFile, BatchOffsetIndex> offsetGetFunc) {
         try {
             BatchOffsetIndex offset = offsetGetFunc.apply(file);
+
             if (offset != null) {
                 this.offsetCache.put(offset.getMsgOffset(), offset.getMappedFile());
                 this.timeCache.put(offset.getStoreTimestamp(), offset.getMappedFile());
@@ -263,9 +264,15 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         }
     }
 
+    /**
+     * 在文件结尾放入 46字节的空白信息
+     * @param mappedFile
+     */
     public void putEndPositionInfo(MappedFile mappedFile) {
         // cache max offset
+        // 未写满：写指针 ！= 文件大小
         if (!mappedFile.isFull()) {
+            //
             this.byteBufferItem.flip();
             this.byteBufferItem.limit(CQ_STORE_UNIT_SIZE);
             this.byteBufferItem.putLong(-1);
@@ -276,12 +283,13 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
             this.byteBufferItem.putShort((short)0);
             this.byteBufferItem.putInt(INVALID_POS);
             this.byteBufferItem.putInt(0); // 4 bytes reserved
+            // 将字节数组写到文件中
             boolean appendRes = mappedFile.appendMessage(this.byteBufferItem.array());
             if (!appendRes) {
                 log.error("append end position info into {} failed", mappedFile.getFileName());
             }
         }
-
+        // 缓存偏移量信息
         cacheOffset(mappedFile, m -> getMaxMsgOffset(m, false, true));
     }
 
@@ -360,13 +368,22 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         }
 
         ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
+        // 遍历一次，字节数 减少一个单位的字节数（46）
+        // 但实际上只会读取最后一个存储单位
         for (int i = mappedFile.getReadPosition() - CQ_STORE_UNIT_SIZE; i >= 0; i -= CQ_STORE_UNIT_SIZE) {
+            // 定位到
             byteBuffer.position(i);
+            // 8
             long offset = byteBuffer.getLong();
+            // 4
             int size = byteBuffer.getInt();
+            // 8
             byteBuffer.getLong();   //tagscode
+            // 8
             long timestamp = byteBuffer.getLong();//timestamp
+            // 8
             long msgBaseOffset = byteBuffer.getLong();
+            // 2
             short batchSize = byteBuffer.getShort();
             if (offset >= 0 && size > 0 && msgBaseOffset >= 0 && batchSize > 0) {
 //                mappedFile.setWrotePosition(i + CQ_STORE_UNIT_SIZE);
@@ -389,7 +406,7 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         if (mappedFile == null) {
             return -1;
         }
-        //
+        // 获取最大偏移量
         BatchOffsetIndex max = getMaxMsgOffset(mappedFile, false, false);
         if (max == null) {
             return -1;

@@ -78,7 +78,13 @@ public class CompactionLog {
 
     private final int compactionLogMappedFileSize;
     private final int compactionCqMappedFileSize;
+    /**
+     * user.home/store/compaction/compactionLog/topic/queueId
+     */
     private final String compactionLogFilePath;
+    /**
+     * user.home/store/compaction/compactionCq/topic/queueId
+     */
     private final String compactionCqFilePath;
     private final MessageStore defaultMessageStore;
     private final CompactionStore compactionStore;
@@ -101,7 +107,7 @@ public class CompactionLog {
         this.defaultMessageStore = messageStore;
         this.compactionStore = compactionStore;
         this.messageStoreConfig = messageStore.getMessageStoreConfig();
-        //  每个线程 处理的 OffsetMapSize
+        //  每个线程 处理的 OffsetMapSize ： 100 M / 压缩线程数
         this.offsetMapMemorySize = compactionStore.getOffsetMapSize();
 
         // 每个压缩消息队列 映射文件大小 = 10 M / 每条存储数据固定大小 46 字节 * 每条存储数据固定大小 46 字节
@@ -333,11 +339,16 @@ public class CompactionLog {
         return offset + compactionLogMappedFileSize - offset % compactionLogMappedFileSize;
     }
 
+    /**
+     * 通过对比 消息的和 消息偏移量缓存的 偏移量，来判断是够保留消息
+     * todo：这个偏移量，是相对于哪里的偏移量
+     */
     boolean shouldRetainMsg(final MessageExt msgExt, final OffsetMap map) throws DigestException {
+        // 消息的偏移量，大于 map 中最大的偏移量
         if (msgExt.getQueueOffset() > map.getLastOffset()) {
             return true;
         }
-
+        //
         String key = msgExt.getKeys();
         if (StringUtils.isNotBlank(key)) {
             boolean keyNotExistOrOffsetBigger = msgExt.getQueueOffset() >= map.get(key);
@@ -350,9 +361,10 @@ public class CompactionLog {
     }
 
     public void checkAndPutMessage(final SelectMappedBufferResult selectMappedBufferResult, final MessageExt msgExt,
-        final OffsetMap offsetMap, final TopicPartitionLog tpLog)
-        throws DigestException {
+        final OffsetMap offsetMap, final TopicPartitionLog tpLog) throws DigestException {
+        // 判断是否保留消息： 通过对比 消息的和 消息偏移量缓存的 偏移量，来判断是够保留消息
         if (shouldRetainMsg(msgExt, offsetMap)) {
+            // 异步保存消息
             asyncPutMessage(selectMappedBufferResult.getByteBuffer(), msgExt, tpLog);
         }
     }
@@ -369,6 +381,7 @@ public class CompactionLog {
 
     public CompletableFuture<PutMessageResult> asyncPutMessage(final ByteBuffer msgBuffer,
         final MessageExt msgExt, final TopicPartitionLog tpLog) {
+
         return asyncPutMessage(msgBuffer, msgExt.getTopic(), msgExt.getQueueId(),
             msgExt.getQueueOffset(), msgExt.getMsgId(), msgExt.getKeys(),
             MessageExtBrokerInner.tagsString2tagsCode(msgExt.getTags()), msgExt.getStoreTimestamp(), tpLog);
@@ -388,10 +401,12 @@ public class CompactionLog {
             dispatchRequest.getTagsCode(), dispatchRequest.getStoreTimestamp(), tpLog);
     }
 
-    public CompletableFuture<PutMessageResult> asyncPutMessage(final ByteBuffer msgBuffer,
-        String topic, int queueId, long queueOffset, String msgId, String keys, long tagsCode, long storeTimestamp, final TopicPartitionLog tpLog) {
+    public CompletableFuture<PutMessageResult> asyncPutMessage(final ByteBuffer msgBuffer
+            , String topic, int queueId, long queueOffset, String msgId, String keys
+            , long tagsCode, long storeTimestamp, final TopicPartitionLog tpLog) {
 
         // fix duplicate
+        // todo： 待看
         if (tpLog.getCQ().getMaxOffsetInQueue() - 1 >= queueOffset) {
             return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null));
         }
@@ -404,19 +419,21 @@ public class CompactionLog {
         putMessageLock.lock();
         try {
             long beginTime = System.nanoTime();
-
+            // 文件夹下的最后一个文件，不存在或已经写满
             if (tpLog.isEmptyOrCurrentFileFull()) {
                 try {
+                    // 创建新的 内存映射文件、消息队列
                     tpLog.roll();
                 } catch (IOException e) {
                     log.error("create mapped file or consumerQueue exception: ", e);
                     return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPPED_FILE_FAILED, null));
                 }
             }
-
+            // 获取最后一个 文件
             MappedFile mappedFile = tpLog.getLog().getLastMappedFile();
 
             CompactionAppendMsgCallback callback = new CompactionAppendMessageCallback(topic, queueId, tagsCode, storeTimestamp, tpLog.getCQ());
+            // 向最后一个文件写入消息
             AppendMessageResult result = mappedFile.appendMessage(msgBuffer, callback);
 
             switch (result.getStatus()) {
@@ -424,6 +441,7 @@ public class CompactionLog {
                     break;
                 case END_OF_FILE:
                     try {
+                        // 创建新的文件
                         tpLog.roll();
                     } catch (IOException e) {
                         log.error("create mapped file2 error, topic: {}, msgId: {}", topic, msgId);
@@ -613,6 +631,8 @@ public class CompactionLog {
             MappedFile mf = mappedFileList.get(i);
             // 获取 SparseConsumeQueue 队列的 最大的消息偏移量
             long maxQueueOffsetInFile = getCQ().getMaxMsgOffsetFromFile(mf.getFile().getName());
+            // 大于检查点，检查点文件
+            // 保存在 user.home/store/compaction/position-checkpoint 文件中，创建 CompactionPositionMgr 对象就进行了加载
             if (maxQueueOffsetInFile > positionMgr.getOffset(topic, queueId)) {
                 newFiles.add(mf);
             }
@@ -631,10 +651,15 @@ public class CompactionLog {
         }
 
         long startTime = System.nanoTime();
+        // 传入检查点以后的文件，获取偏移量集合，对相同的消息进行偏移量压缩，记录后面的偏移量
         OffsetMap offsetMap = getOffsetMap(compactFiles.newFiles);
+        // 压缩 compactionLog 下的文件
         compaction(compactFiles.toCompactFiles, offsetMap);
+        // 替换文件
         replaceFiles(compactFiles.toCompactFiles, current, compacting);
+        // 设置最大偏移量
         positionMgr.setOffset(topic, queueId, offsetMap.lastOffset);
+        // 持久化
         positionMgr.persist();
         compacting.clean(false, false);
         log.info("this compaction elapsed {} milliseconds",
@@ -659,19 +684,26 @@ public class CompactionLog {
     }
 
     protected OffsetMap getOffsetMap(List<MappedFile> mappedFileList) throws NoSuchAlgorithmException, DigestException {
+        // 100 M / 压缩线程数（6与服务器核数最小值）
         OffsetMap offsetMap = new OffsetMap(offsetMapMemorySize);
 
+        // 遍历所有的 mappedFile 并对相邻的相同的消息进行 压缩。
+        // 即使不相邻，相同的 keys 后面的 偏移量也会 覆盖前面的
         for (MappedFile mappedFile : mappedFileList) {
             Iterator<SelectMappedBufferResult> iterator = mappedFile.iterator(0);
             while (iterator.hasNext()) {
                 SelectMappedBufferResult smb = null;
                 try {
+                    // 将在 CompactionLog 文件中的 某个消息的 bytebuffer 进行封装
                     smb = iterator.next();
                     //decode bytebuffer
+                    // 在  byteBuffer 中获取字节，并封装到 MessageExt 中
                     MessageExt msg = MessageDecoder.decode(smb.getByteBuffer(), true, false);
                     if (msg != null) {
                         ////get key & offset and put to offsetMap
                         if (msg.getQueueOffset() > positionMgr.getOffset(topic, queueId)) {
+                            // 将 msg 中 KEYS 属性、队列偏移量，保存到
+                            // todo： msg 中 KEYS 属性 是啥？
                             offsetMap.put(msg.getKeys(), msg.getQueueOffset());
                         }
                     } else {
@@ -693,25 +725,37 @@ public class CompactionLog {
 
     protected void putEndMessage(MappedFileQueue mappedFileQueue) {
         MappedFile lastFile = mappedFileQueue.getLastMappedFile();
+        // 文件未写满
         if (!lastFile.isFull()) {
             lastFile.appendMessage(ByteBuffer.allocate(0), endMsgCallback);
         }
     }
 
+    /**
+     * @param mappedFileList   /compactionLog 文件夹下的文件
+     * @param offsetMap     偏移量大于position-checkpoint 的文件 封装的 map，对相同keys 的消息，保留最后一次 偏移量
+     * @throws DigestException
+     */
     protected void compaction(List<MappedFile> mappedFileList, OffsetMap offsetMap) throws DigestException {
+        // topic 分区日志，在原有的 user.home/store/compaction/compactionCq/topic/queueId 下 创建子目录 /compacting
+        // 符合条件的消息将被 添加到 子目录下的消息队列 中
         compacting = new TopicPartitionLog(this, COMPACTING_SUB_FOLDER);
 
+        // 遍历
         for (MappedFile mappedFile : mappedFileList) {
             Iterator<SelectMappedBufferResult> iterator = mappedFile.iterator(0);
             while (iterator.hasNext()) {
                 SelectMappedBufferResult smb = null;
                 try {
+                    // 在文件 byteBuffer 中获取一个消息
                     smb = iterator.next();
+                    // 解析消息，并解析消息体
                     MessageExt msgExt = MessageDecoder.decode(smb.getByteBuffer(), true, true);
                     if (msgExt == null) {
                         // file end
                         break;
                     } else {
+                        //
                         checkAndPutMessage(smb, msgExt, offsetMap, compacting);
                     }
                 } finally {
@@ -721,9 +765,15 @@ public class CompactionLog {
                 }
             }
         }
+        // todo： 不知道干啥
         putEndMessage(compacting.getLog());
     }
 
+    /**
+     * 替换文件：log、cq
+     * log文件：将上层文件夹原有的 log 文件，置为.delete 结尾，然后将文件夹文件移到上层
+     * cq 文件：消息队列文件的替换是加锁的。
+     */
     protected void replaceFiles(List<MappedFile> mappedFileList, TopicPartitionLog current,
         TopicPartitionLog newLog) {
 
@@ -740,11 +790,15 @@ public class CompactionLog {
             .map(mf -> mf.getFile().getName())
             .collect(Collectors.toList());
 
+        // 将当前文件夹下文件重命名为 .delete 结尾
         mappedFileList.forEach(MappedFile::renameToDelete);
 
         src.getMappedFiles().forEach(mappedFile -> {
             try {
+                // 刷新数据到磁盘
+                // 清除 mappedFile 相关的信息：总映射的虚拟内存、总映射文件数
                 mappedFile.flush(0);
+                // 将文件移到上层文件夹
                 mappedFile.moveToParent();
             } catch (IOException e) {
                 log.error("move file {} to parent directory exception: ", mappedFile.getFileName());
@@ -762,7 +816,7 @@ public class CompactionLog {
             dest.getMappedFiles().clear();
             dest.getMappedFiles().addAll(src.getMappedFiles());
             src.getMappedFiles().clear();
-
+            // 替换消息队列文件
             replaceCqFiles(getCQ(), newLog.getCQ(), fileNameToReplace);
 
             log.info("replace file elapsed {} milliseconds",
@@ -870,11 +924,15 @@ public class CompactionLog {
         @Override
         public AppendMessageResult doAppend(ByteBuffer bbDest, long fileFromOffset, int maxBlank, ByteBuffer bbSrc) {
 
+            // 获取消息长度
             final int msgLen = bbSrc.getInt(0);
+
             MappedFile bcqMappedFile = bcq.getMappedFileQueue().getLastMappedFile();
+            // 文件只剩最后一个消息大小 或者 消息大小+8字节文件结尾空白长度 大于剩余长度
             if (bcqMappedFile.getWrotePosition() + BatchConsumeQueue.CQ_STORE_UNIT_SIZE >= bcqMappedFile.getFileSize()
                 || (msgLen + END_FILE_MIN_BLANK_LENGTH) > maxBlank) {      //bcq will full or log will full
 
+                // 在文件结尾放入空白的的 46 字符
                 bcq.putEndPositionInfo(bcqMappedFile);
 
                 bbDest.putInt(maxBlank);
@@ -893,6 +951,7 @@ public class CompactionLog {
             bbDest.put(bbSrc);
             bbDest.putLong(destPos + logicOffsetPos + 8, physicalOffset);       //replace physical offset
 
+            // 向消息队列中，添加元素   原来文件 -> 压缩文件
             boolean result = bcq.putBatchMessagePositionInfo(physicalOffset, msgLen,
                 tagsCode, storeTimestamp, logicOffset, (short)1);
             if (!result) {
@@ -902,6 +961,9 @@ public class CompactionLog {
         }
     }
 
+    /**
+     *
+     */
     static class OffsetMap {
         private final ByteBuffer dataBytes;
         private final int capacity;
@@ -914,39 +976,61 @@ public class CompactionLog {
         private final byte[] hash2;
 
         public OffsetMap(int memorySize) throws NoSuchAlgorithmException {
+            //  MessageDigest.getInstance("MD5")
             this(memorySize, MessageDigest.getInstance("MD5"));
         }
 
         public OffsetMap(int memorySize, MessageDigest digest) {
+            // 期望的 hash值长度 16
             this.hashSize = digest.getDigestLength();
+            // 16 + 64/8 = 24
             this.entrySize = hashSize + (Long.SIZE / Byte.SIZE);
+            //  100 * 1024 *1024 /24
             this.capacity = Math.max(memorySize / entrySize, 100);
+            // 获取堆内存， 实际上就代表 OffsetMap 存储空间
             this.dataBytes = ByteBuffer.allocate(capacity * entrySize);
+
             this.hash1 = new byte[hashSize];
             this.hash2 = new byte[hashSize];
+            // 保存键值对数量
             this.entryNum = 0;
+            // md5 数字摘要
             this.digest = digest;
         }
 
+        /**
+         * @param key
+         * @param offset 消息的偏移量
+         * @throws DigestException
+         */
         public void put(String key, final long offset) throws DigestException {
+            // 超出容量 抛出异常
             if (entryNum >= capacity) {
                 throw new IllegalArgumentException("offset map is full");
             }
+            // 对 key 进行 md5 数字摘要，期望长度 16，保存到 hash1 字节数组中
             hashInto(key, hash1);
+
             int tryNum = 0;
+            // 获取当前 entry 在整个字节数组中的位置
             int index = indexOf(hash1, tryNum);
+            // 判断当前位置是否已经存在数据
             while (!isEmpty(index)) {
+                // 相当于出现 hash 冲突
                 dataBytes.position(index);
+                // 从 entry 的位置开始读数据，读到 hash2 数组中
                 dataBytes.get(hash2);
+                // 如果两个消息的 key 都是一样的，直接放入后一个偏移量
                 if (Arrays.equals(hash1, hash2)) {
                     dataBytes.putLong(offset);
                     lastOffset = offset;
                     return;
                 }
+                // 尝试次数 +1
                 tryNum++;
                 index = indexOf(hash1, tryNum);
             }
-
+            // 将 key 哈希后的数据 和 队列偏移量 放到 dataBytes 中
             dataBytes.position(index);
             dataBytes.put(hash1);
             dataBytes.putLong(offset);
@@ -978,6 +1062,9 @@ public class CompactionLog {
             return lastOffset;
         }
 
+        /**
+         * 从当前位置获取一个 entry的长度，判断是否存在值
+         */
         private boolean isEmpty(int pos) {
             return dataBytes.getLong(pos) == 0
                 && dataBytes.getLong(pos + 8) == 0
@@ -986,7 +1073,9 @@ public class CompactionLog {
 
         private int indexOf(byte[] hash, int tryNum) {
             int index = readInt(hash, Math.min(tryNum, hashSize - 4)) + Math.max(0, tryNum - hashSize + 4);
+            // 总容量取余数
             int entry = Math.abs(index) % capacity;
+            // 计算获得 下标，实际上是  元素个数 * 每个元素的大小
             return entry * entrySize;
         }
 
@@ -1010,9 +1099,15 @@ public class CompactionLog {
         public TopicPartitionLog(CompactionLog compactionLog) {
             this(compactionLog, null);
         }
+
+        /**
+         * @param compactionLog
+         * @param subFolder 当传入自文件夹的时候，创建 compacting/ 文件夹下的映射文件
+         */
         public TopicPartitionLog(CompactionLog compactionLog, String subFolder) {
             if (StringUtils.isBlank(subFolder)) {
                 // 创建 compactionLogFile 的 映射文件对象
+                // user.home/store/compaction/compactionLog
                 mappedFileQueue = new MappedFileQueue(compactionLog.compactionLogFilePath,
                         compactionLog.compactionLogMappedFileSize, null);
                 // 创建稀疏消费队列，继承 批量消费队列
@@ -1020,8 +1115,11 @@ public class CompactionLog {
                     compactionLog.compactionCqFilePath, compactionLog.compactionCqMappedFileSize,
                     compactionLog.defaultMessageStore);
             } else {
+                // 进行 压缩的时候 创建
+
                 mappedFileQueue = new MappedFileQueue(compactionLog.compactionLogFilePath + File.separator + subFolder,
                     compactionLog.compactionLogMappedFileSize, null);
+
                 consumeQueue = new SparseConsumeQueue(compactionLog.topic, compactionLog.queueId,
                     compactionLog.compactionCqFilePath, compactionLog.compactionCqMappedFileSize,
                     compactionLog.defaultMessageStore, subFolder);
@@ -1048,7 +1146,9 @@ public class CompactionLog {
             try {
                 // SparseConsumeQueue
                 consumeQueue.recover();
+                // 加载完成后，设置 mappedFileQueue 对象属性
                 recover();
+                // 完整性检查：文件是否都加载到内存中，通过文件名和mappedFileQueue中对象匹配
                 sanityCheck();
             } catch (Exception e) {
                 shutdown();
@@ -1057,9 +1157,11 @@ public class CompactionLog {
         }
 
         private void recover() {
+            // 获取最大物理内存
             long maxCqPhysicOffset = consumeQueue.getMaxPhyOffsetInLog();
             log.info("{}:{} max physical offset in compaction log is {}",
                 consumeQueue.getTopic(), consumeQueue.getQueueId(), maxCqPhysicOffset);
+            // 设置 mappedFileQueue 属性：
             if (maxCqPhysicOffset > 0) {
                 this.mappedFileQueue.setFlushedWhere(maxCqPhysicOffset);
                 this.mappedFileQueue.setCommittedWhere(maxCqPhysicOffset);
@@ -1083,12 +1185,18 @@ public class CompactionLog {
             }
         }
 
+        /**
+         *  创建 内存映射文件
+         */
         public synchronized void roll() throws IOException {
+            // 获取最后一个文件，当写满，创建下个文件
             MappedFile mappedFile = mappedFileQueue.getLastMappedFile(0);
             if (mappedFile == null) {
                 throw new IOException("create new file error");
             }
+            // 获取文件的基本偏移量
             long baseOffset = mappedFile.getFileFromOffset();
+            // 创建 consumeQueue
             MappedFile cqFile = consumeQueue.createFile(baseOffset);
             if (cqFile == null) {
                 mappedFile.destroy(1000);
@@ -1112,6 +1220,9 @@ public class CompactionLog {
             }
         }
 
+        /**
+         * 判断当前文件夹下的最后一个文件 是否写满或者为空
+         */
         public boolean isEmptyOrCurrentFileFull() {
             return mappedFileQueue.isEmptyOrCurrentFileFull() ||
                 consumeQueue.getMappedFileQueue().isEmptyOrCurrentFileFull();

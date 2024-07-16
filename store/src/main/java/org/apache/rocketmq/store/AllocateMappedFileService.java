@@ -35,6 +35,8 @@ import org.apache.rocketmq.store.logfile.MappedFile;
 
 /**
  * Create MappedFile in advance
+ * 分配 MappedFile 服务：
+ *  相比于直接创建，该服务可以创建两个MappedFile，预先创建下个MappedFile，并且预热文件
  */
 public class AllocateMappedFileService extends ServiceThread {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
@@ -52,14 +54,16 @@ public class AllocateMappedFileService extends ServiceThread {
 
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
         int canSubmitRequests = 2;
+        // 开启
         if (this.messageStore.isTransientStorePoolEnable()) {
             if (this.messageStore.getMessageStoreConfig().isFastFailIfNoBufferInStorePool()
                 && BrokerRole.SLAVE != this.messageStore.getMessageStoreConfig().getBrokerRole()) { //if broker is slave, don't fast fail even no buffer in pool
                 canSubmitRequests = this.messageStore.remainTransientStoreBufferNumbs() - this.requestQueue.size();
             }
         }
-
+        // 构建请求
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
+        // 放入缓存
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
         if (nextPutOK) {
@@ -69,6 +73,7 @@ public class AllocateMappedFileService extends ServiceThread {
                 this.requestTable.remove(nextFilePath);
                 return null;
             }
+            // 向请求队列添加 请求
             boolean offerOK = this.requestQueue.offer(nextReq);
             if (!offerOK) {
                 log.warn("never expected here, add a request to preallocate queue failed");
@@ -100,12 +105,14 @@ public class AllocateMappedFileService extends ServiceThread {
         try {
             if (result != null) {
                 messageStore.getPerfCounter().startTick("WAIT_MAPFILE_TIME_MS");
+                // 挂起线程，等待创建
                 boolean waitOK = result.getCountDownLatch().await(waitTimeOut, TimeUnit.MILLISECONDS);
                 messageStore.getPerfCounter().endTick("WAIT_MAPFILE_TIME_MS");
                 if (!waitOK) {
                     log.warn("create mmap timeout " + result.getFilePath() + " " + result.getFileSize());
                     return null;
                 } else {
+                    // 移除创建
                     this.requestTable.remove(nextFilePath);
                     return result.getMappedFile();
                 }
@@ -149,11 +156,13 @@ public class AllocateMappedFileService extends ServiceThread {
 
     /**
      * Only interrupted by the external thread, will return false
+     * 只有被外部线程中断，才会返回false
      */
     private boolean mmapOperation() {
         boolean isSuccess = false;
         AllocateRequest req = null;
         try {
+            // 阻塞队列中获取元素
             req = this.requestQueue.take();
             AllocateRequest expectedRequest = this.requestTable.get(req.getFilePath());
             if (null == expectedRequest) {
@@ -161,6 +170,7 @@ public class AllocateMappedFileService extends ServiceThread {
                     + req.getFileSize());
                 return true;
             }
+            // 判断缓存中、和队列中的是否一致
             if (expectedRequest != req) {
                 log.warn("never expected here,  maybe cause timeout " + req.getFilePath() + " "
                     + req.getFileSize() + ", req:" + req + ", expectedRequest:" + expectedRequest);
@@ -182,7 +192,7 @@ public class AllocateMappedFileService extends ServiceThread {
                 } else {
                     mappedFile = new DefaultMappedFile(req.getFilePath(), req.getFileSize());
                 }
-
+                // 创建 内存映射文件的时间
                 long elapsedTime = UtilAll.computeElapsedTimeMilliseconds(beginTime);
                 if (elapsedTime > 10) {
                     int queueSize = this.requestQueue.size();
@@ -191,10 +201,9 @@ public class AllocateMappedFileService extends ServiceThread {
                 }
 
                 // pre write mappedFile
-                if (mappedFile.getFileSize() >= this.messageStore.getMessageStoreConfig()
-                    .getMappedFileSizeCommitLog()
-                    &&
-                    this.messageStore.getMessageStoreConfig().isWarmMapedFileEnable()) {
+                if (mappedFile.getFileSize() >= this.messageStore.getMessageStoreConfig().getMappedFileSizeCommitLog()
+                    && this.messageStore.getMessageStoreConfig().isWarmMapedFileEnable()) {
+                    // 预热映射文件
                     mappedFile.warmMappedFile(this.messageStore.getMessageStoreConfig().getFlushDiskType(),
                         this.messageStore.getMessageStoreConfig().getFlushLeastPagesWhenWarmMapedFile());
                 }
