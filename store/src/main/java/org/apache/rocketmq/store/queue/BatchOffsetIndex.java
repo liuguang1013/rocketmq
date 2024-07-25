@@ -22,7 +22,13 @@ import org.apache.rocketmq.store.logfile.MappedFile;
 public class BatchOffsetIndex {
 
     private final MappedFile mappedFile;
+    /**
+     * 文件中的相对位置
+     */
     private final int indexPos;
+    /**
+     * 是 commit log 中queueOffset
+     */
     private final long msgOffset;
     private final short batchSize;
     private final long storeTimestamp;

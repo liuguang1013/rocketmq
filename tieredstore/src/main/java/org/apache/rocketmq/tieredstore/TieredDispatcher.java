@@ -100,6 +100,7 @@ public class TieredDispatcher extends ServiceThread implements CommitLogDispatch
 
     @Override
     public void dispatch(DispatchRequest request) {
+
         if (stopped) {
             return;
         }

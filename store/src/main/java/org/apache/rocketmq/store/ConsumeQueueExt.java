@@ -31,6 +31,7 @@ import org.apache.rocketmq.store.logfile.MappedFile;
 /**
  * Extend of consume queue, to store something not important,
  * such as message store time, filter bit map and etc.
+ * 扩展消费队列，以存储一些不重要的东西，如消息存储时间，过滤器位图等。
  * <p/>
  * <li>1. This class is used only by {@link ConsumeQueue}</li>
  * <li>2. And is week reliable.</li>
@@ -70,7 +71,7 @@ public class ConsumeQueueExt {
         final String storePath,
         final int mappedFileSize,
         final int bitMapLength) {
-
+        // user.home/store/consumequeue_ext
         this.storePath = storePath;
         this.mappedFileSize = mappedFileSize;
 
@@ -97,6 +98,7 @@ public class ConsumeQueueExt {
 
     /**
      * Check whether {@code address} point to extend file.
+     * 检查 address 是否指向扩展文件。
      * <p>
      * Just test {@code address} is less than 0.
      * </p>
@@ -121,9 +123,12 @@ public class ConsumeQueueExt {
 
     /**
      * Decorate {@code offset} from mapped file, in order to distinguish with tagsCode(saved in cq originally).
+     * 装饰 offset 目的，是为了与区分 tagsCode
      * <p>
      * if {@code offset} is greater than or equal to 0, then return {@code offset} + {@link java.lang.Long#MIN_VALUE};
      * else, just return {@code offset}
+     * 如果{@code offset}大于等于0，则返回{@code offset} + {@link java.lang.LongMIN_VALUE};
+     * 否则，只返回{@code offset}
      * </p>
      *
      * @return ext address(value is less than 0)
@@ -186,8 +191,10 @@ public class ConsumeQueueExt {
 
     /**
      * Save to mapped buffer of file and return address.
+     * 保存到文件的映射内存中，返回地址
      * <p>
      * Be careful, this method is not thread safe.
+     *  线程不安全
      * </p>
      *
      * @return success: < 0: fail: >=0
@@ -195,20 +202,25 @@ public class ConsumeQueueExt {
     public long put(final CqExtUnit cqExtUnit) {
         final int retryTimes = 3;
         try {
+            // 获取单位大小：20 + bitmap 的长度
             int size = cqExtUnit.calcUnitSize();
+            // 超过最大值 32767
             if (size > CqExtUnit.MAX_EXT_UNIT_SIZE) {
                 log.error("Size of cq ext unit is greater than {}, {}", CqExtUnit.MAX_EXT_UNIT_SIZE, cqExtUnit);
                 return 1;
             }
+            // 获取 逻辑队列中绝对偏移量
             if (this.mappedFileQueue.getMaxOffset() + size > MAX_REAL_OFFSET) {
                 log.warn("Capacity of ext is maximum!{}, {}", this.mappedFileQueue.getMaxOffset(), size);
                 return 1;
             }
             // unit size maybe change.but, the same most of the time.
+            // 创建临时容器：单位大小可能会改变。但是，大多数时候都是一样的。
             if (this.tempContainer == null || this.tempContainer.capacity() < size) {
                 this.tempContainer = ByteBuffer.allocate(size);
             }
 
+            // 尝试 3 次
             for (int i = 0; i < retryTimes; i++) {
                 MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
 
@@ -224,14 +236,18 @@ public class ConsumeQueueExt {
                 final int blankSize = this.mappedFileSize - wrotePosition - END_BLANK_DATA_LENGTH;
 
                 // check whether has enough space.
+                // 在文件还有 10字节的空余，但是消息有 12字节，填充当前文件结尾，下轮循环创建新文件
                 if (size > blankSize) {
+                    // 填充结尾：-1
                     fullFillToEnd(mappedFile, wrotePosition);
                     log.info("No enough space(need:{}, has:{}) of file {}, so fill to end",
                         size, blankSize, mappedFile.getFileName());
                     continue;
                 }
-
+                // 向 ConsumeQueueExt对映的 DefaultMappedFile文件添加消息
                 if (mappedFile.appendMessage(cqExtUnit.write(this.tempContainer), 0, size)) {
+                    // 对 逻辑队列 绝对偏移量 进行装饰，用于区分 tagCode
+                    // todo：不知道为啥要区分
                     return decorate(wrotePosition + mappedFile.getFileFromOffset());
                 }
             }
@@ -248,7 +264,7 @@ public class ConsumeQueueExt {
 
         // ending.
         mappedFileBuffer.putShort((short) -1);
-
+        // 将写指针 置到 文件结尾
         mappedFile.setWrotePosition(this.mappedFileSize);
     }
 
@@ -278,6 +294,7 @@ public class ConsumeQueueExt {
         }
 
         // load all files, consume queue will truncate extend files.
+        // 加载所有文件，消费队列将截断扩展文件。
         int index = 0;
 
         MappedFile mappedFile = mappedFiles.get(index);
@@ -414,6 +431,9 @@ public class ConsumeQueueExt {
      * Store unit.
      */
     public static class CqExtUnit {
+        /**
+         * 额外消息数据 最小的单位大小： 20 字节
+         */
         public static final short MIN_EXT_UNIT_SIZE
             = 2 * 1 // size, 32k max
             + 8 * 2 // msg time + tagCode
@@ -505,17 +525,20 @@ public class ConsumeQueueExt {
 
         /**
          * Transform unit data to byte array.
+         * 转换数据到数组
          * <p/>
          * <li>1. @{code container} can be null, it will be created if null.</li>
          * <li>2. if capacity of @{code container} is less than unit size, it will be created also.</li>
          * <li>3. Pls be sure that size of unit is not greater than {@link #MAX_EXT_UNIT_SIZE}</li>
          */
         private byte[] write(final ByteBuffer container) {
+            //
             this.bitMapSize = (short) (filterBitMap == null ? 0 : filterBitMap.length);
+
             this.size = (short) (MIN_EXT_UNIT_SIZE + this.bitMapSize);
 
             ByteBuffer temp = container;
-
+            // 之前创建的字节数组，不能存放数据
             if (temp == null || temp.capacity() < this.size) {
                 temp = ByteBuffer.allocate(this.size);
             }

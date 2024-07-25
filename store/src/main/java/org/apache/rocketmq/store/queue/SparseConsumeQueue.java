@@ -232,6 +232,11 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         return targetBcq;
     }
 
+    /**
+     * 返回前一个文件
+     * @param file
+     * @return
+     */
     private MappedFile getPreFile(MappedFile file) {
         int index = mappedFileQueue.getMappedFiles().indexOf(file);
         if (index < 1) {
@@ -241,6 +246,7 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
             return mappedFileQueue.getMappedFiles().get(index - 1);
         }
     }
+
 
     private void cacheOffset(MappedFile file, Function<MappedFile, BatchOffsetIndex> offsetGetFunc) {
         try {
@@ -256,9 +262,14 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         }
     }
 
+    /**
+     * todo：为什么 SparseConsumeQueue 要获取上个文件的最后一条消息信息，不和 BatchConsumeQueue 保持一致？
+     * @param bcq
+     */
     @Override
     protected void cacheBcq(MappedFile bcq) {
         MappedFile file = getPreFile(bcq);
+        // 从第二文件开始缓存，file 是上一个 SparseConsumeQueue 文件
         if (file != null) {
             cacheOffset(file, m -> getMaxMsgOffset(m, false, true));
         }
@@ -295,6 +306,7 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
 
     public MappedFile createFile(final long physicalOffset) throws IOException {
         // cache max offset
+        // 创建 下个mappedFile 文件
         return mappedFileQueue.tryCreateMappedFile(physicalOffset);
     }
 
@@ -360,6 +372,10 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         return null;
     }
 
+    /**
+     * 获取文件最后一个消息的 文件中相对位置、在commitLog 中queueOffset、batchSize、存储时间 信息封装成对象
+     * @return
+     */
     @Override
     protected BatchOffsetIndex getMaxMsgOffset(MappedFile mappedFile, boolean getBatchSize, boolean getStoreTime) {
         // 文件不存在、文件读指针小于最小的消息的大小，代表文件还未开始读取

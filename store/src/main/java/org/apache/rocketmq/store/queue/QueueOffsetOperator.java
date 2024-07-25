@@ -33,6 +33,11 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 public class QueueOffsetOperator {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    /**
+     * broker启动的时候，恢复 TopicQueueTable 时候，统计 某topic某Queue存储的消息数量
+     * key：  String key = logic.getTopic() + "-" + logic.getQueueId();
+     * value： 某topic某Queue存储的消息数量
+     */
     private ConcurrentMap<String, Long> topicQueueTable = new ConcurrentHashMap<>(1024);
     private ConcurrentMap<String, Long> batchTopicQueueTable = new ConcurrentHashMap<>(1024);
     private ConcurrentMap<String/* topic-queueid */, Long/* offset */> lmqTopicQueueTable = new ConcurrentHashMap<>(1024);

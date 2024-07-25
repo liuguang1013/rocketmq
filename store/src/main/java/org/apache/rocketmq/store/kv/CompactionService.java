@@ -43,20 +43,28 @@ public class CompactionService {
         this.compactionStore = compactionStore;
     }
 
+    /**
+     * broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求
+     */
     public void putRequest(DispatchRequest request) {
         if (request == null) {
             return;
         }
 
+        // 获取 topic 下消息的清除策略
         String topic = request.getTopic();
         Optional<TopicConfig> topicConfig = defaultMessageStore.getTopicConfig(topic);
         CleanupPolicy policy = CleanupPolicyUtils.getDeletePolicy(topicConfig);
+
         //check request topic flag
+        // 策略：压缩
         if (Objects.equals(policy, CleanupPolicy.COMPACTION)) {
             SelectMappedBufferResult smr = null;
             try {
+                // 将 commitLog 中消息封装到 SelectMappedBufferResult 中
                 smr = commitLog.getData(request.getCommitLogOffset());
                 if (smr != null) {
+                    // 向 compactionLog 和 SparseConsumeQueue 中添加消息
                     compactionStore.doDispatch(request, smr);
                 }
             } catch (Exception e) {

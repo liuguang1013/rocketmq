@@ -315,6 +315,12 @@ public class MappedFileQueue implements Swappable {
         return 0;
     }
 
+    /**
+     *
+     * @param startOffset 开始的偏移量：在整个逻辑队列中的绝对偏移量
+     * @param needCreate
+     * @return
+     */
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
         // 创建新文件的时候，开始的偏移量
         long createOffset = -1;
@@ -322,6 +328,7 @@ public class MappedFileQueue implements Swappable {
 
         //
         if (mappedFileLast == null) {
+            // 获取文件最开始的绝对偏移量
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
         // 最后一个文件写满了
@@ -392,6 +399,7 @@ public class MappedFileQueue implements Swappable {
 
         if (mappedFile != null) {
             if (this.mappedFiles.isEmpty()) {
+                // 标记是第一个创建的 mappedFile
                 mappedFile.setFirstCreateInQueue(true);
             }
             this.mappedFiles.add(mappedFile);
@@ -694,16 +702,19 @@ public class MappedFileQueue implements Swappable {
 
     /**
      * Finds a mapped file by offset.
-     *
+     * 通过偏移量查找 映射文件
      * @param offset Offset.
-     * @param returnFirstOnNotFound If the mapped file is not found, then return the first one.
+     * @param returnFirstOnNotFound If the mapped file is not found, then return the first one. 如果没有找到映射文件，则返回第一个文件。
      * @return Mapped file or null (when not found and returnFirstOnNotFound is <code>false</code>).
      */
     public MappedFile findMappedFileByOffset(final long offset, final boolean returnFirstOnNotFound) {
         try {
+            // 获取第一个文件
             MappedFile firstMappedFile = this.getFirstMappedFile();
             MappedFile lastMappedFile = this.getLastMappedFile();
+
             if (firstMappedFile != null && lastMappedFile != null) {
+                // 偏移量 不在范围内
                 if (offset < firstMappedFile.getFileFromOffset() || offset >= lastMappedFile.getFileFromOffset() + this.mappedFileSize) {
                     LOG_ERROR.warn("Offset not matched. Request offset: {}, firstOffset: {}, lastOffset: {}, mappedFileSize: {}, mappedFiles count: {}",
                         offset,
@@ -719,11 +730,12 @@ public class MappedFileQueue implements Swappable {
                     } catch (Exception ignored) {
                     }
 
+                    // 判断偏移量在 文件内
                     if (targetFile != null && offset >= targetFile.getFileFromOffset()
                         && offset < targetFile.getFileFromOffset() + this.mappedFileSize) {
                         return targetFile;
                     }
-
+                    //遍历所有文件，查找文件
                     for (MappedFile tmpMappedFile : this.mappedFiles) {
                         if (offset >= tmpMappedFile.getFileFromOffset()
                             && offset < tmpMappedFile.getFileFromOffset() + this.mappedFileSize) {

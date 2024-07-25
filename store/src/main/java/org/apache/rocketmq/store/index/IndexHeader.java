@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * │                                                                      Index File Header                                                                                │
  * │
  * </pre>
- * Index File Header. Size:
+ * Index File Header. Size: 40字节
  * Begin Timestamp(8) + End Timestamp(8) + Begin Physical Offset(8) + End Physical Offset(8) + Hash Slot Count(4) + Index Count(4) = 40 Bytes
  */
 public class IndexHeader {
@@ -42,8 +42,14 @@ public class IndexHeader {
     private static int hashSlotcountIndex = 32;
     private static int indexCountIndex = 36;
     private final ByteBuffer byteBuffer;
+    /**
+     *  索引文件保存的第一条消息的，storeTimestamp 存储时间
+     */
     private final AtomicLong beginTimestamp = new AtomicLong(0);
     private final AtomicLong endTimestamp = new AtomicLong(0);
+    /**
+     * 索引文件保存的第一条消息的，在多个 commit log 中的绝对偏移量
+     */
     private final AtomicLong beginPhyOffset = new AtomicLong(0);
     private final AtomicLong endPhyOffset = new AtomicLong(0);
     private final AtomicInteger hashSlotCount = new AtomicInteger(0);
@@ -54,6 +60,7 @@ public class IndexHeader {
     }
 
     public void load() {
+        // 读取文件头40字节，封装到属性中
         this.beginTimestamp.set(byteBuffer.getLong(beginTimestampIndex));
         this.endTimestamp.set(byteBuffer.getLong(endTimestampIndex));
         this.beginPhyOffset.set(byteBuffer.getLong(beginPhyoffsetIndex));

@@ -30,6 +30,7 @@ public abstract class ReferenceResource {
             if (this.refCount.getAndIncrement() > 0) {
                 return true;
             } else {
+                // 将 refCount.getAndIncrement() 的值减回去
                 this.refCount.getAndDecrement();
             }
         }
@@ -42,6 +43,7 @@ public abstract class ReferenceResource {
     }
 
     public void shutdown(final long intervalForcibly) {
+        // 首次先 修改状态为不可用，记录第一次关闭时间戳
         if (this.available) {
             this.available = false;
             this.firstShutdownTimestamp = System.currentTimeMillis();
@@ -55,10 +57,11 @@ public abstract class ReferenceResource {
     }
 
     public void release() {
+        // 减少引用次数
         long value = this.refCount.decrementAndGet();
         if (value > 0)
             return;
-
+        // 次数 为0 开始清除
         synchronized (this) {
             // 清除
             this.cleanupOver = this.cleanup(value);

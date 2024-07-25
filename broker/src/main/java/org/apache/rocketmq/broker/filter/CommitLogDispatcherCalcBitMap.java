@@ -31,6 +31,15 @@ import java.util.Iterator;
 
 /**
  * Calculate bit map of filter.
+ * 计算消息位图
+ * RocketMQ 的消息存储在 CommitLog 中，CommitLog 是 RocketMQ 的核心存储结构，用于存储所有消息的物理日志。
+ * 当消息被发送到 Broker 并持久化到 CommitLog 后，RocketMQ 需要一种机制来跟踪哪些消息已经被消费组中的消费者所消费，哪些消息还未被消费。
+ *
+ * CommitLogDispatcherCalcBitMap 的功能就是基于 CommitLog 的消息位置信息（物理偏移量）来维护一个位图，记录哪些消息已经被消费。
+ * 这个位图能够帮助 RocketMQ 快速判断消息是否已被特定的消费组消费，从而避免重复消费或跳过未消费的消息。
+ *
+ * 位图（BitMap）是一种高效的数据结构，它使用单个比特位来表示一个元素的状态，如已消费或未消费。
+ * 在 RocketMQ 的上下文中，每个比特位对应 CommitLog 中的一个消息，如果该消息已被消费，对应的比特位会被设置为 1；否则，比特位保持为 0。
  */
 public class CommitLogDispatcherCalcBitMap implements CommitLogDispatcher {
 
@@ -46,12 +55,14 @@ public class CommitLogDispatcherCalcBitMap implements CommitLogDispatcher {
 
     @Override
     public void dispatch(DispatchRequest request) {
+        // 默认不打开
         if (!this.brokerConfig.isEnableCalcFilterBitMap()) {
             return;
         }
 
+        // todo：这部分和消费者注册有关，待看
         try {
-
+            //
             Collection<ConsumerFilterData> filterDatas = consumerFilterManager.get(request.getTopic());
 
             if (filterDatas == null || filterDatas.isEmpty()) {

@@ -76,11 +76,26 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
 
     protected final String storePath;
     protected final int mappedFileSize;
+    /**
+     * 最新一条消息，在CommitLog中的绝对偏移量
+     */
     protected volatile long maxMsgPhyOffsetInCommitLog = -1;
 
+    /**
+     * 最小逻辑偏移量
+     * 在向 Compaction Log 中添加数据 appendMessage ， 同时会向 SparseConsumeQueue 中添加消息，
+     * 向第一个 SparseConsumeQueue 中添加第一个消息的时候，会设置该属性，文件名表示开始偏移量
+     */
     protected volatile long minLogicOffset = 0;
 
+
     protected volatile long maxOffsetInQueue = 0;
+    /**
+     * 在队列中 最小偏移量
+     *  在向 Compaction Log 中添加数据 appendMessage ， 同时会向 SparseConsumeQueue 中添加消息，
+     *  向第一个 SparseConsumeQueue 中添加第一个消息的时候，会设置该属性
+     *  将第一个消息的在 commit log 中 queueOffset 赋值给 minOffsetInQueue
+     */
     protected volatile long minOffsetInQueue = -1;
     protected final int commitLogSize;
 
@@ -108,7 +123,8 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
             this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
         }
 
-        // 创建 46 字节的  堆内存：用于文件结尾写最后46字节数据
+        // 创建 46 字节的 消息临时存储 堆内存：
+        // 可以用于文件结尾写最后46字节数据，可以用于正常存放消息时使用
         this.byteBufferItem = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
     }
 
@@ -168,6 +184,10 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
         log.info("BCQ [Topic: {}, QueueId: {}]. Cache destroyed", this.topic, this.queueId);
     }
 
+    /**
+     * 获取某个 BatchConsumeQueue 中第一条消息的 在commit log 中 queueOffset、存储时间
+     * @param bcq
+     */
     protected void cacheBcq(MappedFile bcq) {
         try {
             BatchOffsetIndex min = getMinMsgOffset(bcq, false, true);
@@ -260,6 +280,7 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
             this.mappedFileQueue.setFlushedWhere(processOffset);
             this.mappedFileQueue.setCommittedWhere(processOffset);
             this.mappedFileQueue.truncateDirtyFiles(processOffset);
+
             reviseMaxAndMinOffsetInQueue();
         }
     }
@@ -273,8 +294,10 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
             log.info("reviseMinOffsetInQueue found firstMappedFile null, topic:{} queue:{}", topic, queueId);
             return;
         }
+        // 设置 minLogicOffset = 0 ，第一个文件名就是 FileFromOffset
         minLogicOffset = firstMappedFile.getFileFromOffset();
         BatchOffsetIndex min = getMinMsgOffset(firstMappedFile, false, false);
+        // 将 commit log 中queueOffset 赋值给 minOffsetInQueue
         minOffsetInQueue = null == min ? -1 : min.getMsgOffset();
     }
 
@@ -559,6 +582,7 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
         final long storeTime,
         final long msgBaseOffset, final short batchSize) {
 
+        // 当前消息偏移量 < 最新消息的偏移量 ，认为已经存过
         if (offset <= this.maxMsgPhyOffsetInCommitLog) {
             if (System.currentTimeMillis() % 1000 == 0) {
                 log.warn("Build batch consume queue repeatedly, maxMsgPhyOffsetInCommitLog:{} offset:{} Topic: {} QID: {}",
@@ -567,6 +591,7 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
             return true;
         }
 
+        // 消息
         long behind = System.currentTimeMillis() - storeTime;
         if (behind > 10000 && System.currentTimeMillis() % 10000 == 0) {
             String flag = "LEVEL" + (behind / 10000);
@@ -584,8 +609,10 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
         this.byteBufferItem.putInt(INVALID_POS);
         this.byteBufferItem.putInt(0); // 4 bytes reserved
 
+        // 获取最后一个文件
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(this.mappedFileQueue.getMaxOffset());
         if (mappedFile != null) {
+            // 根据读指针位置是否小于 一个消息单位的长度 判断
             boolean isNewFile = isNewFile(mappedFile);
             boolean appendRes = mappedFile.appendMessage(this.byteBufferItem.array());
             if (appendRes) {
@@ -593,11 +620,15 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
                 maxOffsetInQueue = msgBaseOffset + batchSize;
                 //only the first time need to correct the minOffsetInQueue
                 //the other correctness is done in correctLogicMinoffsetService
+                // 只有第一次需要纠正minOffsetInQueue，
+                // 其他的纠正是在correctLogicMinoffsetService中完成的
                 if (mappedFile.isFirstCreateInQueue() && minOffsetInQueue == -1) {
+                    // 设置 ： minLogicOffset、minOffsetInQueue 属性
                     reviseMinOffsetInQueue();
                 }
                 if (isNewFile) {
                     // cache new file
+                    // 缓存消息队列：
                     this.cacheBcq(mappedFile);
                 }
             }
@@ -606,13 +637,20 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
         return false;
     }
 
+
     protected BatchOffsetIndex getMinMsgOffset(MappedFile mappedFile, boolean getBatchSize, boolean getStoreTime) {
         if (mappedFile.getReadPosition() < CQ_STORE_UNIT_SIZE) {
             return null;
         }
+        //
         return getBatchOffsetIndexByPos(mappedFile, 0, getBatchSize, getStoreTime);
     }
 
+    /*
+     * 从 文件中相对位置 pos 开始
+     * 将 BatchConsumeQueue 的存储单位中 msgBaseOffset、BATCH_SIZE、STORE_TIME_OFFSET
+     * 封装到 BatchOffsetIndex 对象
+     */
     protected BatchOffsetIndex getBatchOffsetIndexByPos(MappedFile mappedFile, int pos, boolean getBatchSize,
         boolean getStoreTime) {
         SelectMappedBufferResult sbr = mappedFile.selectMappedBuffer(pos);

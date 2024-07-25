@@ -79,8 +79,13 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
 
     @Override
     public void recover() {
+        // 遍历 topic 的队列：消费队列类型： 普通消息消费队列、批量消息消费队列
+        // 稀疏队列在加载的时候就恢复过
         for (ConcurrentMap<Integer, ConsumeQueueInterface> maps : this.consumeQueueTable.values()) {
             for (ConsumeQueueInterface logic : maps.values()) {
+                // 恢复：实际就是
+                // 设置最大偏移量：在commitlog 的偏移量、
+                // 设置mappedFileQueue属性：在多个文件中绝对偏移量
                 this.recover(logic);
             }
         }
@@ -146,12 +151,15 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
     }
 
     public void correctMinOffset(ConsumeQueueInterface consumeQueue, long minCommitLogOffset) {
+        // 修正最小的偏移量
         consumeQueue.correctMinOffset(minCommitLogOffset);
     }
 
     @Override
     public void putMessagePositionInfoWrapper(DispatchRequest dispatchRequest) {
+        // 找到消息队列
         ConsumeQueueInterface cq = this.findOrCreateConsumeQueue(dispatchRequest.getTopic(), dispatchRequest.getQueueId());
+
         this.putMessagePositionInfoWrapper(cq, dispatchRequest);
     }
 
@@ -302,7 +310,12 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
     }
 
     public void recover(ConsumeQueueInterface consumeQueue) {
+        // 获取 队列 生命周期 对象：实际就是获取  ConsumeQueueInterface 接口的实现类： ConsumeQueue、BatchConsumeQueue
+        // 消费队列是：某 topic 下的某 queueId
         FileQueueLifeCycle fileQueueLifeCycle = getLifeCycle(consumeQueue.getTopic(), consumeQueue.getQueueId());
+        // 恢复：实际就是
+        // 设置最大偏移量：在commitlog 的偏移量、
+        // 设置mappedFileQueue属性：在多个文件中绝对偏移量
         fileQueueLifeCycle.recover();
     }
 
@@ -426,6 +439,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
             newLogic = new BatchConsumeQueue(
                 topic,
                 queueId,
+                // user.home/store/batchconsumequeue
                 getStorePathBatchConsumeQueue(this.messageStoreConfig.getStorePathRootDir()),
                 this.messageStoreConfig.getMapperFileSizeBatchConsumeQueue(),
                 this.messageStore);
@@ -433,6 +447,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
             newLogic = new ConsumeQueue(
                 topic,
                 queueId,
+                // user.home/store/consumequeue
                 getStorePathConsumeQueue(this.messageStoreConfig.getStorePathRootDir()),
                 this.messageStoreConfig.getMappedFileSizeConsumeQueue(),
                 this.messageStore);
@@ -468,27 +483,39 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
         }
     }
 
+    /**
+     *
+     * @param minPhyOffset  第一个 commit log 的文件名，代表 第一个 commit log 初始偏移量
+     */
     @Override
     public void recoverOffsetTable(long minPhyOffset) {
+
         ConcurrentMap<String, Long> cqOffsetTable = new ConcurrentHashMap<>(1024);
         ConcurrentMap<String, Long> bcqOffsetTable = new ConcurrentHashMap<>(1024);
-
+        // 遍历 topic 的所有Queue，如 topic0-1、topic0-2、topic1-1 每个队列下存在多个文件
         for (ConcurrentMap<Integer, ConsumeQueueInterface> maps : this.consumeQueueTable.values()) {
-            for (ConsumeQueueInterface logic : maps.values()) {
-                String key = logic.getTopic() + "-" + logic.getQueueId();
 
+            for (ConsumeQueueInterface logic : maps.values()) {
+
+                String key = logic.getTopic() + "-" + logic.getQueueId();
+                // 普通消费队列：消息的数量
+                //
                 long maxOffsetInQueue = logic.getMaxOffsetInQueue();
+                // 1、保存 topic 下每个队列的消息数量
                 if (Objects.equals(CQType.BatchCQ, logic.getCQType())) {
                     bcqOffsetTable.put(key, maxOffsetInQueue);
                 } else {
                     cqOffsetTable.put(key, maxOffsetInQueue);
                 }
 
+                // 2、修正最小偏移量：调整消费队列中 minLogicOffset 属性
+                // 实际是 找到消费队列中，第一条大于 minPhyOffset 的消息，并在消费队列中 记录在消费队列中的偏移量
                 this.correctMinOffset(logic, minPhyOffset);
             }
         }
 
         // Correct unSubmit consumeOffset
+        // todo：待看
         if (messageStoreConfig.isDuplicationEnable() || messageStore.getBrokerConfig().isEnableControllerMode()) {
             compensateForHA(cqOffsetTable);
         }
@@ -591,6 +618,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
 
     @Override
     public void truncateDirty(long offsetToTruncate) {
+        // 恢复 commit log 的时候，当消息队列的最大物理偏移量大于 commitLog 的时候，清除消息队列中超出的数据
         for (ConcurrentMap<Integer, ConsumeQueueInterface> maps : this.consumeQueueTable.values()) {
             for (ConsumeQueueInterface logic : maps.values()) {
                 this.truncateDirtyLogicFiles(logic, offsetToTruncate);

@@ -21,10 +21,19 @@ import org.apache.rocketmq.store.logfile.MappedFile;
 
 public class SelectMappedBufferResult {
 
+    /**
+     * 在逻辑队列中的绝对偏移量 fileFromOffset + pos
+     */
     private final long startOffset;
 
+    /**
+     * 文件中，从 pos 开始到 可读位置的 ByteBuffer
+     */
     private final ByteBuffer byteBuffer;
 
+    /**
+     * byteBuffer 的大小
+     */
     private int size;
 
     protected MappedFile mappedFile;

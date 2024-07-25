@@ -50,13 +50,16 @@ public class CompactionStore {
     public static final String COMPACTION_CQ_DIR = "compactionCq";
 
     /**
-     *
+     * user.home/store/compaction/
      */
     private final String compactionPath;
     /**
-     *
+     * user.home/store/compaction/compactionLog
      */
     private final String compactionLogPath;
+    /**
+     * user.home/store/compaction/compactionCq
+     */
     private final String compactionCqPath;
     private final DefaultMessageStore defaultMessageStore;
     private final CompactionPositionMgr positionMgr;
@@ -76,8 +79,11 @@ public class CompactionStore {
         MessageStoreConfig config = defaultMessageStore.getMessageStoreConfig();
         // user.home/store/
         String storeRootPath = config.getStorePathRootDir();
+        // user.home/store/compaction
         this.compactionPath = Paths.get(storeRootPath, COMPACTION_DIR).toString();
+        // user.home/store/compaction/compactionLog
         this.compactionLogPath = Paths.get(compactionPath, COMPACTION_LOG_DIR).toString();
+        // user.home/store/compaction/compactionCq
         this.compactionCqPath = Paths.get(compactionPath, COMPACTION_CQ_DIR).toString();
         // 创建对象，并加载文件，解析出 队列偏移脸属性
         this.positionMgr = new CompactionPositionMgr(compactionPath);
@@ -147,6 +153,9 @@ public class CompactionStore {
         log.info("loop to scan all topicConfig with fixed delay {}ms", scanInterval);
     }
 
+    /**
+     *  在 user.home/store/compaction/ 下创建 topic 对映的压缩消息文件
+     */
     private void scanAllTopicConfig() {
         log.info("start to scan all topicConfig");
         try {
@@ -158,7 +167,7 @@ public class CompactionStore {
                 //check topic flag
                 // 检查清除策略：为压缩
                 if (Objects.equals(policy, CleanupPolicy.COMPACTION)) {
-
+                    // 写队列数量 默认16 todo：为什么要小于 写队列的数量
                     for (int queueId = 0; queueId < topicConfig.getWriteQueueNums(); queueId++) {
 
                         loadAndGetClog(it.getKey(), queueId);
@@ -179,7 +188,8 @@ public class CompactionStore {
                 try {
                     // 创建压缩日志对象
                     v = new CompactionLog(defaultMessageStore, this, topic, queueId);
-                    // 执行加载方法
+                    // 执行加载方法：创建 TopicPartitionLog ，其中包含 mappedFileQueue 逻辑队列、SparseConsumeQueue 消费队列
+                    // 在文件夹下已存在文件情况下，进行恢复操作
                     v.load(true);
 
                     // 默认15分钟
@@ -205,9 +215,11 @@ public class CompactionStore {
     }
 
     public void doDispatch(DispatchRequest dispatchRequest, SelectMappedBufferResult smr) throws Exception {
+        // 加载或创建CompactionLog ，其中包含 TopicPartitionLog 对象，对象中包含 mappedFileQueue、SparseConsumeQueue
         CompactionLog clog = loadAndGetClog(dispatchRequest.getTopic(), dispatchRequest.getQueueId());
 
         if (clog != null) {
+            // 向压缩日志中添加消息：
             clog.asyncPutMessage(smr.getByteBuffer(), dispatchRequest);
         }
     }

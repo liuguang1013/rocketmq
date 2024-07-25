@@ -37,6 +37,7 @@ public class MultiDispatchUtils {
     }
 
     public static boolean isNeedHandleMultiDispatch(MessageStoreConfig messageStoreConfig, String topic) {
+        // 默认 false
         return messageStoreConfig.isEnableMultiDispatch()
             && !topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)
             && !topic.startsWith(TopicValidator.SYSTEM_TOPIC_PREFIX)
@@ -44,6 +45,7 @@ public class MultiDispatchUtils {
     }
 
     public static boolean checkMultiDispatchQueue(MessageStoreConfig messageStoreConfig, DispatchRequest dispatchRequest) {
+       // 判断topic 是否需要多分发，默认false
         if (!isNeedHandleMultiDispatch(messageStoreConfig, dispatchRequest.getTopic())) {
             return false;
         }

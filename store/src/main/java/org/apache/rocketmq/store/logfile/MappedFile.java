@@ -72,6 +72,7 @@ public interface MappedFile {
      * Returns true if this {@code MappedFile} is available.
      * <p>
      * The mapped file will be not available if it's shutdown or destroyed.
+     * 如果被关闭或销毁，映射文件将不可用。
      *
      * @return true if the file is available
      */

@@ -30,6 +30,7 @@ public class CleanupPolicyUtils {
     }
 
     public static CleanupPolicy getDeletePolicy(Optional<TopicConfig> topicConfig) {
+        // 默认是删除
         if (!topicConfig.isPresent()) {
             return CleanupPolicy.valueOf(TopicAttributes.CLEANUP_POLICY_ATTRIBUTE.getDefaultValue());
         }
@@ -40,6 +41,7 @@ public class CleanupPolicyUtils {
         if (attributes == null || attributes.size() == 0) {
             return CleanupPolicy.valueOf(TopicAttributes.CLEANUP_POLICY_ATTRIBUTE.getDefaultValue());
         }
+
 
         if (attributes.containsKey(attributeName)) {
             return CleanupPolicy.valueOf(attributes.get(attributeName));

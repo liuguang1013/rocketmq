@@ -65,6 +65,9 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
     private final MappedFileQueue mappedFileQueue;
     private final String topic;
     private final int queueId;
+    /**
+     * 在消费队列中的一个消息的缓存：在向消费队列放入消息时使用
+     */
     private final ByteBuffer byteBufferIndex;
 
     private final String storePath;
@@ -73,8 +76,15 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
 
     /**
      * Minimum offset of the consume file queue that points to valid commit log record.
+     * 指向有效提交日志记录的消费文件队列的最小偏移量。
      */
     private volatile long minLogicOffset = 0;
+    /**
+     * 数据写入：
+     * broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求，
+     * 在 CommitLogDispatcherBuildConsumeQueue 中，对于普通消息、事务提交消息，调用putMessagePositionInfoWrapper方法
+     * 向 对映的DefaultMappedFile中写入数据
+     */
     private ConsumeQueueExt consumeQueueExt = null;
 
     public ConsumeQueue(final String topic, final int queueId, final String storePath,
@@ -94,13 +104,15 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         this.mappedFileQueue = new MappedFileQueue(queueDir, mappedFileSize, null);
 
         // 获取 20字节 堆内存
+        // 在异常恢复commit log 的 putMessagePositionInfo 中保存消息的commit偏移量、大小、tagCode
         this.byteBufferIndex = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
 
-        // 消费队列额外信息存储功能
+        // 消费队列额外信息存储功能 默认false
         if (messageStore.getMessageStoreConfig().isEnableConsumeQueueExt()) {
             this.consumeQueueExt = new ConsumeQueueExt(
                 topic,
                 queueId,
+                // user.home/store/consumequeue_ext
                 StorePathConfigHelper.getStorePathConsumeQueueExt(messageStore.getMessageStoreConfig().getStorePathRootDir()),
                 // 默认 48 M
                 messageStore.getMessageStoreConfig().getMappedFileSizeConsumeQueueExt(),
@@ -122,31 +134,48 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         return result;
     }
 
+    /**
+     * 恢复：实际就是
+     * 设置最大偏移量：在commitlog 的偏移量、
+     * 设置mappedFileQueue属性：在多个文件中绝对偏移量
+     *
+     * todo：要想获取这些属性，为啥遍历多个文件呢？直接查询最后一个不就行了
+     */
     @Override
     public void recover() {
+        // 获取 某 topic 下的某 queueId 的映射文件列表
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
 
+            //
             int index = mappedFiles.size() - 3;
             if (index < 0) {
                 index = 0;
             }
-
+            // 30W * 20
             int mappedFileSizeLogics = this.mappedFileSize;
+
             MappedFile mappedFile = mappedFiles.get(index);
             ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
+            // 该文件的 开始的偏移
             long processOffset = mappedFile.getFileFromOffset();
+            // 文件中的偏移量
             long mappedFileOffset = 0;
             long maxExtAddr = 1;
             while (true) {
                 for (int i = 0; i < mappedFileSizeLogics; i += CQ_STORE_UNIT_SIZE) {
+                    // CommitLog Physical Offset
                     long offset = byteBuffer.getLong();
+                    // body size
                     int size = byteBuffer.getInt();
+
                     long tagsCode = byteBuffer.getLong();
 
                     if (offset >= 0 && size > 0) {
                         mappedFileOffset = i + CQ_STORE_UNIT_SIZE;
+                        // 设置最大偏移量
                         this.setMaxPhysicOffset(offset + size);
+
                         if (isExtAddr(tagsCode)) {
                             maxExtAddr = tagsCode;
                         }
@@ -156,7 +185,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                         break;
                     }
                 }
-
+                // 文件已经写满
                 if (mappedFileOffset == mappedFileSizeLogics) {
                     index++;
                     if (index >= mappedFiles.size()) {
@@ -165,6 +194,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                             + mappedFile.getFileName());
                         break;
                     } else {
+                        // 获取下一个文件
                         mappedFile = mappedFiles.get(index);
                         byteBuffer = mappedFile.sliceByteBuffer();
                         processOffset = mappedFile.getFileFromOffset();
@@ -177,8 +207,9 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                     break;
                 }
             }
-
+            // 整体的偏移量
             processOffset += mappedFileOffset;
+            // 设置 mappedFileQueue 属性
             this.mappedFileQueue.setFlushedWhere(processOffset);
             this.mappedFileQueue.setCommittedWhere(processOffset);
             this.mappedFileQueue.truncateDirtyFiles(processOffset);
@@ -409,7 +440,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
     public void truncateDirtyLogicFiles(long phyOffset, boolean deleteFile) {
 
         int logicFileSize = this.mappedFileSize;
-
+        // 设置文件最大的物理偏移量
         this.setMaxPhysicOffset(phyOffset);
         long maxExtAddr = 1;
         boolean shouldDeleteFile = false;
@@ -427,6 +458,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                     int size = byteBuffer.getInt();
                     long tagsCode = byteBuffer.getLong();
 
+                    // 文件中第一个消息的偏移量都大于commitlog的偏移量
                     if (0 == i) {
                         if (offset >= phyOffset) {
                             shouldDeleteFile = true;
@@ -438,6 +470,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                             mappedFile.setFlushedPosition(pos);
                             this.setMaxPhysicOffset(offset + size);
                             // This maybe not take effect, when not every consume queue has extend file.
+                            // 当不是每个消费队列都有扩展文件时，这可能不会生效。
                             if (isExtAddr(tagsCode)) {
                                 maxExtAddr = tagsCode;
                             }
@@ -468,10 +501,12 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                     }
                 }
 
+                // 删除文件
                 if (shouldDeleteFile) {
                     if (deleteFile) {
                         this.mappedFileQueue.deleteLastMappedFile();
                     } else {
+                        // 不删除文件，只是在mappedFiles列表中移除对象
                         this.mappedFileQueue.deleteExpiredFile(Collections.singletonList(this.mappedFileQueue.getLastMappedFile()));
                     }
                 }
@@ -536,6 +571,11 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
 
     /**
      * Update minLogicOffset such that entries after it would point to valid commit log address.
+     * 更新minLogicOffset，使它之后的条目指向有效的提交日志地址。
+     *
+     * 该方法 修正 消费队列的 minLogicOffset 属性
+     * todo：minLogicOffset 属性代表了 消息在commit log 有效的提交，在ConsumeQueue中绝对偏移位置
+     * 通过 对比 ConsumeQueue 中消息中记录的 commit log 偏移量 和 commit log 文件中中最小的偏移量
      *
      * @param minCommitLogOffset Minimum commit log offset
      */
@@ -550,22 +590,29 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         // Check whether the consume queue maps no valid data at all. This check may cost 1 IO operation.
         // The rationale is that consume queue always preserves the last file. In case there are many deprecated topics,
         // This check would save a lot of efforts.
+        // 检查消费队列是否根本没有映射有效数据。此检查可能需要1 IO操作。
+        // 其基本原理是，消费队列总是保留最后一个文件。如果有很多弃用的topic，这个检查将节省很多工作。
         MappedFile lastMappedFile = this.mappedFileQueue.getLastMappedFile();
         if (null == lastMappedFile) {
             return;
         }
-
         SelectMappedBufferResult lastRecord = null;
         try {
+            // 获取最后一条消息的 commitLogOffset
             int maxReadablePosition = lastMappedFile.getReadPosition();
             lastRecord = lastMappedFile.selectMappedBuffer(maxReadablePosition - ConsumeQueue.CQ_STORE_UNIT_SIZE,
                 ConsumeQueue.CQ_STORE_UNIT_SIZE);
             if (null != lastRecord) {
                 ByteBuffer buffer = lastRecord.getByteBuffer();
                 long commitLogOffset = buffer.getLong();
+
+                // 验证： 在ConsumeQueue 中最后的消息 记录的 commitLog 中偏移量  小于 commitLog 中最小的偏移量
+                // todo：什么时候会出现这样场景？
+                // 意味着，消息队列中保存的消息 落后于 commit log 中保存的消息，重置 minLogicOffset 到消费队列最后的位置
                 if (commitLogOffset < minCommitLogOffset) {
                     // Keep the largest known consume offset, even if this consume-queue contains no valid entries at
                     // all. Let minLogicOffset point to a future slot.
+                    // 保持最大的已知消费偏移量，即使这个消费队列根本不包含有效条目。让minLogicOffset指向未来的槽位。
                     this.minLogicOffset = lastMappedFile.getFileFromOffset() + maxReadablePosition;
                     log.info("ConsumeQueue[topic={}, queue-id={}] contains no valid entries. Min-offset is assigned as: {}.",
                         topic, queueId, getMinOffsetInQueue());
@@ -583,19 +630,23 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         if (mappedFile != null) {
             // Search from previous min logical offset. Typically, a consume queue file segment contains 300,000 entries
             // searching from previous position saves significant amount of comparisons and IOs
+            //从前面的最小逻辑偏移量开始搜索。通常，一个消费队列文件段包含300,000个条目，
+            // 从前一个位置搜索可以节省大量的比较和IOs
             boolean intact = true; // Assume previous value is still valid
+
+            // 正常情况下，两者相等， start = 0
             long start = this.minLogicOffset - mappedFile.getFileFromOffset();
             if (start < 0) {
                 intact = false;
                 start = 0;
             }
-
+            // 正常情况下 不会大于，无论 minLogicOffset 是否替换过
             if (start > mappedFile.getReadPosition()) {
                 log.error("[Bug][InconsistentState] ConsumeQueue file {} should have been deleted",
                     mappedFile.getFileName());
                 return;
             }
-
+            //
             SelectMappedBufferResult result = mappedFile.selectMappedBuffer((int) start);
             if (result == null) {
                 log.warn("[Bug] Failed to scan consume queue entries from file on correcting min offset: {}",
@@ -612,6 +663,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
 
                 ByteBuffer buffer = result.getByteBuffer().slice();
                 // Verify whether the previous value is still valid or not before conducting binary search
+                // 在进行二分查找之前，验证前一个值是否仍然有效
                 long commitLogOffset = buffer.getLong();
                 if (intact && commitLogOffset >= minCommitLogOffset) {
                     log.info("Abort correction as previous min-offset points to {}, which is greater than {}",
@@ -621,12 +673,15 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
 
                 // Binary search between range [previous_min_logic_offset, first_file_from_offset + file_size)
                 // Note the consume-queue deletion procedure ensures the last entry points to somewhere valid.
+
+                // 使用 二分查找的方式 ，在第一个 ConsumeQueue 文件查找 大于 minCommitLogOffset 的位置
                 int low = 0;
                 int high = result.getSize() - ConsumeQueue.CQ_STORE_UNIT_SIZE;
                 while (true) {
                     if (high - low <= ConsumeQueue.CQ_STORE_UNIT_SIZE) {
                         break;
                     }
+                    // 取中间的消息的开始位置
                     int mid = (low + high) / 2 / ConsumeQueue.CQ_STORE_UNIT_SIZE * ConsumeQueue.CQ_STORE_UNIT_SIZE;
                     buffer.position(mid);
                     commitLogOffset = buffer.getLong();
@@ -653,6 +708,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                         log.info("Compute logical min offset: {}, topic: {}, queueId: {}",
                             this.getMinOffsetInQueue(), this.topic, this.queueId);
                         // This maybe not take effect, when not every consume queue has an extended file.
+                        // todo：额外信息干啥的？
                         if (isExtAddr(tagsCode)) {
                             minExtAddr = tagsCode;
                         }
@@ -667,6 +723,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         }
 
         if (isExtReadEnable()) {
+            // 清除 minExtAddr 之前的文件
             this.consumeQueueExt.truncateByMinAddress(minExtAddr);
         }
     }
@@ -676,18 +733,29 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         return this.minLogicOffset / CQ_STORE_UNIT_SIZE;
     }
 
+    /**
+     *
+     * broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求，
+     * 在 CommitLogDispatcherBuildConsumeQueue 中，对于普通消息、事务提交消息，调用该方法
+     * 实际是向 消费队列、消费队列额外信息文件中放置消息的特征：消息在commitLog中物理偏移、消息大小、tags，方便后面消费
+     * 期间还会检查消息所属的topic是否配置多分发，在多分发的情况下，向每个队列都写入消息
+     */
     @Override
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
         final int maxRetries = 30;
+        // 判断消息队列是否可写
         boolean canWrite = this.messageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
             long tagsCode = request.getTagsCode();
+            // 判断消息的 额外信息是否可写
             if (isExtWriteEnable()) {
+                // 构建消息存储基本单位：20字节+bitmap length
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                 cqExtUnit.setFilterBitMap(request.getBitMap());
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
                 cqExtUnit.setTagsCode(request.getTagsCode());
 
+                // 将消息保存到 consumeQueueExt 映射文件中，如果文件写不下，创建新的文件
                 long extAddr = this.consumeQueueExt.put(cqExtUnit);
                 if (isExtAddr(extAddr)) {
                     tagsCode = extAddr;
@@ -696,14 +764,18 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
-            boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
-                request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
+            // 消息 放入消费队列中
+            boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(), request.getMsgSize(),
+                    tagsCode, request.getConsumeQueueOffset());
+
             if (result) {
                 if (this.messageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE ||
                     this.messageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.messageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
                 }
+                // 存储点设置逻辑消息时间戳
                 this.messageStore.getStoreCheckpoint().setLogicsMsgTimestamp(request.getStoreTimestamp());
+                // 判断 消息所属的 topic 是否需要多分发，多分发会向每个队列都发送消息
                 if (MultiDispatchUtils.checkMultiDispatchQueue(this.messageStore.getMessageStoreConfig(), request)) {
                     multiDispatchLmqQueue(request, maxRetries);
                 }
@@ -787,6 +859,15 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         queueOffsetOperator.increaseQueueOffset(topicQueueKey, messageNum);
     }
 
+    /**
+     * 就是向 消费队列中 的指定位置（通过cqOffset计算开始位置 ） 放入消息
+     *
+     * @param offset 消息在 commit log 中的绝对偏移量
+     * @param size 消息的大小
+     * @param tagsCode 标签
+     * @param cqOffset 在消息队列的绝对偏移个数
+     * @return
+     */
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
         final long cqOffset) {
 
@@ -794,18 +875,20 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
             log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", this.getMaxPhysicOffset(), offset);
             return true;
         }
-
+        // 切换 bytebuffer 的模式： 写->读 实际相当于指针归零，重新开始写
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset);
         this.byteBufferIndex.putInt(size);
         this.byteBufferIndex.putLong(tagsCode);
 
+        // 消息在整个逻辑队列中的绝对偏移量
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
-
+        // 获取消息的消息队列文件，不一定是最后一个文件
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 
+            // 第一个文件、消息不是第一个消息，但是文件中不存在消息之前的消息，进行填补 空值
             if (mappedFile.isFirstCreateInQueue() && cqOffset != 0 && mappedFile.getWrotePosition() == 0) {
                 this.minLogicOffset = expectLogicOffset;
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);
@@ -816,14 +899,16 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
             }
 
             if (cqOffset != 0) {
+                // 获取挡墙 消息在 消息队列逻辑队列中的绝对偏移量
                 long currentLogicOffset = mappedFile.getWrotePosition() + mappedFile.getFileFromOffset();
-
+                // 消息已经写过
                 if (expectLogicOffset < currentLogicOffset) {
                     log.warn("Build  consume queue repeatedly, expectLogicOffset: {} currentLogicOffset: {} Topic: {} QID: {} Diff: {}",
                         expectLogicOffset, currentLogicOffset, this.topic, this.queueId, expectLogicOffset - currentLogicOffset);
                     return true;
                 }
 
+                // 放入消息的开始位置 和文件当前写指针位置不一致
                 if (expectLogicOffset != currentLogicOffset) {
                     LOG_ERROR.warn(
                         "[BUG]logic queue order maybe wrong, expectLogicOffset: {} currentLogicOffset: {} Topic: {} QID: {} Diff: {}",
@@ -1071,8 +1156,13 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         return this.getMaxOffsetInQueue() - this.getMinOffsetInQueue();
     }
 
+    /**
+     * 消费队列中消息的数量 = 最后一个 cq 的可读位置 / 存储单位大小 （20/46）
+     * @return
+     */
     @Override
     public long getMaxOffsetInQueue() {
+        // /20
         return this.mappedFileQueue.getMaxOffset() / CQ_STORE_UNIT_SIZE;
     }
 

@@ -85,10 +85,17 @@ public class DefaultMappedFile extends AbstractMappedFile {
     protected ByteBuffer writeBuffer = null;
     protected TransientStorePool transientStorePool = null;
     protected String fileName;
+    /**
+     * 文件名
+     */
     protected long fileFromOffset;
     protected File file;
     protected MappedByteBuffer mappedByteBuffer;
     protected volatile long storeTimestamp = 0;
+    /**
+     * 标记是逻辑队列中第一个创建的 MappedFile
+     * 在 broker 异常恢复时，putMessagePositionInfo 放置消息队列信息的使用
+     */
     protected boolean firstCreateInQueue = false;
     private long lastFlushTime = -1L;
 
@@ -256,9 +263,13 @@ public class DefaultMappedFile extends AbstractMappedFile {
             ByteBuffer byteBuffer = appendMessageBuffer().slice();
             // 指定写指针位置
             byteBuffer.position(currentPos);
-
-            AppendMessageResult result = cb.doAppend(byteBuffer, this.fileFromOffset,
-                    this.fileSize - currentPos, byteBufferMsg);
+            // 添加
+            AppendMessageResult result = cb.doAppend(byteBuffer,
+                    this.fileFromOffset,
+                    // 目标文件剩余空间
+                    this.fileSize - currentPos,
+                    // 源数据
+                    byteBufferMsg);
             // 更新写指针的位置
             WROTE_POSITION_UPDATER.addAndGet(this, result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
@@ -356,8 +367,9 @@ public class DefaultMappedFile extends AbstractMappedFile {
      */
     @Override
     public boolean appendMessage(final byte[] data, final int offset, final int length) {
+        // 获取当前的写位置
         int currentPos = WROTE_POSITION_UPDATER.get(this);
-
+        // 确定不超过文件大小
         if ((currentPos + length) <= this.fileSize) {
             try {
                 ByteBuffer buf = this.mappedByteBuffer.slice();
@@ -503,6 +515,9 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return this.fileSize == WROTE_POSITION_UPDATER.get(this);
     }
 
+    /**
+     *
+     */
     @Override
     public SelectMappedBufferResult selectMappedBuffer(int pos, int size) {
         int readPosition = getReadPosition();
@@ -527,9 +542,17 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return null;
     }
 
+    /**
+     * 获取 mappedByteBuffer 中，pos指定位置 与读指针 之间的 bytebuffer，封装为 SelectMappedBufferResult 对象
+     *
+     * @param pos the given position 在文件中相对的偏移量
+     * @return
+     */
     @Override
     public SelectMappedBufferResult selectMappedBuffer(int pos) {
+        // 获取可读位置
         int readPosition = getReadPosition();
+        // 在可读范围内
         if (pos < readPosition && pos >= 0) {
             if (this.hold()) {
                 this.mappedByteBufferAccessCountSinceLastSwap++;
@@ -545,14 +568,20 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return null;
     }
 
+    /**
+     * 释放 mappedByteBuffer、mappedByteBufferWaitToClean 空间
+     * @param currentRef
+     * @return
+     */
     @Override
     public boolean cleanup(final long currentRef) {
+        // 必须在状态不可用后，开始清除
         if (this.isAvailable()) {
             log.error("this file[REF:" + currentRef + "] " + this.fileName
                 + " have not shutdown, stop unmapping.");
             return false;
         }
-
+        // 判断否清除结束，初次进来，引用次数是 0，但是cleanupOver 状态是 false
         if (this.isCleanupOver()) {
             log.error("this file[REF:" + currentRef + "] " + this.fileName
                 + " have cleanup, do not do it again.");
@@ -570,8 +599,10 @@ public class DefaultMappedFile extends AbstractMappedFile {
 
     @Override
     public boolean destroy(final long intervalForcibly) {
+        // 会 先修改 available 状态，refCount次数 -1，
+        //refCount次数 = 0 后，修改 cleanupOver 状态
         this.shutdown(intervalForcibly);
-
+        // 判断是够内存映射文件还有引用
         if (this.isCleanupOver()) {
             try {
                 long lastModified = getLastModifiedTimestamp();
@@ -612,6 +643,8 @@ public class DefaultMappedFile extends AbstractMappedFile {
     /**
      * @return The max position which have valid data
      * 获取 最大的可读的位置
+     * 当 不使用 transientStorePool 时候，返回写的位置
+     * 当使用 transientStorePool，并且已经提交，返回提交位置
      */
     @Override
     public int getReadPosition() {
@@ -745,6 +778,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
      */
     @Override
     public ByteBuffer sliceByteBuffer() {
+        //自上次交换以来映射的字节缓冲区访问计数
         this.mappedByteBufferAccessCountSinceLastSwap++;
         return this.mappedByteBuffer.slice();
     }

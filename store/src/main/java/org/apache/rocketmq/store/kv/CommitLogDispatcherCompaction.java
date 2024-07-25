@@ -28,6 +28,7 @@ public class CommitLogDispatcherCompaction implements CommitLogDispatcher {
 
     @Override
     public void dispatch(DispatchRequest request) {
+        // 压缩服务默认是开启的
         if (cptService != null) {
             cptService.putRequest(request);
         }

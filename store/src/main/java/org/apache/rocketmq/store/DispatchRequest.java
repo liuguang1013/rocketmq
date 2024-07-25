@@ -21,6 +21,9 @@ import java.util.Map;
 public class DispatchRequest {
     private final String topic;
     private final int queueId;
+    /**
+     * 消息在多个 commit log 中的绝对偏移量
+     */
     private final long commitLogOffset;
     private int msgSize;
     private final long tagsCode;

@@ -135,6 +135,11 @@ public class UtilAll {
         return timeMillisToHumanString(System.currentTimeMillis());
     }
 
+    /**
+     *
+     * @param t 时间毫秒值
+     * @return ；返回毫秒字符串 20240722153723568
+     */
     public static String timeMillisToHumanString(final long t) {
         Calendar cal = Calendar.getInstance();
         cal.setTimeInMillis(t);
@@ -728,6 +733,7 @@ public class UtilAll {
                     createDirIfNotExist(dir);
                 }
             } else {
+                // 不存在 创建文件夹
                 createDirIfNotExist(dirName);
             }
         }

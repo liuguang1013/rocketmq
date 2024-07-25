@@ -68,6 +68,7 @@ import sun.nio.ch.DirectBuffer;
 
 /**
  * Store all metadata downtime for recovery, data protection reliability
+ * 存储所有元数据停机恢复，数据保护可靠性
  */
 public class CommitLog implements Swappable {
     // Message's MAGIC CODE daa320a7
@@ -88,6 +89,9 @@ public class CommitLog implements Swappable {
     private final AppendMessageCallback appendMessageCallback;
     private final ThreadLocal<PutMessageThreadLocal> putMessageThreadLocal;
 
+    /**
+     * 消息已被成功处理并确认的标志。
+     */
     protected volatile long confirmOffset = -1L;
 
     private volatile long beginTimeInLock = 0;
@@ -245,15 +249,28 @@ public class CommitLog implements Swappable {
 
     /**
      * Read CommitLog data, use data replication
+     * 读取CommitLog数据，使用数据复制
      */
     public SelectMappedBufferResult getData(final long offset) {
+        //
         return this.getData(offset, offset == 0);
     }
 
+
+    /**
+     *
+     * @param offset 在 多个 commit log 中的绝对偏移量
+     * @param returnFirstOnNotFound
+     * @return
+     */
     public SelectMappedBufferResult getData(final long offset, final boolean returnFirstOnNotFound) {
+        // 获取commit log 映射文件大小
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
+        // 根据offset  获取 mappedFile
         MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset, returnFirstOnNotFound);
+
         if (mappedFile != null) {
+            // 获取消息在 mappedFile 中的相对位置
             int pos = (int) (offset % mappedFileSize);
             SelectMappedBufferResult result = mappedFile.selectMappedBuffer(pos);
             return result;
@@ -328,16 +345,32 @@ public class CommitLog implements Swappable {
     }
 
     /**
+     * 恢复：设置commitlog 的逻辑队列的消息的刷新、消费、截断位置
+     *
+     *
      * When the normal exit, data recovery, all memory data have been flush
+     * 当正常退出时，数据恢复，所有内存数据已被刷新
      *
      * @throws RocksDBException only in rocksdb mode
      */
     public void recoverNormally(long maxPhyOffsetOfConsumeQueue) throws RocksDBException {
+        /**
+         *  默认开启  CRC。
+         * CRC（循环冗余校验，Cyclic Redundancy Check）是一种用于检测数据传输错误的校验算法。
+         * RocketMQ 在消息存储和传输的过程中使用CRC校验码来确保消息的完整性和一致性。
+         * 当消息被发送到RocketMQ的Broker时，消息的body部分会被计算出一个CRC校验值，这个值会附加到消息的元数据中一起存储。
+         * 当消息被消费时，Broker会重新计算接收到的消息body的CRC值，并与存储的CRC值进行对比。
+         * 如果两个CRC值匹配，则认为消息在传输过程中没有损坏；如果不匹配，则表示消息可能在存储或传输过程中发生了错误，此时Broker可以根据配置采取相应的错误处理措施。
+         * 在RocketMQ的存储模型中，消息的元数据包含了一个名为bodyCRC的字段，它就是一个4字节的CRC校验码。
+         */
         boolean checkCRCOnRecover = this.defaultMessageStore.getMessageStoreConfig().isCheckCRCOnRecover();
+        // 默认是 false
         boolean checkDupInfo = this.defaultMessageStore.getMessageStoreConfig().isDuplicationEnable();
+
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
             // Began to recover from the last third file
+            // 从最后第三个文件开始恢复
             int index = mappedFiles.size() - 3;
             if (index < 0) {
                 index = 0;
@@ -349,19 +382,26 @@ public class CommitLog implements Swappable {
             long mappedFileOffset = 0;
             long lastValidMsgPhyOffset = this.getConfirmOffset();
             // normal recover doesn't require dispatching
+            // 正常恢复不需要调度
             boolean doDispatch = false;
             while (true) {
+                // 在 byteBuffer 中解析出消息数据，并封装到 DispatchRequest 中
                 DispatchRequest dispatchRequest = this.checkMessageAndReturnSize(byteBuffer, checkCRCOnRecover, checkDupInfo);
+
                 int size = dispatchRequest.getMsgSize();
                 // Normal data
+                // 正常数据
                 if (dispatchRequest.isSuccess() && size > 0) {
                     lastValidMsgPhyOffset = processOffset + mappedFileOffset;
                     mappedFileOffset += size;
+                    // 正常恢复，无需要分发请求
                     this.getMessageStore().onCommitLogDispatch(dispatchRequest, doDispatch, mappedFile, true, false);
                 }
                 // Come the end of the file, switch to the next file Since the
                 // return 0 representatives met last hole,
                 // this can not be included in truncate offset
+                // 到文件结束时，切换到下一个文件。
+                // 由于返回0代表遇到了最后一个洞，因此不能将此包含在截断偏移量中
                 else if (dispatchRequest.isSuccess() && size == 0) {
                     this.getMessageStore().onCommitLogDispatch(dispatchRequest, doDispatch, mappedFile, true, true);
                     index++;
@@ -378,6 +418,7 @@ public class CommitLog implements Swappable {
                     }
                 }
                 // Intermediate file read error
+                // 中间文件读取错误，跳出循环
                 else if (!dispatchRequest.isSuccess()) {
                     if (size > 0) {
                         log.warn("found a half message at {}, it will be truncated.", processOffset + mappedFileOffset);
@@ -398,20 +439,26 @@ public class CommitLog implements Swappable {
                     this.defaultMessageStore.setConfirmOffset(processOffset);
                 }
             } else {
+                // 设置 提交的 偏移量
                 this.setConfirmOffset(lastValidMsgPhyOffset);
             }
 
             // Clear ConsumeQueue redundant data
+            // 清除consumerqueue冗余数据：当消费队列的物理偏移量大于 commitLog 的最大偏移量
             if (maxPhyOffsetOfConsumeQueue >= processOffset) {
                 log.warn("maxPhyOffsetOfConsumeQueue({}) >= processOffset({}), truncate dirty logic files", maxPhyOffsetOfConsumeQueue, processOffset);
                 this.defaultMessageStore.truncateDirtyLogicFiles(processOffset);
             }
 
+            // 消息刷新位置
             this.mappedFileQueue.setFlushedWhere(processOffset);
+            // 消息消费的位置
             this.mappedFileQueue.setCommittedWhere(processOffset);
+            // 消息截断位置
             this.mappedFileQueue.truncateDirtyFiles(processOffset);
         } else {
             // Commitlog case files are deleted
+            // commitlog不存在，消费队列文件没有存在意义，也删除
             log.warn("The commitlog files are deleted, and delete the consume queue files");
             this.mappedFileQueue.setFlushedWhere(0);
             this.mappedFileQueue.setCommittedWhere(0);
@@ -420,8 +467,8 @@ public class CommitLog implements Swappable {
         }
     }
 
-    public DispatchRequest checkMessageAndReturnSize(java.nio.ByteBuffer byteBuffer, final boolean checkCRC,
-        final boolean checkDupInfo) {
+    public DispatchRequest checkMessageAndReturnSize(java.nio.ByteBuffer byteBuffer, final boolean checkCRC, final boolean checkDupInfo) {
+
         return this.checkMessageAndReturnSize(byteBuffer, checkCRC, checkDupInfo, true);
     }
 
@@ -432,12 +479,15 @@ public class CommitLog implements Swappable {
     }
 
     /**
+     *
      * check the message and returns the message size
+     * 解析消息字节数组，并封装成DispatchRequest 对象
      *
      * @return 0 Come the end of the file // >0 Normal messages // -1 Message checksum failure
      */
     public DispatchRequest checkMessageAndReturnSize(java.nio.ByteBuffer byteBuffer, final boolean checkCRC,
         final boolean checkDupInfo, final boolean readBody) {
+
         try {
             // 1 TOTAL SIZE
             int totalSize = byteBuffer.getInt();
@@ -448,6 +498,7 @@ public class CommitLog implements Swappable {
                 case MessageDecoder.MESSAGE_MAGIC_CODE:
                 case MessageDecoder.MESSAGE_MAGIC_CODE_V2:
                     break;
+                // 文件结束的标识符
                 case BLANK_MAGIC_CODE:
                     return new DispatchRequest(0, true /* success */);
                 default:
@@ -467,6 +518,9 @@ public class CommitLog implements Swappable {
 
             long queueOffset = byteBuffer.getLong();
 
+            /**
+             * todo：物理偏移量：是在 commit log 文件中的绝对偏移量吗？
+             */
             long physicOffset = byteBuffer.getLong();
 
             int sysFlag = byteBuffer.getInt();
@@ -497,7 +551,7 @@ public class CommitLog implements Swappable {
             if (bodyLen > 0) {
                 if (readBody) {
                     byteBuffer.get(bytesContent, 0, bodyLen);
-
+                    // 循环冗余校验
                     if (checkCRC) {
                         /**
                          * When the forceVerifyPropCRC = false,
@@ -571,6 +625,7 @@ public class CommitLog implements Swappable {
                  * When the forceVerifyPropCRC = true,
                  * Crc verification needs to be performed on the entire message data (excluding the length reserved at the tail)
                  */
+                // 默认 false
                 if (this.defaultMessageStore.getMessageStoreConfig().isForceVerifyPropCRC()) {
                     int expectedCRC = -1;
                     if (propertiesMap != null) {
@@ -631,6 +686,7 @@ public class CommitLog implements Swappable {
                 propertiesMap
             );
 
+            // 设置 批量大小
             setBatchSizeIfNeeded(propertiesMap, dispatchRequest);
 
             return dispatchRequest;
@@ -641,7 +697,8 @@ public class CommitLog implements Swappable {
     }
 
     private void setBatchSizeIfNeeded(Map<String, String> propertiesMap, DispatchRequest dispatchRequest) {
-        if (null != propertiesMap && propertiesMap.containsKey(MessageConst.PROPERTY_INNER_NUM) && propertiesMap.containsKey(MessageConst.PROPERTY_INNER_BASE)) {
+        if (null != propertiesMap && propertiesMap.containsKey(MessageConst.PROPERTY_INNER_NUM)
+                && propertiesMap.containsKey(MessageConst.PROPERTY_INNER_BASE)) {
             dispatchRequest.setMsgBaseOffset(Long.parseLong(propertiesMap.get(MessageConst.PROPERTY_INNER_BASE)));
             dispatchRequest.setBatchSize(Short.parseShort(propertiesMap.get(MessageConst.PROPERTY_INNER_NUM)));
         }
@@ -713,10 +770,12 @@ public class CommitLog implements Swappable {
         final List<MappedFile> mappedFiles = this.mappedFileQueue.getMappedFiles();
         if (!mappedFiles.isEmpty()) {
             // Looking beginning to recover from which file
+            // 从最后一个文件开始查找，是否符合恢复的条件
             int index = mappedFiles.size() - 1;
             MappedFile mappedFile = null;
             for (; index >= 0; index--) {
                 mappedFile = mappedFiles.get(index);
+                // 通过判断首个消息的存储时间 小于 检查点的时间，认为可以从当前文件开始恢复
                 if (this.isMappedFileMatchedRecover(mappedFile)) {
                     log.info("recover from this mapped file " + mappedFile.getFileName());
                     break;
@@ -734,29 +793,37 @@ public class CommitLog implements Swappable {
             long lastValidMsgPhyOffset = processOffset;
             long lastConfirmValidMsgPhyOffset = processOffset;
             // abnormal recover require dispatching
+            // 需要分发调度：
             boolean doDispatch = true;
             while (true) {
+                // 解析消息字节数组，并封装成DispatchRequest 对象
                 DispatchRequest dispatchRequest = this.checkMessageAndReturnSize(byteBuffer, checkCRCOnRecover, checkDupInfo);
                 int size = dispatchRequest.getMsgSize();
 
                 if (dispatchRequest.isSuccess()) {
                     // Normal data
                     if (size > 0) {
+                        // 上次有效的物理偏移量
                         lastValidMsgPhyOffset = processOffset + mappedFileOffset;
                         mappedFileOffset += size;
 
-                        if (this.defaultMessageStore.getMessageStoreConfig().isDuplicationEnable() || this.defaultMessageStore.getBrokerConfig().isEnableControllerMode()) {
+                        // duplicationEnable 默认 false
+                        if (this.defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()
+                                // EnableControllerMode 默认 false
+                                || this.defaultMessageStore.getBrokerConfig().isEnableControllerMode()) {
                             if (dispatchRequest.getCommitLogOffset() + size <= this.defaultMessageStore.getCommitLog().getConfirmOffset()) {
                                 this.getMessageStore().onCommitLogDispatch(dispatchRequest, doDispatch, mappedFile, true, false);
                                 lastConfirmValidMsgPhyOffset = dispatchRequest.getCommitLogOffset() + size;
                             }
                         } else {
+                            // 调用
                             this.getMessageStore().onCommitLogDispatch(dispatchRequest, doDispatch, mappedFile, true, false);
                         }
                     }
                     // Come the end of the file, switch to the next file
                     // Since the return 0 representatives met last hole, this can
                     // not be included in truncate offset
+                    // 到文件结尾，开始处理下个文件
                     else if (size == 0) {
                         this.getMessageStore().onCommitLogDispatch(dispatchRequest, doDispatch, mappedFile, true, true);
                         index++;
@@ -786,8 +853,10 @@ public class CommitLog implements Swappable {
 
             // only for rocksdb mode
             this.getMessageStore().finishCommitLogDispatch();
-
+            // 消息在commit log 中的绝对偏移量
             processOffset += mappedFileOffset;
+
+            // 设置消息确认消费的偏移量
             if (this.defaultMessageStore.getBrokerConfig().isEnableControllerMode()) {
                 if (this.defaultMessageStore.getConfirmOffset() < this.defaultMessageStore.getMinPhyOffset()) {
                     log.error("confirmOffset {} is less than minPhyOffset {}, correct confirmOffset to minPhyOffset", this.defaultMessageStore.getConfirmOffset(), this.defaultMessageStore.getMinPhyOffset());
@@ -801,6 +870,7 @@ public class CommitLog implements Swappable {
             }
 
             // Clear ConsumeQueue redundant data
+            // 清除大于 commit log 的消费队列的信息
             if (maxPhyOffsetOfConsumeQueue >= processOffset) {
                 log.warn("maxPhyOffsetOfConsumeQueue({}) >= processOffset({}), truncate dirty logic files", maxPhyOffsetOfConsumeQueue, processOffset);
                 this.defaultMessageStore.truncateDirtyLogicFiles(processOffset);
@@ -842,8 +912,11 @@ public class CommitLog implements Swappable {
     private boolean isMappedFileMatchedRecover(final MappedFile mappedFile) throws RocksDBException {
         ByteBuffer byteBuffer = mappedFile.sliceByteBuffer();
 
+        // todo：此处获取的是文件头还是文件尾？
+        // 查看 消息的 magicCode，判断是否属于正常消息
         int magicCode = byteBuffer.getInt(MessageDecoder.MESSAGE_MAGIC_CODE_POSITION);
-        if (magicCode != MessageDecoder.MESSAGE_MAGIC_CODE && magicCode != MessageDecoder.MESSAGE_MAGIC_CODE_V2) {
+        if (magicCode != MessageDecoder.MESSAGE_MAGIC_CODE
+                && magicCode != MessageDecoder.MESSAGE_MAGIC_CODE_V2) {
             return false;
         }
 
@@ -863,8 +936,11 @@ public class CommitLog implements Swappable {
                 return false;
             }
 
+            // 默认 true
             if (this.defaultMessageStore.getMessageStoreConfig().isMessageIndexEnable()
+                    // 默认 false
                 && this.defaultMessageStore.getMessageStoreConfig().isMessageIndexSafe()) {
+                // 存储时间戳 小于 存储检查点最小索引时间戳
                 if (storeTimestamp <= this.defaultMessageStore.getStoreCheckpoint().getMinTimestampIndex()) {
                     log.info("find check timestamp, {} {}",
                         storeTimestamp,
@@ -872,6 +948,7 @@ public class CommitLog implements Swappable {
                     return true;
                 }
             } else {
+                // 存储时间戳 小于 存储检查点最小时间戳
                 if (storeTimestamp <= this.defaultMessageStore.getStoreCheckpoint().getMinTimestamp()) {
                     log.info("find check timestamp, {} {}",
                         storeTimestamp,
@@ -1349,9 +1426,12 @@ public class CommitLog implements Swappable {
     public long getMinOffset() {
         MappedFile mappedFile = this.mappedFileQueue.getFirstMappedFile();
         if (mappedFile != null) {
+            // 判断 映射文件的状态是否可用
             if (mappedFile.isAvailable()) {
+                // 返回 commitLog 最小的物理偏移量
                 return mappedFile.getFileFromOffset();
             } else {
+                // 返回下个文件的 文件名
                 return this.rollNextFile(mappedFile.getFileFromOffset());
             }
         }

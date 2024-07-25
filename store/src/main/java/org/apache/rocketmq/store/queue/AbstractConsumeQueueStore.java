@@ -34,7 +34,7 @@ public abstract class AbstractConsumeQueueStore implements ConsumeQueueStoreInte
     protected final MessageStoreConfig messageStoreConfig;
     protected final QueueOffsetOperator queueOffsetOperator = new QueueOffsetOperator();
     /**
-     * 在
+     *
      */
     protected final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueueInterface>> consumeQueueTable;
 
@@ -46,6 +46,7 @@ public abstract class AbstractConsumeQueueStore implements ConsumeQueueStoreInte
 
     @Override
     public void putMessagePositionInfoWrapper(ConsumeQueueInterface consumeQueue, DispatchRequest request) {
+
         consumeQueue.putMessagePositionInfoWrapper(request);
     }
 

@@ -389,18 +389,26 @@ public class DefaultMessageStore implements MessageStore {
             }
 
             if (result) {
-                this.storeCheckpoint =
-                    new StoreCheckpoint(
-                        StorePathConfigHelper.getStoreCheckpoint(this.messageStoreConfig.getStorePathRootDir()));
+                //  入参： user.home/store/checkpoint
+                // 获取 checkpoint 文件中消息的偏移量
+                this.storeCheckpoint = new StoreCheckpoint(StorePathConfigHelper.getStoreCheckpoint(this.messageStoreConfig.getStorePathRootDir()));
+
+                // 将文件中的 主节点刷新偏移量、提交的偏移量 设置到 属性中
                 this.masterFlushedOffset = this.storeCheckpoint.getMasterFlushedOffset();
                 setConfirmOffset(this.storeCheckpoint.getConfirmPhyOffset());
 
+                // 索引服务：
                 result = this.indexService.load(lastExitOK);
+
+                /**
+                 * 恢复：
+                 *
+                 */
                 this.recover(lastExitOK);
                 LOGGER.info("message store recover end, and the max phy offset = {}", this.getMaxPhyOffset());
             }
 
-
+            // 获取CommitLog最大物理偏移量，设置到属性中
             long maxOffset = this.getMaxPhyOffset();
             this.setBrokerInitMaxOffset(maxOffset);
             LOGGER.info("load over, and the max phy offset = {}", maxOffset);
@@ -409,6 +417,7 @@ public class DefaultMessageStore implements MessageStore {
             result = false;
         }
 
+        // 加载失败：关闭创建 MappedFile 服务
         if (!result) {
             this.allocateMappedFileService.shutdown();
         }
@@ -1896,29 +1905,42 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private boolean isTempFileExist() {
+        // abort
         String fileName = StorePathConfigHelper.getAbortFile(this.messageStoreConfig.getStorePathRootDir());
         File file = new File(fileName);
         return file.exists();
     }
 
     private boolean isRecoverConcurrently() {
+        // recoverConcurrently 默认是 false 不是并发恢复
         return this.brokerConfig.isRecoverConcurrently() && !this.messageStoreConfig.isEnableRocksDBStore();
     }
 
     private void recover(final boolean lastExitOK) throws RocksDBException {
+        // 默认不是并发恢复的
         boolean recoverConcurrently = this.isRecoverConcurrently();
         LOGGER.info("message store recover mode: {}", recoverConcurrently ? "concurrent" : "normal");
 
         // recover consume queue
+        // 恢复消费队列
         long recoverConsumeQueueStart = System.currentTimeMillis();
         this.recoverConsumeQueue();
+        // 消息队列最大的物理偏移量
         long maxPhyOffsetOfConsumeQueue = this.consumeQueueStore.getMaxPhyOffsetInConsumeQueue();
         long recoverConsumeQueueEnd = System.currentTimeMillis();
 
         // recover commitlog
+        // 恢复 commitlog
         if (lastExitOK) {
+            // 正常恢复： 从最后第三个文件开始恢复，不需要分发调度
+            // 1、设置commitlog 的逻辑队列的消息的刷新、消费、截断位置
+            // 2、对于消费队列的偏移量大于 commit log 的消息进行清除
             this.commitLog.recoverNormally(maxPhyOffsetOfConsumeQueue);
         } else {
+            // 异常恢复：通过判断首个消息的存储时间 小于 检查点的时间，认为可以从当前文件开始恢复
+            // 需要分发调度：实际就是重新向 消费队列、消费队列额外信息文件中放置消息的特征，方便后面消费，
+            // 1、设置commitlog 的逻辑队列的消息的刷新、消费、截断位置
+            // 2、对于消费队列的偏移量大于 commit log 的消息进行清除
             this.commitLog.recoverAbnormally(maxPhyOffsetOfConsumeQueue);
         }
 
@@ -1958,6 +1980,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     private void recoverConsumeQueue() {
+        // 默认不并发恢复
         if (!this.isRecoverConcurrently()) {
             this.consumeQueueStore.recover();
         } else {
@@ -1967,7 +1990,10 @@ public class DefaultMessageStore implements MessageStore {
 
     @Override
     public void recoverTopicQueueTable() {
+        // 获取 commitLog 的最小偏移量
         long minPhyOffset = this.commitLog.getMinOffset();
+        // 1、保存 topic 下每个队列的消息数量
+        // 2、恢复消费队列的 minLogicOffset属性，实际是找到消费队列中，第一条大于 minPhyOffset 的消息，并在消费队列中 记录在消费队列中的偏移量
         this.consumeQueueStore.recoverOffsetTable(minPhyOffset);
     }
 
@@ -2015,6 +2041,7 @@ public class DefaultMessageStore implements MessageStore {
      * @throws RocksDBException only in rocksdb mode
      */
     protected void putMessagePositionInfo(DispatchRequest dispatchRequest) throws RocksDBException {
+        // 放入消息的位置信息
         this.consumeQueueStore.putMessagePositionInfoWrapper(dispatchRequest);
     }
 
@@ -2125,6 +2152,7 @@ public class DefaultMessageStore implements MessageStore {
     @Override
     public void onCommitLogDispatch(DispatchRequest dispatchRequest, boolean doDispatch, MappedFile commitLogFile,
         boolean isRecover, boolean isFileEnd) throws RocksDBException {
+        // 在正常退出情况下，不请求；异常退出情况下，发送请求
         if (doDispatch && !isFileEnd) {
             this.doDispatch(dispatchRequest);
         }
@@ -2182,16 +2210,27 @@ public class DefaultMessageStore implements MessageStore {
         }
     }
 
+    /**
+     * broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求，
+     */
     class CommitLogDispatcherBuildConsumeQueue implements CommitLogDispatcher {
 
         @Override
         public void dispatch(DispatchRequest request) throws RocksDBException {
+            // 获取消息的事务类型
             final int tranType = MessageSysFlag.getTransactionValue(request.getSysFlag());
             switch (tranType) {
+                // 不是事务消息、提交事务消息
                 case MessageSysFlag.TRANSACTION_NOT_TYPE:
                 case MessageSysFlag.TRANSACTION_COMMIT_TYPE:
+                    /**
+                     * broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求，
+                     * 实际是向 消费队列、消费队列额外信息文件中放置消息的特征：消息在commitLog中物理偏移、消息大小、tags，方便后面消费，
+                     * 期间还会检查消息所属的topic是否配置多分发，在多分发的情况下，向每个队列都写入消息
+                     */
                     putMessagePositionInfo(request);
                     break;
+                // 事务消息准备、回滚
                 case MessageSysFlag.TRANSACTION_PREPARED_TYPE:
                 case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
                     break;
@@ -2199,11 +2238,18 @@ public class DefaultMessageStore implements MessageStore {
         }
     }
 
+    /**
+     * broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求
+     */
     class CommitLogDispatcherBuildIndex implements CommitLogDispatcher {
 
         @Override
         public void dispatch(DispatchRequest request) {
+            // 默认 true
             if (DefaultMessageStore.this.messageStoreConfig.isMessageIndexEnable()) {
+                /**
+                 * 构建索引
+                 */
                 DefaultMessageStore.this.indexService.buildIndex(request);
             }
         }

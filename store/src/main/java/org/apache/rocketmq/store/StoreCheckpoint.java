@@ -39,9 +39,14 @@ public class StoreCheckpoint {
     private volatile long masterFlushedOffset = 0;
     private volatile long confirmPhyOffset = 0;
 
+    /**
+     * @param scpPath  user.home/store/checkpoint
+     */
     public StoreCheckpoint(final String scpPath) throws IOException {
         File file = new File(scpPath);
+        // 确保文件夹存在  user.home/store/
         UtilAll.ensureDirOK(file.getParent());
+        // 文件存在标识
         boolean fileExists = file.exists();
 
         this.randomAccessFile = new RandomAccessFile(file, "rw");
@@ -50,10 +55,13 @@ public class StoreCheckpoint {
 
         if (fileExists) {
             log.info("store checkpoint file exists, " + scpPath);
+            // 物理消息时间戳
             this.physicMsgTimestamp = this.mappedByteBuffer.getLong(0);
             this.logicsMsgTimestamp = this.mappedByteBuffer.getLong(8);
             this.indexMsgTimestamp = this.mappedByteBuffer.getLong(16);
+            // 主节点刷新偏移量
             this.masterFlushedOffset = this.mappedByteBuffer.getLong(24);
+            //
             this.confirmPhyOffset = this.mappedByteBuffer.getLong(32);
 
             log.info("store checkpoint file physicMsgTimestamp " + this.physicMsgTimestamp + ", "
@@ -82,6 +90,12 @@ public class StoreCheckpoint {
         }
     }
 
+    /**
+     * 刷新存储检查点信息
+     * 触发时机：
+     * 1、当broker启动，上次不是正常退出，触发异常恢复，进行消息分发调度，调用CommitLogDispatcherBuildIndex构建索引时
+     * 索引文件最后一个索引文件已经写满，创建新索引文件，对最后一个写满的文件进行强制刷盘，并刷新存储检查点信息
+     */
     public void flush() {
         this.mappedByteBuffer.putLong(0, this.physicMsgTimestamp);
         this.mappedByteBuffer.putLong(8, this.logicsMsgTimestamp);

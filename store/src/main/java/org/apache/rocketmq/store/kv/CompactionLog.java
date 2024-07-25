@@ -118,9 +118,9 @@ public class CompactionLog {
 
         // 设置压缩日志映射文件大小：文件默认配置 100 M ，需要根据每个文件大小计算；最小是每个消费队列大小的 5 倍
         this.compactionLogMappedFileSize = getCompactionLogSize(compactionCqMappedFileSize, messageStoreConfig.getCompactionMappedFileSize());
-
+        // user.home/store/compaction/compactionLog/topic/queueId
         this.compactionLogFilePath = Paths.get(compactionStore.getCompactionLogPath(), topic, String.valueOf(queueId)).toString();
-
+        // user.home/store/compaction/compactionCq
         this.compactionCqFilePath = compactionStore.getCompactionCqPath();        // batch consume queue already separated
 
         this.positionMgr = compactionStore.getPositionMgr();
@@ -152,8 +152,8 @@ public class CompactionLog {
     }
 
     public void load(boolean exitOk) throws IOException, RuntimeException {
-        // 创建 TopicPartitionLog 对象，
-        // 对象中包含 DefaultMappedFile、SparseConsumeQueue
+        // 创建 TopicPartitionLog 对象，对象中包含 mappedFileQueue、SparseConsumeQueue
+        //在文件夹下已存在文件情况下，进行恢复操作
         initLogAndCq(exitOk);
 
         if (defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE
@@ -167,7 +167,7 @@ public class CompactionLog {
     }
 
     private void initLogAndCq(boolean exitOk) throws IOException, RuntimeException {
-        // 对象中包含 DefaultMappedFile、SparseConsumeQueue
+        // 对象中包含 mappedFileQueue、SparseConsumeQueue
         current = new TopicPartitionLog(this);
         //
         current.init(exitOk);
@@ -387,8 +387,8 @@ public class CompactionLog {
             MessageExtBrokerInner.tagsString2tagsCode(msgExt.getTags()), msgExt.getStoreTimestamp(), tpLog);
     }
 
-    public CompletableFuture<PutMessageResult> asyncPutMessage(final ByteBuffer msgBuffer,
-        final DispatchRequest dispatchRequest) {
+    public CompletableFuture<PutMessageResult> asyncPutMessage(final ByteBuffer msgBuffer, final DispatchRequest dispatchRequest) {
+
         return asyncPutMessage(msgBuffer, dispatchRequest.getTopic(), dispatchRequest.getQueueId(),
             dispatchRequest.getConsumeQueueOffset(), dispatchRequest.getUniqKey(), dispatchRequest.getKeys(),
             dispatchRequest.getTagsCode(), dispatchRequest.getStoreTimestamp(), current);
@@ -401,6 +401,9 @@ public class CompactionLog {
             dispatchRequest.getTagsCode(), dispatchRequest.getStoreTimestamp(), tpLog);
     }
 
+    /**
+     * 入参的信息 都是在 commit log 中拿的
+     */
     public CompletableFuture<PutMessageResult> asyncPutMessage(final ByteBuffer msgBuffer
             , String topic, int queueId, long queueOffset, String msgId, String keys
             , long tagsCode, long storeTimestamp, final TopicPartitionLog tpLog) {
@@ -410,7 +413,7 @@ public class CompactionLog {
         if (tpLog.getCQ().getMaxOffsetInQueue() - 1 >= queueOffset) {
             return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null));
         }
-
+        // 没有 keys 属性的消息，不会存放 compaction log 中
         if (StringUtils.isBlank(keys)) {
             log.warn("message {}-{}:{} have no key, will not put in compaction log", topic, queueId, msgId);
             return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null));
@@ -429,11 +432,11 @@ public class CompactionLog {
                     return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPPED_FILE_FAILED, null));
                 }
             }
-            // 获取最后一个 文件
+            // 获取 compactLog 最后一个 文件
             MappedFile mappedFile = tpLog.getLog().getLastMappedFile();
 
             CompactionAppendMsgCallback callback = new CompactionAppendMessageCallback(topic, queueId, tagsCode, storeTimestamp, tpLog.getCQ());
-            // 向最后一个文件写入消息
+            // 向最后一个compactLog 文件写入消息
             AppendMessageResult result = mappedFile.appendMessage(msgBuffer, callback);
 
             switch (result.getStatus()) {
@@ -921,6 +924,14 @@ public class CompactionLog {
             this.bcq = bcq;
         }
 
+        /**
+         *
+         * @param bbDest compaction Log 要写入消息的 ByteBuffer
+         * @param fileFromOffset compaction Log 文件名，文件在逻辑队列中的开始偏移量
+         * @param maxBlank 最大可写入的空间
+         * @param bbSrc 在 commitLog 中消息存储点后 到 可读位置的 ByteBuffer
+         * @return
+         */
         @Override
         public AppendMessageResult doAppend(ByteBuffer bbDest, long fileFromOffset, int maxBlank, ByteBuffer bbSrc) {
 
@@ -943,15 +954,21 @@ public class CompactionLog {
 
             //get logic offset and physical offset
             int logicOffsetPos = 4 + 4 + 4 + 4 + 4;
+            // queueOffset：消息在 commit log 中保存的 队列中的偏移量
             long logicOffset = bbSrc.getLong(logicOffsetPos);
             int destPos = bbDest.position();
+            // 在多个 compaction Log 中的偏移量
             long physicalOffset = fileFromOffset + bbDest.position();
+            // 指针重置到 0
             bbSrc.rewind();
             bbSrc.limit(msgLen);
+            // 将 commit log 中的消息全部放入 压缩日志文件中
             bbDest.put(bbSrc);
+            // 替换 消息的物理 偏移量，
+            // 原来是 在多个 commit log 中的偏移量，现在是在 多个  compaction Log 中的偏移量
             bbDest.putLong(destPos + logicOffsetPos + 8, physicalOffset);       //replace physical offset
 
-            // 向消息队列中，添加元素   原来文件 -> 压缩文件
+            // 向稀疏消费消息队列中，添加元素
             boolean result = bcq.putBatchMessagePositionInfo(physicalOffset, msgLen,
                 tagsCode, storeTimestamp, logicOffset, (short)1);
             if (!result) {
@@ -1144,9 +1161,9 @@ public class CompactionLog {
             }
 
             try {
-                // SparseConsumeQueue
+                // SparseConsumeQueue 队列恢复，加载队列的压缩文件到内存中
                 consumeQueue.recover();
-                // 加载完成后，设置 mappedFileQueue 对象属性
+                // 加载完成后，设置 mappedFileQueue 对象属性：刷新、提交位置
                 recover();
                 // 完整性检查：文件是否都加载到内存中，通过文件名和mappedFileQueue中对象匹配
                 sanityCheck();
