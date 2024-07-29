@@ -363,7 +363,8 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     /**
-     * @throws IOException
+     * 加载 Commit Log、Consume Queue、compactionStore、indexService
+     * 恢复：consume queue、 commitLog、consume offset table
      */
     @Override
     public boolean load() {
@@ -401,8 +402,7 @@ public class DefaultMessageStore implements MessageStore {
                 result = this.indexService.load(lastExitOK);
 
                 /**
-                 * 恢复：
-                 *
+                 * 恢复：consume queue、 commitLog、consume offset table
                  */
                 this.recover(lastExitOK);
                 LOGGER.info("message store recover end, and the max phy offset = {}", this.getMaxPhyOffset());
@@ -1922,7 +1922,7 @@ public class DefaultMessageStore implements MessageStore {
         LOGGER.info("message store recover mode: {}", recoverConcurrently ? "concurrent" : "normal");
 
         // recover consume queue
-        // 恢复消费队列
+        // 恢复 consume queue 消费队列
         long recoverConsumeQueueStart = System.currentTimeMillis();
         this.recoverConsumeQueue();
         // 消息队列最大的物理偏移量
@@ -2110,6 +2110,13 @@ public class DefaultMessageStore implements MessageStore {
         return this.masterStoreInProcess;
     }
 
+    /**
+     * 在 commit Log 中获取消息
+     * @param offset 开始偏移量
+     * @param size 消息大小
+     * @param byteBuffer 消息放入的 byteBuffer
+     * @return
+     */
     @Override
     public boolean getData(long offset, int size, ByteBuffer byteBuffer) {
         return this.commitLog.getData(offset, size, byteBuffer);

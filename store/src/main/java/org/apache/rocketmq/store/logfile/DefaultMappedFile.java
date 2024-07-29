@@ -213,6 +213,13 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return this.file.lastModified();
     }
 
+    /**
+     * 从 MappedFile 获取数据，
+     * @param pos 在文件中相对偏移量
+     * @param size 数据大小
+     * @param byteBuffer 数据保存到byteBuffer ，作为返回对象
+     * @return
+     */
     public boolean getData(int pos, int size, ByteBuffer byteBuffer) {
         if (byteBuffer.remaining() < size) {
             return false;

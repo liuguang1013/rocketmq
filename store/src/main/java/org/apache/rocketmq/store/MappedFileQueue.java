@@ -200,6 +200,11 @@ public class MappedFileQueue implements Swappable {
         return mfs;
     }
 
+    /**
+     * 遍历文件：
+     * 1、文件初始的偏移量就大于 入参offset偏移量，直接删除
+     * 2、入参offset 在文件中间，不删除，重置指针位置，后续数据覆盖
+     */
     public void truncateDirtyFiles(long offset) {
         List<MappedFile> willRemoveFiles = new ArrayList<>();
 
@@ -207,6 +212,7 @@ public class MappedFileQueue implements Swappable {
             long fileTailOffset = file.getFileFromOffset() + this.mappedFileSize;
             if (fileTailOffset > offset) {
                 if (offset >= file.getFileFromOffset()) {
+                    // 设置文件的写指针、提交指针、刷新位置
                     file.setWrotePosition((int) (offset % this.mappedFileSize));
                     file.setCommittedPosition((int) (offset % this.mappedFileSize));
                     file.setFlushedPosition((int) (offset % this.mappedFileSize));
@@ -216,7 +222,7 @@ public class MappedFileQueue implements Swappable {
                 }
             }
         }
-
+        // 删除文件，但是对于一个文件
         this.deleteExpiredFile(willRemoveFiles);
     }
 

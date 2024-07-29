@@ -1042,6 +1042,7 @@ public class MessageStoreConfig {
     }
 
     public String getStorePathRootDir() {
+        // user.home/store/
         return storePathRootDir;
     }
 

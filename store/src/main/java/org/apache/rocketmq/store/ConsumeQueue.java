@@ -938,6 +938,10 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         }
     }
 
+    /**
+     * @param startIndex 消息在消费队列中的第几个
+     * @return
+     */
     public SelectMappedBufferResult getIndexBuffer(final long startIndex) {
         int mappedFileSize = this.mappedFileSize;
         long offset = startIndex * CQ_STORE_UNIT_SIZE;
@@ -950,6 +954,11 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         return null;
     }
 
+    /**
+     *
+     * @param startOffset 消息队列中第几个消息
+     * @return
+     */
     @Override
     public ReferredIterator<CqUnit> iterateFrom(long startOffset) {
         SelectMappedBufferResult sbr = getIndexBuffer(startOffset);
@@ -1049,6 +1058,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                 sbr.getByteBuffer().getInt(),
                 sbr.getByteBuffer().getLong());
 
+            // 补充 消息的额外信息：TagsCode 信息保存在ConsumeQueueExt 中
             if (isExtAddr(cqUnit.getTagsCode())) {
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
                 boolean extRet = getExt(cqUnit.getTagsCode(), cqExtUnit);

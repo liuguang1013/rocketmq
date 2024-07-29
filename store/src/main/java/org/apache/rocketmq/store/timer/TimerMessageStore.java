@@ -236,12 +236,16 @@ public class TimerMessageStore {
     }
 
     public void initService() {
+        // 入队 获取/放入 服务
         enqueueGetService = new TimerEnqueueGetService();
         enqueuePutService = new TimerEnqueuePutService();
+        // 出队 获取/预热 服务
         dequeueWarmService = new TimerDequeueWarmService();
         dequeueGetService = new TimerDequeueGetService();
+        // 刷新服务
         timerFlushService = new TimerFlushService();
 
+        // 创建多个 dequeueGetMessageServices
         int getThreadNum = Math.max(storeConfig.getTimerGetMessageThreadNum(), 1);
         dequeueGetMessageServices = new TimerDequeueGetMessageService[getThreadNum];
         for (int i = 0; i < dequeueGetMessageServices.length; i++) {
@@ -256,10 +260,15 @@ public class TimerMessageStore {
     }
 
     public boolean load() {
+        // 创建多个服务对象
         this.initService();
+        // 加载多个 timerLog 文件
         boolean load = timerLog.load();
+        // 将配置信息解析成 TimerMetricsSerializeWrapper
         load = load && this.timerMetrics.load();
+        // 恢复
         recover();
+
         calcTimerDistribution();
         return load;
     }
@@ -291,27 +300,38 @@ public class TimerMessageStore {
         LOGGER.debug("Total cost Time: {}", endTime - startTime);
     }
 
+    /**
+     * 1、恢复timerLog，修改 timerWheel： 当timerLog的消息 与 timerWheel 中不一致的时候，修改timerWheel
+     * 2、设置timerLog刷新位置
+     * 3、修改消息队列
+     */
     @SuppressWarnings("NonAtomicOperationOnVolatileField")
     public void recover() {
         //recover timerLog
+        // 在 user.home/store//config/timercheck 配置文件中，获取上次刷新位置
         long lastFlushPos = timerCheckpoint.getLastTimerLogFlushPos();
         MappedFile lastFile = timerLog.getMappedFileQueue().getLastMappedFile();
+        // todo ： lastFlushPos 保存的是什么？ 为什么最后一个文件比较？
         if (null != lastFile) {
             lastFlushPos = lastFlushPos - lastFile.getFileSize();
         }
         if (lastFlushPos < 0) {
             lastFlushPos = 0;
         }
+        // 恢复timerLog，修改timerWheel
+        // 返回 timerLog 最后一条消息的 绝对偏移量
         long processOffset = recoverAndRevise(lastFlushPos, true);
-
+        // 设置刷新位置
         timerLog.getMappedFileQueue().setFlushedWhere(processOffset);
         //revise queue offset
+        // 修改队列的偏移量
         long queueOffset = reviseQueueOffset(processOffset);
         if (-1 == queueOffset) {
             currQueueOffset = timerCheckpoint.getLastTimerQueueOffset();
         } else {
             currQueueOffset = queueOffset + 1;
         }
+        // 消息队列中
         currQueueOffset = Math.min(currQueueOffset, timerCheckpoint.getMasterTimerQueueOffset());
 
         //check timer wheel
@@ -341,7 +361,14 @@ public class TimerMessageStore {
         prepareTimerCheckPoint();
     }
 
+    /**
+     * 修正 消息在消息队列中排第几
+     * @param processOffset  timerLog 最后一条消息的 绝对偏移量
+     * @return
+     */
     public long reviseQueueOffset(long processOffset) {
+        // 获取 定时消息
+        // todo: 获取 offsetPy 这操作没看明白
         SelectMappedBufferResult selectRes = timerLog.getTimerMessage(processOffset - (TimerLog.UNIT_SIZE - TimerLog.UNIT_PRE_SIZE_FOR_MSG));
         if (null == selectRes) {
             return -1;
@@ -349,6 +376,7 @@ public class TimerMessageStore {
         try {
             long offsetPy = selectRes.getByteBuffer().getLong();
             int sizePy = selectRes.getByteBuffer().getInt();
+            //  在 commit log 中获取消息，并封装到 MessageExt 中
             MessageExt messageExt = getMessageByCommitOffset(offsetPy, sizePy);
             if (null == messageExt) {
                 return -1;
@@ -356,12 +384,14 @@ public class TimerMessageStore {
 
             // check offset in msg is equal to offset of cq.
             // if not, use cq offset.
+            // 检查 消息保存的 队列偏移量 与 消息队列中偏移量是否一致
             long msgQueueOffset = messageExt.getQueueOffset();
             int queueId = messageExt.getQueueId();
             ConsumeQueueInterface cq = this.messageStore.getConsumeQueue(TIMER_TOPIC, queueId);
             if (null == cq) {
                 return msgQueueOffset;
             }
+            // 消息在 commit log 存储的偏移量
             long cqOffset = msgQueueOffset;
             long tmpOffset = msgQueueOffset;
             int maxCount = 20000;
@@ -373,8 +403,10 @@ public class TimerMessageStore {
                 }
                 ReferredIterator<CqUnit> iterator = null;
                 try {
+                    // 将保存在SelectMappedBufferResult的 消息 封装到 ConsumeQueueIterator中
                     iterator = cq.iterateFrom(tmpOffset);
                     CqUnit cqUnit = null;
+                    // 获取 消费队列消息单位
                     if (null == iterator || (cqUnit = iterator.next()) == null) {
                         // offset in msg may be greater than offset of cq.
                         tmpOffset -= 1;
@@ -383,12 +415,14 @@ public class TimerMessageStore {
 
                     long offsetPyTemp = cqUnit.getPos();
                     int sizePyTemp = cqUnit.getSize();
+                    // 检查成功
                     if (offsetPyTemp == offsetPy && sizePyTemp == sizePy) {
                         LOGGER.info("reviseQueueOffset check cq offset ok. {}, {}, {}",
                             tmpOffset, offsetPyTemp, sizePyTemp);
                         cqOffset = tmpOffset;
                         break;
                     }
+                    // 检查不成功继续检查下一个
                     tmpOffset -= 1;
                 } catch (Throwable e) {
                     LOGGER.error("reviseQueueOffset check cq offset error.", e);
@@ -407,6 +441,13 @@ public class TimerMessageStore {
 
     //recover timerLog and revise timerWheel
     //return process offset
+    /**
+     * 恢复timerLog，修改timerWheel
+     * 返回 timerLog 最后一条消息的 绝对偏移量
+     * @param beginOffset
+     * @param checkTimerLog 标志位，代表是否对整个文件的数据进行校验，否则只校验读指针之前的数据
+     * @return
+     */
     private long recoverAndRevise(long beginOffset, boolean checkTimerLog) {
         LOGGER.info("Begin to recover timerLog offset:{} check:{}", beginOffset, checkTimerLog);
         MappedFile lastFile = timerLog.getMappedFileQueue().getLastMappedFile();
@@ -414,6 +455,7 @@ public class TimerMessageStore {
             return 0;
         }
 
+        // 倒叙遍历 文件，除去最后一个文件，找出开始遍历的文件
         List<MappedFile> mappedFiles = timerLog.getMappedFileQueue().getMappedFiles();
         int index = mappedFiles.size() - 1;
         for (; index >= 0; index--) {
@@ -425,10 +467,14 @@ public class TimerMessageStore {
         if (index < 0) {
             index = 0;
         }
+
+        //  遍历 timerLog
         long checkOffset = mappedFiles.get(index).getFileFromOffset();
         for (; index < mappedFiles.size(); index++) {
             MappedFile mappedFile = mappedFiles.get(index);
-            SelectMappedBufferResult sbr = mappedFile.selectMappedBuffer(0, checkTimerLog ? mappedFiles.get(index).getFileSize() : mappedFile.getReadPosition());
+            // checkTimerLog 标志位，代表是否对整个文件的数据进行校验，否则只校验读指针之前的
+            SelectMappedBufferResult sbr = mappedFile.selectMappedBuffer(0, checkTimerLog
+                    ? mappedFiles.get(index).getFileSize() : mappedFile.getReadPosition());
             ByteBuffer bf = sbr.getByteBuffer();
             int position = 0;
             boolean stopCheck = false;
@@ -441,12 +487,15 @@ public class TimerMessageStore {
                     if (magic == TimerLog.BLANK_MAGIC_CODE) {
                         break;
                     }
+                    // 检查 checkTimerLog 的 magicCode 和 存储单位大小
                     if (checkTimerLog && (!isMagicOK(magic) || TimerLog.UNIT_SIZE != size)) {
                         stopCheck = true;
                         break;
                     }
                     long delayTime = bf.getLong() + bf.getInt();
+
                     if (TimerLog.UNIT_SIZE == size && isMagicOK(magic)) {
+                        // 修复TimerWheel 中存储单位的信息：timeMs、firstPos、lastPos
                         timerWheel.reviseSlot(delayTime, TimerWheel.IGNORE, sbr.getStartOffset() + position, true);
                     }
                 } catch (Exception e) {
@@ -462,6 +511,7 @@ public class TimerMessageStore {
             }
         }
         if (checkTimerLog) {
+            // 删除 timerLog 中后面的消息
             timerLog.getMappedFileQueue().truncateDirtyFiles(checkOffset);
         }
         return checkOffset;
@@ -1055,14 +1105,20 @@ public class TimerMessageStore {
         return lists;
     }
 
+    /**
+     * 在 commit log 中获取消息，并封装到 MessageExt 中
+     */
     private MessageExt getMessageByCommitOffset(long offsetPy, int sizePy) {
+        // 尝试 3次
         for (int i = 0; i < 3; i++) {
             MessageExt msgExt = null;
             bufferLocal.get().position(0);
             bufferLocal.get().limit(sizePy);
+            // 在 commit log 中获取消息
             boolean res = messageStore.getData(offsetPy, sizePy, bufferLocal.get());
             if (res) {
                 bufferLocal.get().flip();
+                // 将消息 封装到 MessageExt 中
                 msgExt = MessageDecoder.decode(bufferLocal.get(), true, false, false);
             }
             if (null == msgExt) {

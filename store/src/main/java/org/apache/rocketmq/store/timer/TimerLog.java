@@ -38,6 +38,9 @@ public class TimerLog {
             + 4 //sizePy
             + 4 //hash code of real topic
             + 8; //reserved value, just in case of
+    /**
+     *
+     */
     public final static int UNIT_PRE_SIZE_FOR_MSG = 28;
     public final static int UNIT_PRE_SIZE_FOR_METRIC = 40;
     private final MappedFileQueue mappedFileQueue;
@@ -93,6 +96,7 @@ public class TimerLog {
     }
 
     public SelectMappedBufferResult getTimerMessage(long offsetPy) {
+        // 获取包含offsetPy 的 TimerLog 文件
         MappedFile mappedFile = mappedFileQueue.findMappedFileByOffset(offsetPy);
         if (null == mappedFile)
             return null;

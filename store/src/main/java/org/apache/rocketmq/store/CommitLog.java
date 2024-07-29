@@ -279,8 +279,13 @@ public class CommitLog implements Swappable {
         return null;
     }
 
+    /**
+     * 在 commit Log 中获取消息
+     */
     public boolean getData(final long offset, final int size, final ByteBuffer byteBuffer) {
+        // 1G
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
+
         MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset, offset == 0);
         if (mappedFile != null) {
             int pos = (int) (offset % mappedFileSize);

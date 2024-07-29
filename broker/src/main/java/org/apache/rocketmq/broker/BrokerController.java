@@ -840,8 +840,9 @@ public class BrokerController {
             // 默认时 true，定时消息的存储使用时间轮，可以自定义延迟
             if (messageStoreConfig.isTimerWheelEnable()) {
 
-
+                // user.home/store//config/timercheck
                 this.timerCheckpoint = new TimerCheckpoint(BrokerPathConfigHelper.getTimerCheckPath(messageStoreConfig.getStorePathRootDir()));
+                // user.home/store//config/timermetrics
                 TimerMetrics timerMetrics = new TimerMetrics(BrokerPathConfigHelper.getTimerMetricsPath(messageStoreConfig.getStorePathRootDir()));
                 this.timerMessageStore = new TimerMessageStore(messageStore, messageStoreConfig, timerCheckpoint, timerMetrics, brokerStatsManager);
 
@@ -883,10 +884,12 @@ public class BrokerController {
         if (messageStore != null) {
             // 注册消息存储服务请求的相关钩子函数
             registerMessageStoreHook();
-            // 加载
+            // 加载 Commit Log、Consume Queue、compactionStore、indexService
+            // 恢复：consume queue、 commitLog、consume offset table
             result = this.messageStore.load();
         }
 
+        // 默认开启
         if (messageStoreConfig.isTimerWheelEnable()) {
             result = result && this.timerMessageStore.load();
         }

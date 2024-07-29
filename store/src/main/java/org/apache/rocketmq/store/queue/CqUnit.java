@@ -22,8 +22,17 @@ import org.apache.rocketmq.store.ConsumeQueueExt;
 import java.nio.ByteBuffer;
 
 public class CqUnit {
+    /**
+     * 消息在消费队列中排在第几个
+     */
     private final long queueOffset;
+    /**
+     * Body Size
+     */
     private final int size;
+    /**
+     * CommitLog Physical Offset
+     */
     private final long pos;
     private final short batchNum;
     /**

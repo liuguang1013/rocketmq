@@ -154,6 +154,8 @@ public class TimerWheel {
         localBuffer.get().position(getSlotIndex(timeMs) * Slot.SIZE);
         // To be compatible with previous version.
         // The previous version's precision is fixed at 1000ms and it store timeMs / 1000 in slot.
+        //与以前的版本兼容。
+        // 以前的版本的精度固定在1000ms，并在插槽中存储timms 1000。
         localBuffer.get().putLong(timeMs / precisionMs);
         localBuffer.get().putLong(firstPos);
         localBuffer.get().putLong(lastPos);
@@ -167,19 +169,31 @@ public class TimerWheel {
         localBuffer.get().putInt(magic);
     }
 
+    /**
+     * 调整 下面这些参数
+     * @param timeMs
+     * @param firstPos
+     * @param lastPos 消息在多个 TimerLog 中的绝对偏移量
+     * @param force
+     */
     public void reviseSlot(long timeMs, long firstPos, long lastPos, boolean force) {
+        // 重置指针位置
         localBuffer.get().position(getSlotIndex(timeMs) * Slot.SIZE);
 
         if (timeMs / precisionMs != localBuffer.get().getLong()) {
+            // 当 TimerWheel 中的时间 与 消息计算的时间不一致
             if (force) {
+                // 强制修改 时间轮前三个字段存储值：timeMs、firstPos、lastPos
                 putSlot(timeMs, firstPos != IGNORE ? firstPos : lastPos, lastPos);
             }
         } else {
+            // lastPos 不忽略，直接覆盖
             if (IGNORE != firstPos) {
                 localBuffer.get().putLong(firstPos);
             } else {
                 localBuffer.get().getLong();
             }
+            //  lastPos 不忽略，直接覆盖
             if (IGNORE != lastPos) {
                 localBuffer.get().putLong(lastPos);
             }

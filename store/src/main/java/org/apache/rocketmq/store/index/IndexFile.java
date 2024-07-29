@@ -64,6 +64,9 @@ public class IndexFile {
     /**
      *  Begin Timestamp(8) + End Timestamp(8) + Begin Physical Offset(8)
      *  + End Physical Offset(8) + Hash Slot Count(4) + Index Count(4) = 40 Bytes
+     *
+     *  Begin/End Timestamp：在 commitLog 中的存储时间
+     *  Begin/End Physical Offset：在 commitLog 中的绝对偏移量
      */
     private final IndexHeader indexHeader;
 

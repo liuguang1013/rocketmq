@@ -154,8 +154,8 @@ public class TimerMetrics extends ConfigManager {
 
     @Override
     public void decode(String jsonString) {
-        if (jsonString != null) {
-            TimerMetricsSerializeWrapper timerMetricsSerializeWrapper =
+        if (jsonString != null) {TimerMetricsSerializeWrapper
+             timerMetricsSerializeWrapper =
                 TimerMetricsSerializeWrapper.fromJson(jsonString, TimerMetricsSerializeWrapper.class);
             if (timerMetricsSerializeWrapper != null) {
                 this.timingCount.putAll(timerMetricsSerializeWrapper.getTimingCount());
