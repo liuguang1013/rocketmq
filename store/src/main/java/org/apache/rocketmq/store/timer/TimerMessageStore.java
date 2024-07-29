@@ -135,8 +135,17 @@ public class TimerMessageStore {
     protected volatile long currReadTimeMs;
     protected volatile long currWriteTimeMs;
     protected volatile long preReadTimeMs;
+    /**
+     * broker 启动，恢复时，通过对比时间轮最早存储时间和checkPoint中保存值，取较大者
+     */
     protected volatile long commitReadTimeMs;
     protected volatile long currQueueOffset; //only one queue that is 0
+    /**
+     *  broker 启动，恢复时，
+     *  先查找 timerLog 最后符合要求的消息
+     *  再查找 commitLog 消息信息
+     *  最终在消费队列中查找消息，赋值消息在队列中偏移（排第几）
+     */
     protected volatile long commitQueueOffset;
     protected volatile long lastCommitReadTimeMs;
     protected volatile long lastCommitQueueOffset;
@@ -161,6 +170,7 @@ public class TimerMessageStore {
     private long shouldStartTime;
 
     // True if current store is master or current brokerId is equal to the minimum brokerId of the replica group in slaveActingMaster mode.
+    // 如果当前存储为master，或者当前brokerId等于slaveActingMaster模式下副本组的最小brokerId，则为True。
     protected volatile boolean shouldRunningDequeue;
     private final BrokerStatsManager brokerStatsManager;
     private Function<MessageExtBrokerInner, PutMessageResult> escapeBridgeHook;
@@ -266,9 +276,16 @@ public class TimerMessageStore {
         boolean load = timerLog.load();
         // 将配置信息解析成 TimerMetricsSerializeWrapper
         load = load && this.timerMetrics.load();
-        // 恢复
+        /**
+         * 恢复：
+         *  1、恢复timerLog，修改 timerWheel： 当timerLog的消息 与 timerWheel 中不一致的时候，修改timerWheel
+         *  2、设置timerLog刷新位置：timerLog中最后符合条件的消息
+         *  3、在 topic:rmq_sys_wheel_timer 消费队列查找与 timerLog 最后一条消息相同的消息,并记录消息在队列中排第几的偏移 记录为commitQueueOffset
+         *  4、查找timerCheckpoint 中上次读取时间，和时间轮最大保存时间对比，记录时间轮中 commitReadTimeMs
+         */
         recover();
 
+        // 待看
         calcTimerDistribution();
         return load;
     }
@@ -302,8 +319,9 @@ public class TimerMessageStore {
 
     /**
      * 1、恢复timerLog，修改 timerWheel： 当timerLog的消息 与 timerWheel 中不一致的时候，修改timerWheel
-     * 2、设置timerLog刷新位置
-     * 3、修改消息队列
+     * 2、设置timerLog刷新位置：timerLog中最后符合条件的消息
+     * 3、在 topic:rmq_sys_wheel_timer 消费队列查找与 timerLog 最后一条消息相同的消息,并记录消息在队列中排第几的偏移 记录为commitQueueOffset
+     * 4、查找timerCheckpoint 中上次读取时间，和时间轮最大保存时间对比，记录时间轮中 commitReadTimeMs
      */
     @SuppressWarnings("NonAtomicOperationOnVolatileField")
     public void recover() {
@@ -319,7 +337,8 @@ public class TimerMessageStore {
             lastFlushPos = 0;
         }
         // 恢复timerLog，修改timerWheel
-        // 返回 timerLog 最后一条消息的 绝对偏移量
+        // 正常情况下，返回 timerLog 最后一条消息的 绝对偏移量
+        // 或者返回检查成功的位置
         long processOffset = recoverAndRevise(lastFlushPos, true);
         // 设置刷新位置
         timerLog.getMappedFileQueue().setFlushedWhere(processOffset);
@@ -327,23 +346,27 @@ public class TimerMessageStore {
         // 修改队列的偏移量
         long queueOffset = reviseQueueOffset(processOffset);
         if (-1 == queueOffset) {
+            // 在消费队列中，没找到与 timerLog 最后一条消息相同的消息，赋值检查点的消息
             currQueueOffset = timerCheckpoint.getLastTimerQueueOffset();
         } else {
+            // 记录当前队列偏移量
             currQueueOffset = queueOffset + 1;
         }
-        // 消息队列中
+        // 取较小值
         currQueueOffset = Math.min(currQueueOffset, timerCheckpoint.getMasterTimerQueueOffset());
 
         //check timer wheel
         currReadTimeMs = timerCheckpoint.getLastReadTimeMs();
-        long nextReadTimeMs = formatTimeMs(
-            System.currentTimeMillis()) - (long) slotsTotal * precisionMs + (long) TIMER_BLANK_SLOTS * precisionMs;
+        //  时间轮最大的保存时间：当前时间秒级向下取整 - 7天 + 60 * 1 s
+        long nextReadTimeMs = formatTimeMs(System.currentTimeMillis()) - (long) slotsTotal * precisionMs + (long) TIMER_BLANK_SLOTS * precisionMs;
+        // 对比检查点的时间和时间轮中保存的最早时间，记录较大值
         if (currReadTimeMs < nextReadTimeMs) {
             currReadTimeMs = nextReadTimeMs;
         }
         //the timer wheel may contain physical offset bigger than timerLog
         //This will only happen when the timerLog is damaged
         //hard to test
+        // 计时器轮可能包含比timerLog更大的物理偏移量，这种情况只会在timerLog被损坏时发生
         long minFirst = timerWheel.checkPhyPos(currReadTimeMs, processOffset);
         if (debug) {
             minFirst = 0;
@@ -357,18 +380,29 @@ public class TimerMessageStore {
 
         commitReadTimeMs = currReadTimeMs;
         commitQueueOffset = currQueueOffset;
-
+        /**
+         * 设置属性：
+         * LastTimerLogFlushPos
+         * LastReadTimeMs
+         * LastTimerQueueOffset
+         * MasterTimerQueueOffset
+         * updateDateVersion
+         */
         prepareTimerCheckPoint();
     }
 
     /**
      * 修正 消息在消息队列中排第几
+     *
+     * 传入 timerLog 中符合要求的最后消息的绝对偏移量
+     * 通过 offsetPy ，在 commitLog 中查找消息封装到 MessageExt 中，查看消息在消费队列中的位置（第几条消息）
+     * 在消费队列中查找消息的位置，并返回消息在消费队列中的位置（第几条消息）
+     *
      * @param processOffset  timerLog 最后一条消息的 绝对偏移量
      * @return
      */
     public long reviseQueueOffset(long processOffset) {
-        // 获取 定时消息
-        // todo: 获取 offsetPy 这操作没看明白
+        // 获取消息
         SelectMappedBufferResult selectRes = timerLog.getTimerMessage(processOffset - (TimerLog.UNIT_SIZE - TimerLog.UNIT_PRE_SIZE_FOR_MSG));
         if (null == selectRes) {
             return -1;
@@ -387,6 +421,7 @@ public class TimerMessageStore {
             // 检查 消息保存的 队列偏移量 与 消息队列中偏移量是否一致
             long msgQueueOffset = messageExt.getQueueOffset();
             int queueId = messageExt.getQueueId();
+            // 获取 topic：rmq_sys_wheel_timer 的消费队列
             ConsumeQueueInterface cq = this.messageStore.getConsumeQueue(TIMER_TOPIC, queueId);
             if (null == cq) {
                 return msgQueueOffset;
@@ -395,6 +430,11 @@ public class TimerMessageStore {
             long cqOffset = msgQueueOffset;
             long tmpOffset = msgQueueOffset;
             int maxCount = 20000;
+            /**
+             * 在 消费队列中查找与 timerLog 中最后一条消息 相同的消息
+             * 默认从 timerLog 中最后一条消息 记录的消息在队列中的第几个位置开始从 消费队列中查找
+             * 找不到继续向消息队列中前面查找，最多查找 20000 个
+              */
             while (maxCount-- > 0) {
                 if (tmpOffset < 0) {
                     LOGGER.warn("reviseQueueOffset check cq offset fail, msg in cq is not found.{}, {}",
@@ -1830,6 +1870,14 @@ public class TimerMessageStore {
         return perfCounterTicks.getCounter("dequeue_put").getLastTps();
     }
 
+    /**
+     * 设置属性：
+     * LastTimerLogFlushPos
+     * LastReadTimeMs
+     * LastTimerQueueOffset
+     * MasterTimerQueueOffset
+     * updateDateVersion
+     */
     public void prepareTimerCheckPoint() {
         timerCheckpoint.setLastTimerLogFlushPos(timerLog.getMappedFileQueue().getFlushedWhere());
         timerCheckpoint.setLastReadTimeMs(commitReadTimeMs);

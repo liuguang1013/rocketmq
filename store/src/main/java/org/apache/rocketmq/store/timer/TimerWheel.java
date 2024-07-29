@@ -203,6 +203,7 @@ public class TimerWheel {
     //check the timerwheel to see if its stored offset > maxOffset in timerlog
     public long checkPhyPos(long timeStartMs, long maxOffset) {
         long minFirst = Long.MAX_VALUE;
+        // 获取时间点槽位
         int firstSlotIndex = getSlotIndex(timeStartMs);
         for (int i = 0; i < slotsTotal * 2; i++) {
             int slotIndex = (firstSlotIndex + i) % (slotsTotal * 2);
