@@ -196,6 +196,9 @@ public class BrokerOuterAPI {
         return nameSrvAddr;
     }
 
+    /**
+     * 根据域名查找 ip 地址
+     */
     public List<String> dnsLookupAddressByDomain(String domain) {
         List<String> addressList = new ArrayList<>();
         try {
@@ -218,14 +221,24 @@ public class BrokerOuterAPI {
         return this.remotingClient.isAddressReachable(address);
     }
 
+    /**
+     * 通过 配置文件中固定的 nameSrv 列表
+     *检查当前连接的 nameSrv 是否在 列表中，不在的话关闭 channel
+     */
     public void updateNameServerAddressList(final String addrs) {
         String[] addrArray = addrs.split(";");
         List<String> lst = new ArrayList<String>(Arrays.asList(addrArray));
         this.remotingClient.updateNameServerAddressList(lst);
     }
 
+    /**
+     * 通过 域名 查找出 ip 列表
+     * 检查当前连接的 nameSrv 是否在 列表中，不在的话关闭 channel
+     */
     public void updateNameServerAddressListByDnsLookup(final String domain) {
+        //根据域名查找 ip 地址
         List<String> lst = this.dnsLookupAddressByDomain(domain);
+
         this.remotingClient.updateNameServerAddressList(lst);
     }
 
@@ -745,11 +758,12 @@ public class BrokerOuterAPI {
         return changedList;
     }
 
-    public TopicConfigAndMappingSerializeWrapper getAllTopicConfig(
-        final String addr) throws RemotingConnectException, RemotingSendRequestException,
-        RemotingTimeoutException, InterruptedException, MQBrokerException {
+    public TopicConfigAndMappingSerializeWrapper getAllTopicConfig(final String addr)
+            throws RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException, InterruptedException, MQBrokerException {
+
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ALL_TOPIC_CONFIG, null);
 
+        // 同步发送请求：   brokerVIPChannel 端口号 -2
         RemotingCommand response = this.remotingClient.invokeSync(MixAll.brokerVIPChannel(true, addr), request, 3000);
         assert response != null;
         switch (response.getCode()) {

@@ -51,8 +51,8 @@ public class BloomFilter {
     /**
      * Constructor.
      *
-     * @param f error rate
-     * @param n num will mapping to bit
+     * @param f error rate 20
+     * @param n num will mapping to bit  32
      */
     private BloomFilter(int f, int n) {
         // 错误率 在 1-100 之间

@@ -42,7 +42,7 @@ import org.apache.rocketmq.remoting.protocol.subscription.SubscriptionGroupConfi
 public class SubscriptionGroupManager extends ConfigManager {
     protected static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
 
-    protected ConcurrentMap<String, SubscriptionGroupConfig> subscriptionGroupTable =
+    protected ConcurrentMap<String/* groupName*/, SubscriptionGroupConfig> subscriptionGroupTable =
         new ConcurrentHashMap<>(1024);
 
     private ConcurrentMap<String, ConcurrentMap<String, Integer>> forbiddenTable =
@@ -244,9 +244,11 @@ public class SubscriptionGroupManager extends ConfigManager {
     }
 
     public void disableConsume(final String groupName) {
+        // 在 subscriptionGroupTable 缓存中获取 配置信息
         SubscriptionGroupConfig old = getSubscriptionGroupConfig(groupName);
         if (old != null) {
             old.setConsumeEnable(false);
+            // todo：设置这个什么用？
             long stateMachineVersion = brokerController.getMessageStore() != null ? brokerController.getMessageStore().getStateMachineVersion() : 0;
             dataVersion.nextVersion(stateMachineVersion);
         }

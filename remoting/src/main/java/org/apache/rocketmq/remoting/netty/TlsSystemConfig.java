@@ -109,10 +109,15 @@ public class TlsSystemConfig {
     /**
      * For server, three SSL modes are supported: disabled, permissive and enforcing.
      * For client, use {@link TlsSystemConfig#tlsEnable} to determine whether use SSL.
+     * 对于服务器，支持三种SSL模式:禁用、允许和强制。
+     * 对于客户端，使用{@link TlsSystemConfig#tlsEnable}来确定是否使用SSL
      * <ol>
      *     <li><strong>disabled:</strong> SSL is not supported; any incoming SSL handshake will be rejected, causing connection closed.</li>
+     *     不支持SSL;任何传入的SSL握手都将被拒绝，导致连接关闭
      *     <li><strong>permissive:</strong> SSL is optional, aka, server in this mode can serve client connections with or without SSL;</li>
+     *     SSL是可选的，也就是说，这种模式下的服务器可以使用或不使用SSL来提供客户端连接
      *     <li><strong>enforcing:</strong> SSL is required, aka, non SSL connection will be rejected.</li>
+     *     SSL是可选的，也就是说，这种模式下的服务器可以使用或不使用SSL来提供客户端连接
      * </ol>
      */
     public static TlsMode tlsMode = TlsMode.parse(System.getProperty(TLS_SERVER_MODE, "permissive"));

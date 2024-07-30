@@ -28,6 +28,10 @@ public class RequestCode {
     public static final int QUERY_CONSUMER_OFFSET = 14;
     public static final int UPDATE_CONSUMER_OFFSET = 15;
     public static final int UPDATE_AND_CREATE_TOPIC = 17;
+    /**
+     * broker 启动，开启定时任务，当判断为从节点的时候，从主节点获取所有 topic 信息
+     * 在 netty 服务端，使用 默认的 AdminBrokerProcessor 处理请求
+     */
     public static final int GET_ALL_TOPIC_CONFIG = 21;
     public static final int GET_TOPIC_CONFIG_LIST = 22;
 
@@ -71,8 +75,15 @@ public class RequestCode {
     public static final int LOCK_BATCH_MQ = 41;
 
     public static final int UNLOCK_BATCH_MQ = 42;
+    /**
+     * broker 启动，开启定时任务，当判断为从节点的时候，从主节点获取所有消费队列偏移量信息
+     * 在 netty 服务端，使用 默认的 AdminBrokerProcessor 处理请求
+     */
     public static final int GET_ALL_CONSUMER_OFFSET = 43;
-
+    /**
+     * broker 启动，开启定时任务，当判断为从节点的时候，从主节点获取ScheduleMessageService 对象的 json
+     * 在 netty 服务端，使用 默认的 AdminBrokerProcessor 处理请求
+     */
     public static final int GET_ALL_DELAY_OFFSET = 45;
 
     public static final int CHECK_CLIENT_CONFIG = 46;
@@ -115,6 +126,10 @@ public class RequestCode {
 
     public static final int GET_BROKER_CLUSTER_INFO = 106;
     public static final int UPDATE_AND_CREATE_SUBSCRIPTIONGROUP = 200;
+    /**
+     * broker 启动，开启定时任务，当判断为从节点的时候，从主节点获取 subscriptionGroupManager 对象的 json
+     * 在 netty 服务端，使用 默认的 AdminBrokerProcessor 处理请求
+     */
     public static final int GET_ALL_SUBSCRIPTIONGROUP_CONFIG = 201;
     public static final int GET_TOPIC_STATS_INFO = 202;
     public static final int GET_CONSUMER_CONNECTION_LIST = 203;
@@ -236,6 +251,10 @@ public class RequestCode {
 
     public static final int QUERY_ASSIGNMENT = 400;
     public static final int SET_MESSAGE_REQUEST_MODE = 401;
+    /**
+     * broker 启动，开启定时任务，当判断为从节点的时候，从主节点获取  MessageRequestModeManager 的 messageRequestModeMap
+     * 在 netty 服务端，使用 默认的 AdminBrokerProcessor 处理请求
+     */
     public static final int GET_ALL_MESSAGE_REQUEST_MODE = 402;
 
     public static final int UPDATE_AND_CREATE_STATIC_TOPIC = 513;

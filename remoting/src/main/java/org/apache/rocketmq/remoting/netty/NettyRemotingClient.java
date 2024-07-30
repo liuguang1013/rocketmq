@@ -559,6 +559,7 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
             }
             // 新老 namesrvAddrList 是否相同
             if (update) {
+                // 将 addrs 的顺序打乱
                 Collections.shuffle(addrs);
                 LOGGER.info("name server address updated. NEW : {} , OLD: {}", addrs, old);
                 this.namesrvAddrList.set(addrs);
@@ -736,6 +737,7 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
             return cw.getChannel();
         }
 
+        // 加锁创建
         if (this.lockChannelTables.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
             try {
                 boolean createNewConnection;

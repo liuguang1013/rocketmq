@@ -261,11 +261,9 @@ public class ConsumerOrderInfoManager extends ConfigManager {
         if (brokerController == null) {
             return;
         }
-        Iterator<Map.Entry<String/* topic@group*/, ConcurrentHashMap<Integer/*queueId*/, OrderInfo>>> iterator =
-            this.table.entrySet().iterator();
+        Iterator<Map.Entry<String/* topic@group*/, ConcurrentHashMap<Integer/*queueId*/, OrderInfo>>> iterator = this.table.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<String/* topic@group*/, ConcurrentHashMap<Integer/*queueId*/, OrderInfo>> entry =
-                iterator.next();
+            Map.Entry<String/* topic@group*/, ConcurrentHashMap<Integer/*queueId*/, OrderInfo>> entry = iterator.next();
             String topicAtGroup = entry.getKey();
             ConcurrentHashMap<Integer/*queueId*/, OrderInfo> qs = entry.getValue();
             String[] arrays = decodeKey(topicAtGroup);
@@ -275,6 +273,7 @@ public class ConsumerOrderInfoManager extends ConfigManager {
             String topic = arrays[0];
             String group = arrays[1];
 
+            // 移除 不存在配置的  topic
             TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(topic);
             if (topicConfig == null) {
                 iterator.remove();
@@ -282,6 +281,7 @@ public class ConsumerOrderInfoManager extends ConfigManager {
                 continue;
             }
 
+            // 移除 不存在订阅组信息的 topic
             if (this.brokerController.getSubscriptionGroupManager().getSubscriptionGroupTable().get(group) == null) {
                 iterator.remove();
                 log.info("Group not exist, Clean order info, {}:{}", topicAtGroup, qs);
@@ -297,13 +297,13 @@ public class ConsumerOrderInfoManager extends ConfigManager {
             Iterator<Map.Entry<Integer/*queueId*/, OrderInfo>> qsIterator = qs.entrySet().iterator();
             while (qsIterator.hasNext()) {
                 Map.Entry<Integer/*queueId*/, OrderInfo> qsEntry = qsIterator.next();
-
+                // queueId >=  16 读队列数量
                 if (qsEntry.getKey() >= topicConfig.getReadQueueNums()) {
                     qsIterator.remove();
                     log.info("Queue not exist, Clean order info, {}:{}, {}", topicAtGroup, entry.getValue(), topicConfig);
                     continue;
                 }
-
+                // 清除 上次消费时间 > 24 小时
                 if (System.currentTimeMillis() - qsEntry.getValue().getLastConsumeTimestamp() > CLEAN_SPAN_FROM_LAST) {
                     qsIterator.remove();
                     log.info("Not consume long time, Clean order info, {}:{}, {}", topicAtGroup, entry.getValue(), topicConfig);
@@ -341,6 +341,7 @@ public class ConsumerOrderInfoManager extends ConfigManager {
 
     @Override
     public String encode(boolean prettyFormat) {
+        // 自动清理
         this.autoClean();
         return RemotingSerializable.toJson(this, prettyFormat);
     }

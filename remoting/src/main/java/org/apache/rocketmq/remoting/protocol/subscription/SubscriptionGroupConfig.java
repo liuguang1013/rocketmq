@@ -32,7 +32,11 @@ public class SubscriptionGroupConfig {
      * 消费者组名
      */
     private String groupName;
-
+    /**
+     * 默认可以消费，
+     * 在 broker 启动的时候会启动定时任务，检查 brokerStatsManager 中 GROUP_GET_FALL_SIZE 的值，是否达到阈值，达到后，会不可消费 设置为 false
+     * todo：对于 统计值什么时候累加，待看；这个值在何处使用，待看
+     */
     private boolean consumeEnable = true;
     private boolean consumeFromMinEnable = true;
     private boolean consumeBroadcastEnable = true;

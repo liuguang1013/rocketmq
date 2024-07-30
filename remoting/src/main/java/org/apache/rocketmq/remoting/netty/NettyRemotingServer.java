@@ -138,7 +138,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         this.serverBootstrap = new ServerBootstrap();
         this.nettyServerConfig = nettyServerConfig;
         this.channelEventListener = channelEventListener;
-        // 创建线程池
+        // 创建公共、定时任务线程池
         this.publicExecutor = buildPublicExecutor(nettyServerConfig);
         this.scheduledExecutorService = buildScheduleExecutor();
         // 创建nettyServer的参数：主reactor线程数1，从reactor线程数3

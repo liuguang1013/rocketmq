@@ -38,6 +38,9 @@ import org.apache.rocketmq.store.config.StorePathConfigHelper;
 import org.apache.rocketmq.store.timer.TimerCheckpoint;
 import org.apache.rocketmq.store.timer.TimerMetrics;
 
+/**
+ * 从节点 同步
+ */
 public class SlaveSynchronize {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final BrokerController brokerController;
@@ -58,11 +61,38 @@ public class SlaveSynchronize {
         }
     }
 
+    /**
+     * 从节点向主节点发送请求，同步信息
+     */
     public void syncAll() {
+        /**
+         * 同步 Topic 配置：
+         * 获取主节点
+         * TopicConfigManager 中 topicConfigTable、DataVersion；
+         * TopicQueueMappingManager 中 topicQueueMappingTable、DataVersion
+         * 持久化 topics.json、topicQueueMapping.json 文件
+         */
         this.syncTopicConfig();
+        /**
+         *  同步 消费者偏移量
+         *  获取主节点 ConsumerOffsetManager 的 OffsetTable、DataVersion
+         *  持久化 config/consumerOffset.json
+          */
         this.syncConsumerOffset();
+        /**
+         *  主要是同步主节点的 ScheduleMessageService 的 offsetTable
+         *  持久化 config/delayOffset.json
+         */
         this.syncDelayOffset();
+        /**
+         * 主要是同步主节点的 SubscriptionGroupManager 的 SubscriptionGroupTable、DataVersion
+         * 持久化 config/subscriptionGroup.json
+         */
         this.syncSubscriptionGroupConfig();
+        /**
+         * 主要是同步主节点的 MessageRequestModeManager 的 messageRequestModeMap
+         * 持久化 config/messageRequestMode.json
+         */
         this.syncMessageRequestMode();
 
         if (brokerController.getMessageStoreConfig().isTimerWheelEnable()) {
@@ -72,15 +102,19 @@ public class SlaveSynchronize {
 
     private void syncTopicConfig() {
         String masterAddrBak = this.masterAddr;
+        // 主节点不为空，并与当前节点地址不同
         if (masterAddrBak != null && !masterAddrBak.equals(brokerController.getBrokerAddr())) {
             try {
-                TopicConfigAndMappingSerializeWrapper topicWrapper =
-                        this.brokerController.getBrokerOuterAPI().getAllTopicConfig(masterAddrBak);
-                if (!this.brokerController.getTopicConfigManager().getDataVersion()
-                        .equals(topicWrapper.getDataVersion())) {
+                // GET_ALL_TOPIC_CONFIG
+                // TopicConfigManager 中 topicConfigTable、DataVersion；
+                // TopicQueueMappingManager中topicQueueMappingTable、DataVersion
+                TopicConfigAndMappingSerializeWrapper topicWrapper = this.brokerController.getBrokerOuterAPI().getAllTopicConfig(masterAddrBak);
 
-                    this.brokerController.getTopicConfigManager().getDataVersion()
-                            .assignNewOne(topicWrapper.getDataVersion());
+                // 数据版本不一致
+                if (!this.brokerController.getTopicConfigManager().getDataVersion().equals(topicWrapper.getDataVersion())) {
+
+                    // 主节点的信息，同步到当前节点
+                    this.brokerController.getTopicConfigManager().getDataVersion().assignNewOne(topicWrapper.getDataVersion());
 
                     ConcurrentMap<String, TopicConfig> newTopicConfigTable = topicWrapper.getTopicConfigTable();
                     //delete
@@ -93,9 +127,10 @@ public class SlaveSynchronize {
                     }
                     //update
                     topicConfigTable.putAll(newTopicConfigTable);
-
+                    //  持久化 config/topics.json
                     this.brokerController.getTopicConfigManager().persist();
                 }
+
                 if (topicWrapper.getTopicQueueMappingDetailMap() != null
                         && !topicWrapper.getMappingDataVersion().equals(this.brokerController.getTopicQueueMappingManager().getDataVersion())) {
                     this.brokerController.getTopicQueueMappingManager().getDataVersion()
@@ -112,7 +147,7 @@ public class SlaveSynchronize {
                     }
                     //update
                     topicConfigTable.putAll(newTopicConfigTable);
-
+                    // 持久化 config/topicQueueMapping.json
                     this.brokerController.getTopicQueueMappingManager().persist();
                 }
                 LOGGER.info("Update slave topic config from master, {}", masterAddrBak);
@@ -126,11 +161,12 @@ public class SlaveSynchronize {
         String masterAddrBak = this.masterAddr;
         if (masterAddrBak != null && !masterAddrBak.equals(brokerController.getBrokerAddr())) {
             try {
-                ConsumerOffsetSerializeWrapper offsetWrapper =
-                        this.brokerController.getBrokerOuterAPI().getAllConsumerOffset(masterAddrBak);
-                this.brokerController.getConsumerOffsetManager().getOffsetTable()
-                        .putAll(offsetWrapper.getOffsetTable());
+                // 获取主节点 ConsumerOffsetManager 对象的 json 串：GET_ALL_CONSUMER_OFFSET
+                ConsumerOffsetSerializeWrapper offsetWrapper = this.brokerController.getBrokerOuterAPI().getAllConsumerOffset(masterAddrBak);
+
+                this.brokerController.getConsumerOffsetManager().getOffsetTable().putAll(offsetWrapper.getOffsetTable());
                 this.brokerController.getConsumerOffsetManager().getDataVersion().assignNewOne(offsetWrapper.getDataVersion());
+                // 持久化 config/consumerOffset.json
                 this.brokerController.getConsumerOffsetManager().persist();
                 LOGGER.info("Update slave consumer offset from master, {}", masterAddrBak);
             } catch (Exception e) {
@@ -143,15 +179,18 @@ public class SlaveSynchronize {
         String masterAddrBak = this.masterAddr;
         if (masterAddrBak != null && !masterAddrBak.equals(brokerController.getBrokerAddr())) {
             try {
-                String delayOffset =
-                        this.brokerController.getBrokerOuterAPI().getAllDelayOffset(masterAddrBak);
-                if (delayOffset != null) {
+                // 获取主节点 ScheduleMessageService 对象的 json 串 ：GET_ALL_DELAY_OFFSET
+                String delayOffset = this.brokerController.getBrokerOuterAPI().getAllDelayOffset(masterAddrBak);
 
+                if (delayOffset != null) {
+                    // config/delayOffset.json
                     String fileName =
                             StorePathConfigHelper.getDelayOffsetStorePath(this.brokerController
                                     .getMessageStoreConfig().getStorePathRootDir());
                     try {
+                        // 持久化 config/delayOffset.json
                         MixAll.string2File(delayOffset, fileName);
+                        // 主要是同步主节点的 ScheduleMessageService 的 offsetTable
                         this.brokerController.getScheduleMessageService().loadWhenSyncDelayOffset();
                     } catch (IOException e) {
                         LOGGER.error("Persist file Exception, {}", fileName, e);
@@ -168,19 +207,23 @@ public class SlaveSynchronize {
         String masterAddrBak = this.masterAddr;
         if (masterAddrBak != null && !masterAddrBak.equals(brokerController.getBrokerAddr())) {
             try {
+                // 获取主节点 subscriptionGroupManager 对象的 json：GET_ALL_SUBSCRIPTIONGROUP_CONFIG
                 SubscriptionGroupWrapper subscriptionWrapper =
                         this.brokerController.getBrokerOuterAPI()
                                 .getAllSubscriptionGroupConfig(masterAddrBak);
 
                 if (!this.brokerController.getSubscriptionGroupManager().getDataVersion()
                         .equals(subscriptionWrapper.getDataVersion())) {
+
                     SubscriptionGroupManager subscriptionGroupManager =
                             this.brokerController.getSubscriptionGroupManager();
+                   // 主要是同步主节点的 SubscriptionGroupManager 的 SubscriptionGroupTable、DataVersion
                     subscriptionGroupManager.getDataVersion().assignNewOne(
                             subscriptionWrapper.getDataVersion());
                     subscriptionGroupManager.getSubscriptionGroupTable().clear();
                     subscriptionGroupManager.getSubscriptionGroupTable().putAll(
                             subscriptionWrapper.getSubscriptionGroupTable());
+                    // 持久化 config/subscriptionGroup.json
                     subscriptionGroupManager.persist();
                     LOGGER.info("Update slave Subscription Group from master, {}", masterAddrBak);
                 }
@@ -199,6 +242,7 @@ public class SlaveSynchronize {
 
                 MessageRequestModeManager messageRequestModeManager =
                         this.brokerController.getQueryAssignmentProcessor().getMessageRequestModeManager();
+
                 messageRequestModeManager.getMessageRequestModeMap().clear();
                 messageRequestModeManager.getMessageRequestModeMap().putAll(
                         messageRequestModeSerializeWrapper.getMessageRequestModeMap()
@@ -217,6 +261,7 @@ public class SlaveSynchronize {
             try {
                 if (null != brokerController.getMessageStore().getTimerMessageStore() &&
                         !brokerController.getTimerMessageStore().isShouldRunningDequeue()) {
+                    // 主要是同步主节点的 TimerCheckPoint 的 LastReadTimeMs、MasterTimerQueueOffset、DataVersion
                     TimerCheckpoint checkpoint = this.brokerController.getBrokerOuterAPI().getTimerCheckPoint(masterAddrBak);
                     if (null != this.brokerController.getTimerCheckpoint()) {
                         this.brokerController.getTimerCheckpoint().setLastReadTimeMs(checkpoint.getLastReadTimeMs());

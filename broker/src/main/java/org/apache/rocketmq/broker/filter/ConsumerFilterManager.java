@@ -39,6 +39,17 @@ import org.apache.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 
 /**
  * Consumer filter data manager.Just manage the consumers use expression filter.
+ * 消费者过滤器数据管理器。只需管理使用表达式过滤器的消费者。
+ * ConsumerFilterManager 提供了一种机制来根据消息标签（Tag）或其他自定义属性来筛选消息，从而决定哪些消息应该被消费者消费。
+ * 工作原理
+ * 1、消息发送:
+ * 生产者发送消息时，可以为消息指定一个或多个标签（Tag）。这些标签将在消息体中作为属性携带。
+ * 2、消息消费:
+ * 消费者订阅消息时，可以通过设置订阅表达式（Subscription Expression）来指定感兴趣的消息标签。
+ * 当消息到达 Broker 时，Broker 根据订阅表达式进行初步的过滤，只将符合条件的消息推送给消费者。
+ * 3、ConsumerFilterManager 处理:
+ * 当消息到达消费者时，ConsumerFilterManager 会进一步根据消费者设置的过滤规则进行过滤。
+ * 如果消息满足过滤条件，则会被传递给消费者的业务处理逻辑；否则，消息将被丢弃或跳过。
  */
 public class ConsumerFilterManager extends ConfigManager {
 
@@ -46,8 +57,7 @@ public class ConsumerFilterManager extends ConfigManager {
 
     private static final long MS_24_HOUR = 24 * 3600 * 1000;
 
-    private ConcurrentMap<String/*Topic*/, FilterDataMapByTopic>
-        filterDataByTopic = new ConcurrentHashMap<>(256);
+    private ConcurrentMap<String/*Topic*/, FilterDataMapByTopic> filterDataByTopic = new ConcurrentHashMap<>(256);
 
     private transient BrokerController brokerController;
     private transient BloomFilter bloomFilter;
@@ -61,7 +71,9 @@ public class ConsumerFilterManager extends ConfigManager {
         this.brokerController = brokerController;
         // 创建布隆过滤器
         this.bloomFilter = BloomFilter.createByFn(
+            // 20
             brokerController.getBrokerConfig().getMaxErrorRateOfBloomFilter(),
+            // 32
             brokerController.getBrokerConfig().getExpectConsumerNumUseFilter()
         );
         // then set bit map length of store config.
@@ -289,18 +301,23 @@ public class ConsumerFilterManager extends ConfigManager {
         return RemotingSerializable.toJson(this, prettyFormat);
     }
 
+    /**
+     * 清除 死亡时间 >= 默认 24 小时 的 数据
+     * todo：具体干啥还是没明白
+     */
     public void clean() {
         Iterator<Map.Entry<String, FilterDataMapByTopic>> topicIterator = this.filterDataByTopic.entrySet().iterator();
         while (topicIterator.hasNext()) {
-            Map.Entry<String, FilterDataMapByTopic> filterDataMapByTopic = topicIterator.next();
+            Map.Entry<String/*Topic*/, FilterDataMapByTopic> filterDataMapByTopic = topicIterator.next();
 
-            Iterator<Map.Entry<String, ConsumerFilterData>> filterDataIterator
+            Iterator<Map.Entry<String/*consumer group*/, ConsumerFilterData>> filterDataIterator
                 = filterDataMapByTopic.getValue().getGroupFilterData().entrySet().iterator();
 
             while (filterDataIterator.hasNext()) {
                 Map.Entry<String, ConsumerFilterData> filterDataByGroup = filterDataIterator.next();
 
                 ConsumerFilterData filterData = filterDataByGroup.getValue();
+                // 死亡时间 >= 默认 24 小时
                 if (filterData.howLongAfterDeath() >= (this.brokerController == null ? MS_24_HOUR : this.brokerController.getBrokerConfig().getFilterDataCleanTimeSpan())) {
                     log.info("Remove filter consumer {}, died too long!", filterDataByGroup.getValue());
                     filterDataIterator.remove();
@@ -324,8 +341,7 @@ public class ConsumerFilterManager extends ConfigManager {
 
     public static class FilterDataMapByTopic {
 
-        private ConcurrentMap<String/*consumer group*/, ConsumerFilterData>
-            groupFilterData = new ConcurrentHashMap<>();
+        private ConcurrentMap<String/*consumer group*/, ConsumerFilterData> groupFilterData = new ConcurrentHashMap<>();
 
         private String topic;
 

@@ -227,8 +227,9 @@ public class ScheduleMessageService extends ConfigManager {
     @Override
     public boolean load() {
         boolean result = super.load();
-        // 加载延迟等级
+        // 加载延迟等级：放到 delayLevelTable 缓存中
         result = result && this.parseDelayLevel();
+        // 校验 offsetTable 缓存中 定时消息等级 与 偏移量的关系
         result = result && this.correctDelayOffset();
         return result;
     }
@@ -242,16 +243,22 @@ public class ScheduleMessageService extends ConfigManager {
     public boolean correctDelayOffset() {
         try {
             for (int delayLevel : delayLevelTable.keySet()) {
-                ConsumeQueueInterface cq =
-                    brokerController.getMessageStore().getQueueStore().findOrCreateConsumeQueue(TopicValidator.RMQ_SYS_SCHEDULE_TOPIC,
-                        delayLevel2QueueId(delayLevel));
+                // 获取 topic：SCHEDULE_TOPIC_XXXX  的消费队列
+                ConsumeQueueInterface cq = brokerController.getMessageStore().getQueueStore()
+                            .findOrCreateConsumeQueue(TopicValidator.RMQ_SYS_SCHEDULE_TOPIC, delayLevel2QueueId(delayLevel));
+
+                // 获取缓存中，延迟等级缓存的偏移量
                 Long currentDelayOffset = offsetTable.get(delayLevel);
                 if (currentDelayOffset == null || cq == null) {
                     continue;
                 }
                 long correctDelayOffset = currentDelayOffset;
+                // 最小消息的个数
                 long cqMinOffset = cq.getMinOffsetInQueue();
+                // 最大消息的个数
                 long cqMaxOffset = cq.getMaxOffsetInQueue();
+
+
                 if (currentDelayOffset < cqMinOffset) {
                     correctDelayOffset = cqMinOffset;
                     log.error("schedule CQ offset invalid. offset={}, cqMinOffset={}, cqMaxOffset={}, queueId={}",
@@ -263,6 +270,7 @@ public class ScheduleMessageService extends ConfigManager {
                     log.error("schedule CQ offset invalid. offset={}, cqMinOffset={}, cqMaxOffset={}, queueId={}",
                         currentDelayOffset, cqMinOffset, cqMaxOffset, cq.getQueueId());
                 }
+
                 if (correctDelayOffset != currentDelayOffset) {
                     log.error("correct delay offset [ delayLevel {} ] from {} to {}", delayLevel, currentDelayOffset, correctDelayOffset);
                     offsetTable.put(delayLevel, correctDelayOffset);
@@ -281,11 +289,11 @@ public class ScheduleMessageService extends ConfigManager {
             .getStorePathRootDir());
     }
 
+
     @Override
     public void decode(String jsonString) {
         if (jsonString != null) {
-            DelayOffsetSerializeWrapper delayOffsetSerializeWrapper =
-                DelayOffsetSerializeWrapper.fromJson(jsonString, DelayOffsetSerializeWrapper.class);
+            DelayOffsetSerializeWrapper delayOffsetSerializeWrapper = DelayOffsetSerializeWrapper.fromJson(jsonString, DelayOffsetSerializeWrapper.class);
             if (delayOffsetSerializeWrapper != null) {
                 this.offsetTable.putAll(delayOffsetSerializeWrapper.getOffsetTable());
                 // For compatible

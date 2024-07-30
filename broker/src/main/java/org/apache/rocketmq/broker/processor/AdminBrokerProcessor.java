@@ -210,19 +210,24 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
     }
 
     @Override
-    public RemotingCommand processRequest(ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
+
         switch (request.getCode()) {
             case RequestCode.UPDATE_AND_CREATE_TOPIC:
                 return this.updateAndCreateTopic(ctx, request);
+
             case RequestCode.DELETE_TOPIC_IN_BROKER:
                 return this.deleteTopic(ctx, request);
+            // 从节点 每3秒同步所有数据中，请求主节点 获取消费者偏移量
             case RequestCode.GET_ALL_TOPIC_CONFIG:
                 return this.getAllTopicConfig(ctx, request);
+
             case RequestCode.GET_TIMER_CHECK_POINT:
                 return this.getTimerCheckPoint(ctx, request);
+
             case RequestCode.GET_TIMER_METRICS:
                 return this.getTimerMetrics(ctx, request);
+
             case RequestCode.UPDATE_BROKER_CONFIG:
                 return this.updateBrokerConfig(ctx, request);
             case RequestCode.GET_BROKER_CONFIG:
@@ -251,8 +256,10 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
                 return this.unlockBatchMQ(ctx, request);
             case RequestCode.UPDATE_AND_CREATE_SUBSCRIPTIONGROUP:
                 return this.updateAndCreateSubscriptionGroup(ctx, request);
+            // 从节点 每3秒同步所有数据中，请求主节点 获取 subscriptionGroupManager 对象的 json
             case RequestCode.GET_ALL_SUBSCRIPTIONGROUP_CONFIG:
                 return this.getAllSubscriptionGroup(ctx, request);
+
             case RequestCode.DELETE_SUBSCRIPTIONGROUP:
                 return this.deleteSubscriptionGroup(ctx, request);
             case RequestCode.GET_TOPIC_STATS_INFO:
@@ -265,10 +272,13 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
                 return this.getAllProducerInfo(ctx, request);
             case RequestCode.GET_CONSUME_STATS:
                 return this.getConsumeStats(ctx, request);
+            // 从节点 每3秒同步所有数据中，请求主节点 获取 ConsumerOffsetManager 对象的 json
             case RequestCode.GET_ALL_CONSUMER_OFFSET:
                 return this.getAllConsumerOffset(ctx, request);
+            // 从节点 每3秒同步所有数据中，请求主节点 获取ScheduleMessageService 对象的 json
             case RequestCode.GET_ALL_DELAY_OFFSET:
                 return this.getAllDelayOffset(ctx, request);
+            // 从节点 每3秒同步所有数据中，请求主节点 获取ScheduleMessageService 对象的 json
             case RequestCode.GET_ALL_MESSAGE_REQUEST_MODE:
                 return this.getAllMessageRequestMode(ctx, request);
             case RequestCode.INVOKE_BROKER_TO_RESET_OFFSET:
@@ -724,7 +734,11 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
         return response;
     }
 
+    /**
+     * 当 broker 启动，开启定时任务，当判断为从节点的时候，从主节点获取所有 topic 信息
+     */
     private RemotingCommand getAllTopicConfig(ChannelHandlerContext ctx, RemotingCommand request) {
+        // 根据传入的参数，通过反射方式获取对象，设置到 response 的 customHeader 属性中
         final RemotingCommand response = RemotingCommand.createResponseCommand(GetAllTopicConfigResponseHeader.class);
         // final GetAllTopicConfigResponseHeader responseHeader =
         // (GetAllTopicConfigResponseHeader) response.readCustomHeader();
@@ -1733,6 +1747,7 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
 
         String content = this.brokerController.getConsumerOffsetManager().encode();
+
         if (content != null && content.length() > 0) {
             try {
                 response.setBody(content.getBytes(MixAll.DEFAULT_CHARSET));
