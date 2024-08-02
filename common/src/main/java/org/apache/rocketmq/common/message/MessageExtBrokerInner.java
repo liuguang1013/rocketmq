@@ -26,6 +26,9 @@ public class MessageExtBrokerInner extends MessageExt {
     private String propertiesString;
     private long tagsCode;
 
+    /**
+     * 保存消息编码后的字节数组
+     */
     private ByteBuffer encodedBuff;
 
     private volatile boolean encodeCompleted;

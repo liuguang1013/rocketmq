@@ -962,7 +962,7 @@ public class BrokerController {
             registerProcessor();
             // 初始化定时任务
             initializeScheduledTasks();
-            //
+            // 初始化事务
             initialTransaction();
 
             initialAcl();
@@ -1078,22 +1078,23 @@ public class BrokerController {
     }
 
     private void initialTransaction() {
+        // 加载 事务消息 实现类
         this.transactionalMessageService = ServiceProvider.loadClass(TransactionalMessageService.class);
         if (null == this.transactionalMessageService) {
-            this.transactionalMessageService = new TransactionalMessageServiceImpl(
-                new TransactionalMessageBridge(this, this.getMessageStore()));
-            LOG.warn("Load default transaction message hook service: {}",
-                TransactionalMessageServiceImpl.class.getSimpleName());
+            // 开启定时任务，保存 deleteContext 中消息
+            this.transactionalMessageService = new TransactionalMessageServiceImpl(new TransactionalMessageBridge(this, this.getMessageStore()));
+            LOG.warn("Load default transaction message hook service: {}", TransactionalMessageServiceImpl.class.getSimpleName());
         }
-        this.transactionalMessageCheckListener = ServiceProvider.loadClass(
-            AbstractTransactionalMessageCheckListener.class);
+        // todo：作用待看
+        this.transactionalMessageCheckListener = ServiceProvider.loadClass(AbstractTransactionalMessageCheckListener.class);
         if (null == this.transactionalMessageCheckListener) {
             this.transactionalMessageCheckListener = new DefaultTransactionalMessageCheckListener();
-            LOG.warn("Load default discard message hook service: {}",
-                DefaultTransactionalMessageCheckListener.class.getSimpleName());
+            LOG.warn("Load default discard message hook service: {}", DefaultTransactionalMessageCheckListener.class.getSimpleName());
         }
         this.transactionalMessageCheckListener.setBrokerController(this);
+        // 创建事务消息检查服务
         this.transactionalMessageCheckService = new TransactionalMessageCheckService(this);
+        // 创建并开启，事务指标刷新服务 3s 一次
         this.transactionMetricsFlushService = new TransactionMetricsFlushService(this);
         this.transactionMetricsFlushService.start();
 

@@ -75,6 +75,9 @@ public class CommitLog implements Swappable {
     public final static int MESSAGE_MAGIC_CODE = -626843481;
     protected static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     // End of file empty MAGIC CODE cbd43194
+    /**
+     * 用来标识文件结尾
+     */
     public final static int BLANK_MAGIC_CODE = -875286124;
     /**
      * CRC32 Format: [PROPERTY_CRC32 + NAME_VALUE_SEPARATOR + 10-digit fixed-length string + PROPERTY_SEPARATOR]
@@ -132,6 +135,10 @@ public class CommitLog implements Swappable {
         // todo：待看
         this.appendMessageCallback = new DefaultAppendMessageCallback(defaultMessageStore.getMessageStoreConfig());
 
+        /**
+         * 每个线程，向 commit Log 存储消息的时候，会在调用 putMessageThreadLocal.get() 方法，
+         * 在当前线程中获取值，不存在的时候，执行initialValue 创建 PutMessageThreadLocal 对象
+         */
         putMessageThreadLocal = new ThreadLocal<PutMessageThreadLocal>() {
             @Override
             protected PutMessageThreadLocal initialValue() {
@@ -974,7 +981,11 @@ public class CommitLog implements Swappable {
         return beginTimeInLock;
     }
 
+    /**
+     * 返回 Topic-QueueId
+     */
     public String generateKey(StringBuilder keyBuilder, MessageExt messageExt) {
+        // 将 StringBuilder 内容清空
         keyBuilder.setLength(0);
         keyBuilder.append(messageExt.getTopic());
         keyBuilder.append('-');
@@ -989,19 +1000,34 @@ public class CommitLog implements Swappable {
 
     public void updateMaxMessageSize(PutMessageThreadLocal putMessageThreadLocal) {
         // dynamically adjust maxMessageSize, but not support DLedger mode temporarily
+        // 动态调整maxMessageSize，但暂时不支持DLedger模式
+        // 4M
         int newMaxMessageSize = this.defaultMessageStore.getMessageStoreConfig().getMaxMessageSize();
-        if (newMaxMessageSize >= 10 &&
-            putMessageThreadLocal.getEncoder().getMaxMessageBodySize() != newMaxMessageSize) {
+
+        if (newMaxMessageSize >= 10 && putMessageThreadLocal.getEncoder().getMaxMessageBodySize() != newMaxMessageSize) {
             putMessageThreadLocal.getEncoder().updateEncoderBufferCapacity(newMaxMessageSize);
         }
     }
 
+    /**
+     * 最终对 消息的
+     * 先进行 topicQueueLock 加锁，设置消息在队列中的偏移量
+     * 将消息编码成字节数组，设置到 MessageExtBrokerInner 消息的属性中
+     * 再对 commit log 加锁，更新消息存储时间，保证消息顺序性，向commit log 最后一个文件中写入消息
+     *
+     * @param msg
+     * @return
+     */
     public CompletableFuture<PutMessageResult> asyncPutMessage(final MessageExtBrokerInner msg) {
         // Set the storage time
+        // 消息冗余开关，默认不开启，只会在主备同步时被复制到从 Broker。
+        // 如果设置为 true，那么当一条消息被发送到 Broker 时，除了将消息存储在本地之外，还会尝试将这条消息复制到其他指定的 Broker 上，从而实现消息的冗余存储
         if (!defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()) {
+            // 设置存储时间戳
             msg.setStoreTimestamp(System.currentTimeMillis());
         }
         // Set the message body CRC (consider the most appropriate setting on the client)
+        // 对消息体进行循环冗余校验的属性设置
         msg.setBodyCRC(UtilAll.crc32(msg.getBody()));
         if (enabledAppendPropCRC) {
             // delete crc32 properties if exist
@@ -1014,8 +1040,9 @@ public class CommitLog implements Swappable {
 
         String topic = msg.getTopic();
         msg.setVersion(MessageVersion.MESSAGE_VERSION_V1);
-        boolean autoMessageVersionOnTopicLen =
-            this.defaultMessageStore.getMessageStoreConfig().isAutoMessageVersionOnTopicLen();
+        // 默认是 true
+        boolean autoMessageVersionOnTopicLen = this.defaultMessageStore.getMessageStoreConfig().isAutoMessageVersionOnTopicLen();
+        // 当 topic 的长度大于 127时 设置为 v2
         if (autoMessageVersionOnTopicLen && topic.length() > Byte.MAX_VALUE) {
             msg.setVersion(MessageVersion.MESSAGE_VERSION_V2);
         }
@@ -1030,8 +1057,11 @@ public class CommitLog implements Swappable {
             msg.setStoreHostAddressV6Flag();
         }
 
+        // 更新 最大消息大小
         PutMessageThreadLocal putMessageThreadLocal = this.putMessageThreadLocal.get();
         updateMaxMessageSize(putMessageThreadLocal);
+
+        // Topic-QueueId
         String topicQueueKey = generateKey(putMessageThreadLocal.getKeyBuilder(), msg);
         long elapsedTimeInLock = 0;
         MappedFile unlockMappedFile = null;
@@ -1043,10 +1073,12 @@ public class CommitLog implements Swappable {
         } else {
             currOffset = mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
         }
-
+        // 默认 1
         int needAckNums = this.defaultMessageStore.getMessageStoreConfig().getInSyncReplicas();
+        // 是否需要处理 HA 高可用
         boolean needHandleHA = needHandleHA(msg);
 
+        //todo ：待看
         if (needHandleHA && this.defaultMessageStore.getBrokerConfig().isEnableControllerMode()) {
             if (this.defaultMessageStore.getHaService().inSyncReplicasNums(currOffset) < this.defaultMessageStore.getMessageStoreConfig().getMinInSyncReplicas()) {
                 return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.IN_SYNC_REPLICAS_NOT_ENOUGH, null));
@@ -1065,38 +1097,50 @@ public class CommitLog implements Swappable {
             }
         }
 
+        // 对 Topic-QueueId 字符串的hash 与 32 取余数，获取锁
         topicQueueLock.lock(topicQueueKey);
         try {
 
             boolean needAssignOffset = true;
+            // 开启 冗余消息，并不是从节点
             if (defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()
                 && defaultMessageStore.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE) {
+                // 不需要分配偏移量
                 needAssignOffset = false;
             }
+
             if (needAssignOffset) {
+                // 在 queueOffsetOperator.topicQueueTable 的缓存中，通过 key：Topic-QueueId ，获取缓存的队列偏移量，放入消息中
                 defaultMessageStore.assignOffset(msg);
             }
 
+            // 对消息的长度进行计算，检查，最终保存到  putMessageThreadLocal 的 Encoder 的 bytebuffer 属性
             PutMessageResult encodeResult = putMessageThreadLocal.getEncoder().encode(msg);
+            // 不为空说明 encode 异常
             if (encodeResult != null) {
                 return CompletableFuture.completedFuture(encodeResult);
             }
+
             msg.setEncodedBuff(putMessageThreadLocal.getEncoder().getEncoderBuffer());
+
             PutMessageContext putMessageContext = new PutMessageContext(topicQueueKey);
 
             putMessageLock.lock(); //spin or ReentrantLock ,depending on store config
             try {
+                //  System.currentTimeMillis()
                 long beginLockTimestamp = this.defaultMessageStore.getSystemClock().now();
                 this.beginTimeInLock = beginLockTimestamp;
 
                 // Here settings are stored timestamp, in order to ensure an orderly
                 // global
                 if (!defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()) {
+                    // 这里设置存储时间戳，以保证有序
                     msg.setStoreTimestamp(beginLockTimestamp);
                 }
 
                 if (null == mappedFile || mappedFile.isFull()) {
                     mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
+                    // todo：涉及系统内核 待看
                     if (isCloseReadAhead()) {
                         setFileReadMode(mappedFile, LibC.MADV_RANDOM);
                     }
@@ -1106,16 +1150,19 @@ public class CommitLog implements Swappable {
                     beginTimeInLock = 0;
                     return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.CREATE_MAPPED_FILE_FAILED, null));
                 }
-
+                // 向commit log 最后一个文件中写入消息
                 result = mappedFile.appendMessage(msg, this.appendMessageCallback, putMessageContext);
+
                 switch (result.getStatus()) {
                     case PUT_OK:
+                        // 什么也没做
                         onCommitLogAppend(msg, result, mappedFile);
                         break;
                     case END_OF_FILE:
                         onCommitLogAppend(msg, result, mappedFile);
                         unlockMappedFile = mappedFile;
                         // Create a new file, re-write the message
+                        // 创建个新commit log，重新写入
                         mappedFile = this.mappedFileQueue.getLastMappedFile(0);
                         if (null == mappedFile) {
                             // XXX: warn and notify me
@@ -1140,7 +1187,7 @@ public class CommitLog implements Swappable {
                         beginTimeInLock = 0;
                         return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, result));
                 }
-
+                // 锁定时间
                 elapsedTimeInLock = this.defaultMessageStore.getSystemClock().now() - beginLockTimestamp;
                 beginTimeInLock = 0;
             } finally {
@@ -1344,7 +1391,7 @@ public class CommitLog implements Swappable {
     }
 
     private boolean needHandleHA(MessageExt messageExt) {
-
+        // 无需等待消息存储成功
         if (!messageExt.isWaitStoreMsgOK()) {
             /*
               No need to sync messages that special config to extra broker slaves.
@@ -1352,7 +1399,7 @@ public class CommitLog implements Swappable {
              */
             return false;
         }
-
+        // 开启消息冗余，不需要处理 HA
         if (this.defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()) {
             return false;
         }
@@ -1507,8 +1554,10 @@ public class CommitLog implements Swappable {
     protected short getMessageNum(MessageExtBrokerInner msgInner) {
         short messageNum = 1;
         // IF inner batch, build batchQueueOffset and batchNum property.
+        // 在 topic 配置信息中获取消息类型
         CQType cqType = getCqType(msgInner);
 
+        // 批量消息
         if (MessageSysFlag.check(msgInner.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG) || CQType.BatchCQ.equals(cqType)) {
             if (msgInner.getProperty(MessageConst.PROPERTY_INNER_NUM) != null) {
                 messageNum = Short.parseShort(msgInner.getProperty(MessageConst.PROPERTY_INNER_NUM));
@@ -1938,7 +1987,7 @@ public class CommitLog implements Swappable {
         private final MessageStoreConfig messageStoreConfig;
 
         DefaultAppendMessageCallback(MessageStoreConfig messageStoreConfig) {
-            //
+            //文件结尾 预留字节
             this.msgStoreItemMemory = ByteBuffer.allocate(END_FILE_MIN_BLANK_LENGTH);
             this.messageStoreConfig = messageStoreConfig;
         }
@@ -1998,43 +2047,63 @@ public class CommitLog implements Swappable {
             return null;
         }
 
+        /**
+         * 将 MessageExtBrokerInner 消息 写入到  commit log 文件的 mappedByteBuffer 内存映射 中
+         *
+         * 生成消息id：ip、端口、开始写的位置
+         *
+         * @param fileFromOffset commit log 文件开始的
+         * @param byteBuffer  commit log 文件的 mappedByteBuffer 内存映射，消息会写入到这里
+         * @param maxBlank 文件空余的空间
+         * @param msgInner  消息
+         * @param putMessageContext 该方法未使用，处理批量的时候使用
+         * @return AppendMessageResult  返回类型：1、文件空白空间，不能放下消息； 2、正常返回；3、处理MultiDispatch下返回值
+         */
         public AppendMessageResult doAppend(final long fileFromOffset, final ByteBuffer byteBuffer, final int maxBlank,
             final MessageExtBrokerInner msgInner, PutMessageContext putMessageContext) {
             // STORETIMESTAMP + STOREHOSTADDRESS + OFFSET <br>
 
             ByteBuffer preEncodeBuffer = msgInner.getEncodedBuff();
+            // enableMultiDispatch 默认是false，判断是不是多分发消息
             boolean isMultiDispatchMsg = messageStoreConfig.isEnableMultiDispatch() && CommitLog.isMultiDispatchMsg(msgInner);
             if (isMultiDispatchMsg) {
+                // todo：待看
                 AppendMessageResult appendMessageResult = handlePropertiesForLmqMsg(preEncodeBuffer, msgInner);
                 if (appendMessageResult != null) {
                     return appendMessageResult;
                 }
             }
-
+            // 设置消息数组的limit
             final int msgLen = preEncodeBuffer.getInt(0);
             preEncodeBuffer.position(0);
             preEncodeBuffer.limit(msgLen);
 
             // PHY OFFSET
+            // 计算消息开始写的 绝对偏移量
             long wroteOffset = fileFromOffset + byteBuffer.position();
 
+            // 消息id：将消息的ip、端口、开始写的位置，封装到字符串中
             Supplier<String> msgIdSupplier = () -> {
                 int sysflag = msgInner.getSysFlag();
                 int msgIdLen = (sysflag & MessageSysFlag.STOREHOSTADDRESS_V6_FLAG) == 0 ? 4 + 4 + 8 : 16 + 4 + 8;
                 ByteBuffer msgIdBuffer = ByteBuffer.allocate(msgIdLen);
                 MessageExt.socketAddress2ByteBuffer(msgInner.getStoreHost(), msgIdBuffer);
+                // 读模式 -> 切换到写模式
                 msgIdBuffer.clear();//because socketAddress2ByteBuffer flip the buffer
                 msgIdBuffer.putLong(msgIdLen - 8, wroteOffset);
                 return UtilAll.bytes2string(msgIdBuffer.array());
             };
 
             // Record ConsumeQueue information
+            // 记录消费队列的信息
             Long queueOffset = msgInner.getQueueOffset();
 
             // this msg maybe an inner-batch msg.
+            // 消息的数量：判断是否是批量消息，在消息属性中获取消息数量
             short messageNum = getMessageNum(msgInner);
 
             // Transaction messages that require special handling
+            // 对于事务消息，需要进行特殊处理
             final int tranType = MessageSysFlag.getTransactionValue(msgInner.getSysFlag());
             switch (tranType) {
                 // Prepared and Rollback message is not consumed, will not enter the consume queue
@@ -2049,7 +2118,9 @@ public class CommitLog implements Swappable {
             }
 
             // Determines whether there is sufficient free space
+            // 判断commit log 是否有足够空间
             if ((msgLen + END_FILE_MIN_BLANK_LENGTH) > maxBlank) {
+
                 this.msgStoreItemMemory.clear();
                 // 1 TOTALSIZE
                 this.msgStoreItemMemory.putInt(maxBlank);
@@ -2059,6 +2130,7 @@ public class CommitLog implements Swappable {
                 // Here the length of the specially set maxBlank
                 final long beginTimeMills = CommitLog.this.defaultMessageStore.now();
                 byteBuffer.put(this.msgStoreItemMemory.array(), 0, 8);
+
                 return new AppendMessageResult(AppendMessageStatus.END_OF_FILE, wroteOffset,
                     maxBlank, /* only wrote 8 bytes, but declare wrote maxBlank for compute write position */
                     msgIdSupplier, msgInner.getStoreTimestamp(),
@@ -2075,7 +2147,9 @@ public class CommitLog implements Swappable {
             // 8 SYSFLAG, 9 BORNTIMESTAMP, 10 BORNHOST, 11 STORETIMESTAMP
             pos += 8 + 4 + 8 + ipLen;
             // refresh store time stamp in lock
+            // 设置存储时间戳，是在锁中的，能保证存入顺序
             preEncodeBuffer.putLong(pos, msgInner.getStoreTimestamp());
+            // 默认不开启 冗余校验
             if (enabledAppendPropCRC) {
                 // 18 CRC32
                 int checkSize = msgLen - crc32ReservedLength;
@@ -2089,8 +2163,10 @@ public class CommitLog implements Swappable {
             final long beginTimeMills = CommitLog.this.defaultMessageStore.now();
             CommitLog.this.getMessageStore().getPerfCounter().startTick("WRITE_MEMORY_TIME_MS");
             // Write messages to the queue buffer
+            // 将 消息保存到 mappedByteBuffer 中
             byteBuffer.put(preEncodeBuffer);
             CommitLog.this.getMessageStore().getPerfCounter().endTick("WRITE_MEMORY_TIME_MS");
+            // 清空消息对象中的字节数组
             msgInner.setEncodedBuff(null);
 
             if (isMultiDispatchMsg) {

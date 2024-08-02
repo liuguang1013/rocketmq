@@ -70,6 +70,10 @@ public class DefaultMappedFile extends AbstractMappedFile {
 
     protected static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
 
+    /**
+     * 标记文件写的位置
+     * 在 appendMessagesInner() 保存消息的时候会增加 该值
+     */
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> WROTE_POSITION_UPDATER;
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> COMMITTED_POSITION_UPDATER;
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> FLUSHED_POSITION_UPDATER;
@@ -91,6 +95,9 @@ public class DefaultMappedFile extends AbstractMappedFile {
     protected long fileFromOffset;
     protected File file;
     protected MappedByteBuffer mappedByteBuffer;
+    /**
+     * 保存 最后一条消息的存储时间
+     */
     protected volatile long storeTimestamp = 0;
     /**
      * 标记是逻辑队列中第一个创建的 MappedFile
@@ -289,6 +296,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
     @Override
     public AppendMessageResult appendMessage(final MessageExtBrokerInner msg, final AppendMessageCallback cb,
         PutMessageContext putMessageContext) {
+        //
         return appendMessagesInner(msg, cb, putMessageContext);
     }
 
@@ -298,28 +306,42 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return appendMessagesInner(messageExtBatch, cb, putMessageContext);
     }
 
+    /**
+     * 根据消息类型，添加单个 或者 批量 消息
+     * 更新 WROTE_POSITION_UPDATER 写指针位置、存储时间
+     * @param messageExt 消息对象
+     * @param cb commit log 的回调类，真正添加消息操作是在这里进行的
+     * @param putMessageContext 在批量添加的时候使用
+     * @return
+     */
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb,
         PutMessageContext putMessageContext) {
         assert messageExt != null;
         assert cb != null;
 
+        //  获取当前读指针的位置
         int currentPos = WROTE_POSITION_UPDATER.get(this);
 
         if (currentPos < this.fileSize) {
+
             ByteBuffer byteBuffer = appendMessageBuffer().slice();
             byteBuffer.position(currentPos);
             AppendMessageResult result;
+            // 根据消息类型 添加消息
             if (messageExt instanceof MessageExtBatch && !((MessageExtBatch) messageExt).isInnerBatch()) {
                 // traditional batch message
+                // 传统的批处理消息
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos,
                     (MessageExtBatch) messageExt, putMessageContext);
             } else if (messageExt instanceof MessageExtBrokerInner) {
                 // traditional single message or newly introduced inner-batch message
+                // 传统的单个消息或新引入的批内消息
                 result = cb.doAppend(this.getFileFromOffset(), byteBuffer, this.fileSize - currentPos,
                     (MessageExtBrokerInner) messageExt, putMessageContext);
             } else {
                 return new AppendMessageResult(AppendMessageStatus.UNKNOWN_ERROR);
             }
+            // 更新 写指针位置
             WROTE_POSITION_UPDATER.addAndGet(this, result.getWroteBytes());
             this.storeTimestamp = result.getStoreTimestamp();
             return result;

@@ -30,13 +30,37 @@ public class MessageSysFlag {
      * | byte 3 |   |   |           |          |             |                  |                  |                  |
      * | byte 4 |   |   |           |          |             |                  |                  |                  |
      */
+    /**
+     * 0000 0000  0000 0000  0000 0000  0000 0001
+     */
     public final static int COMPRESSED_FLAG = 0x1;
+    /**
+     * 0000 0000  0000 0000  0000 0000  0000 0010
+     */
     public final static int MULTI_TAGS_FLAG = 0x1 << 1;
+    /**
+     * 0000 0000  0000 0000  0000 0000  0000 0000
+     */
     public final static int TRANSACTION_NOT_TYPE = 0;
+    /**
+     * 0000 0000  0000 0000  0000 0000  0000 0100
+     */
     public final static int TRANSACTION_PREPARED_TYPE = 0x1 << 2;
+    /**
+     * 0000 0000  0000 0000  0000 0000  0000 1000
+     */
     public final static int TRANSACTION_COMMIT_TYPE = 0x2 << 2;
+    /**
+     * 0000 0000  0000 0000  0000 0000  0000 1100
+     */
     public final static int TRANSACTION_ROLLBACK_TYPE = 0x3 << 2;
+    /**
+     * 0000 0000  0000 0000  0000 0000  0001 0000
+     */
     public final static int BORNHOST_V6_FLAG = 0x1 << 4;
+    /**
+     * 0000 0000  0000 0000  0000 0000  0010 0000
+     */
     public final static int STOREHOSTADDRESS_V6_FLAG = 0x1 << 5;
     //Mark the flag for batch to avoid conflict
     /**

@@ -77,10 +77,16 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
 
     public TransactionalMessageServiceImpl(TransactionalMessageBridge transactionBridge) {
         this.transactionalMessageBridge = transactionBridge;
+
         transactionalOpBatchService = new TransactionalOpBatchService(transactionalMessageBridge.getBrokerController(), this);
+        /**
+         *  transactionalOpBatchService 继承 ServiceThread ，开启后，定时每 3s 执行一次，在任务结束执行
+         *  TransactionalMessageServiceImpl.batchSendOpMessage 批量将 deleteContext 中的消息，保存到 commit log 中
+         */
         transactionalOpBatchService.start();
-        transactionMetrics = new TransactionMetrics(BrokerPathConfigHelper.getTransactionMetricsPath(
-                transactionalMessageBridge.getBrokerController().getMessageStoreConfig().getStorePathRootDir()));
+        // 创建事务消息指标类
+        transactionMetrics = new TransactionMetrics(BrokerPathConfigHelper.getTransactionMetricsPath(transactionalMessageBridge.getBrokerController().getMessageStoreConfig().getStorePathRootDir()));
+        // 将 user.home/store/config/transactionMetrics 文件内容 解析成 TransactionMetricsSerializeWrapper 对象
         transactionMetrics.load();
     }
 
@@ -653,12 +659,22 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
         this.getTransactionMetrics().persist();
     }
 
+    /**
+     * 构建消息：
+     *  topic ：RMQ_SYS_TRANS_OP_HALF_TOPIC
+     *  消息体的内容，在deleteContext 的 queueId 对映的阻塞队列中
+     *
+     *  构建消息体过程中需要的数量，取决于消息体最大值，不大于消息体最大值
+     *  < 4096
+     */
     public Message getOpMessage(int queueId, String moreData) {
+        // RMQ_SYS_TRANS_OP_HALF_TOPIC
         String opTopic = TransactionalMessageUtil.buildOpTopic();
         MessageQueueOpContext mqContext = deleteContext.get(queueId);
 
         int moreDataLength = moreData != null ? moreData.length() : 0;
         int length = moreDataLength;
+        // 4096
         int maxSize = transactionalMessageBridge.getBrokerController().getBrokerConfig().getTransactionOpMsgMaxSize();
         if (length < maxSize) {
             int sz = mqContext.getTotalSize().get();
@@ -668,7 +684,8 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
                 length += sz;
             }
         }
-
+        // length = moreDataLength + mqContext.getTotalSize()
+        // 或者 length = maxSize(4096) + 100
         StringBuilder sb = new StringBuilder(length);
 
         if (moreData != null) {
@@ -679,6 +696,7 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
             if (sb.length() >= maxSize) {
                 break;
             }
+            // 在阻塞队列中拉取数据
             String data = mqContext.getContextQueue().poll();
             if (data != null) {
                 sb.append(data);
@@ -690,20 +708,41 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
         }
 
         int l = sb.length() - moreDataLength;
+        // 重置数量
         mqContext.getTotalSize().addAndGet(-l);
+        // 设置上次写入时间
         mqContext.setLastWriteTimestamp(System.currentTimeMillis());
+        // 创建消息
         return new Message(opTopic, TransactionalMessageUtil.REMOVE_TAG,
                 sb.toString().getBytes(TransactionalMessageUtil.CHARSET));
     }
+
+    /**
+     * TransactionalOpBatchService 定时执行
+     *
+     * 批量发送 op 消息
+     * todo：op 消息是个啥消息
+     */
     public long batchSendOpMessage() {
         long startTime = System.currentTimeMillis();
         try {
             long firstTimestamp = startTime;
-            Map<Integer, Message> sendMap = null;
+            // 要发送消息的 map
+            Map<Integer/*queueId*/, Message> sendMap = null;
+            // 默认 3s
             long interval = transactionalMessageBridge.getBrokerController().getBrokerConfig().getTransactionOpBatchInterval();
+            // 4096
             int maxSize = transactionalMessageBridge.getBrokerController().getBrokerConfig().getTransactionOpMsgMaxSize();
+            // 标识：MessageQueueOpContext 中的数据量是否大于 4096
             boolean overSize = false;
-            for (Map.Entry<Integer, MessageQueueOpContext> entry : deleteContext.entrySet()) {
+            /**
+             *  遍历 deleteContext 集合， todo： deleteContext 是哪个 topic的数据，存储的是什么数据？
+             *
+             *  猜测：deleteContext 本身是个 map 存放各个队列 需要处理的 进行到一半的事务消息
+             *  他们都缓存在 deleteContext 中，构建消息的时候，
+             *  获取的个数，以消息体不大于最大消息体为准
+             */
+            for (Map.Entry<Integer/*queueId*/, MessageQueueOpContext> entry : deleteContext.entrySet()) {
                 MessageQueueOpContext mqContext = entry.getValue();
                 //no msg in contextQueue
                 if (mqContext.getTotalSize().get() <= 0 || mqContext.getContextQueue().size() == 0 ||
@@ -716,13 +755,15 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
                 if (sendMap == null) {
                     sendMap = new HashMap<>();
                 }
-
+                // 构建消息：在 deleteContext 队列对映的MessageQueueOpContext 中，获取消息，
+                // 获取的个数，以消息体不大于最大消息体为准
                 Message opMsg = getOpMessage(entry.getKey(), null);
                 if (opMsg == null) {
                     continue;
                 }
                 sendMap.put(entry.getKey(), opMsg);
                 firstTimestamp = Math.min(firstTimestamp, mqContext.getLastWriteTimestamp());
+                // 在构建消息消耗到队列中的数据后，数据量依旧 > 最大数量（4096）
                 if (mqContext.getTotalSize().get() >= maxSize) {
                     overSize = true;
                 }
@@ -730,6 +771,7 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
 
             if (sendMap != null) {
                 for (Map.Entry<Integer, Message> entry : sendMap.entrySet()) {
+                    // 向 commit log 写入 消息
                     if (!this.transactionalMessageBridge.writeOp(entry.getKey(), entry.getValue())) {
                         log.error("Transaction batch op message write failed. body is {}, queueId is {}",
                                 new String(entry.getValue().getBody(), TransactionalMessageUtil.CHARSET), entry.getKey());
@@ -741,6 +783,7 @@ public class TransactionalMessageServiceImpl implements TransactionalMessageServ
 
             //wait for next batch remove
             long wakeupTimestamp = firstTimestamp + interval;
+            // 队列中数据没有超过最大值，并且唤醒时间 大于开始时间
             if (!overSize && wakeupTimestamp > startTime) {
                 return wakeupTimestamp;
             }

@@ -52,6 +52,7 @@ public class TransactionMetrics extends ConfigManager {
     private final String configPath;
 
     public TransactionMetrics(String configPath) {
+        // user.home/store/config/transactionMetrics
         this.configPath = configPath;
     }
 
@@ -155,8 +156,10 @@ public class TransactionMetrics extends ConfigManager {
     }
 
     public static class TransactionMetricsSerializeWrapper extends RemotingSerializable {
-        private ConcurrentMap<String, Metric> transactionCount =
-                new ConcurrentHashMap<>(1024);
+        /**
+         * todo：保存啥信息？
+         */
+        private ConcurrentMap<String, Metric> transactionCount = new ConcurrentHashMap<>(1024);
         private DataVersion dataVersion = new DataVersion();
 
         public ConcurrentMap<String, Metric> getTransactionCount() {
@@ -177,14 +180,20 @@ public class TransactionMetrics extends ConfigManager {
         }
     }
 
+    /**
+     * TransactionMetricsSerializeWrapper 持久化过程中，
+     * 先生成 temp 文件，再 现存文件变为 .bak 文件，最后将临时文件命名为 现存文件
+     */
     @Override
     public synchronized void persist() {
+        //  user.home/store/config/transactionMetrics
         String config = configFilePath();
         String temp = config + ".tmp";
         String backup = config + ".bak";
         BufferedWriter bufferedWriter = null;
         try {
             File tmpFile = new File(temp);
+            // 父文件夹是否存在
             File parentDirectory = tmpFile.getParentFile();
             if (!parentDirectory.exists()) {
                 if (!parentDirectory.mkdirs()) {
@@ -192,7 +201,7 @@ public class TransactionMetrics extends ConfigManager {
                     return;
                 }
             }
-
+            // 创建新文件
             if (!tmpFile.exists()) {
                 if (!tmpFile.createNewFile()) {
                     log.error("Failed to create file: {}", tmpFile.getCanonicalPath());
@@ -201,17 +210,19 @@ public class TransactionMetrics extends ConfigManager {
             }
             bufferedWriter = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(tmpFile, false),
                     StandardCharsets.UTF_8));
+            // 将 TransactionMetricsSerializeWrapper 序列化到 transactionMetrics.temp 文件
             write0(bufferedWriter);
             bufferedWriter.flush();
             bufferedWriter.close();
             log.debug("Finished writing tmp file: {}", temp);
 
             File configFile = new File(config);
+            // transactionMetrics 文件存在，变为 transactionMetrics.bak 文件
             if (configFile.exists()) {
                 Files.copy(configFile, new File(backup));
                 configFile.delete();
             }
-
+            // transactionMetrics.temp 临时文件 命名 为 transactionMetrics 文件
             tmpFile.renameTo(configFile);
         } catch (IOException e) {
             log.error("Failed to persist {}", temp, e);

@@ -44,20 +44,31 @@ public class TransactionalOpBatchService extends ServiceThread {
 
     @Override
     public void run() {
+        // 启动事务op批处理线程!
         LOGGER.info("Start transaction op batch thread!");
+        // 3 s
         long checkInterval = brokerController.getBrokerConfig().getTransactionOpBatchInterval();
         wakeupTimestamp = System.currentTimeMillis() + checkInterval;
+
+        // 不停止
         while (!this.isStopped()) {
+            // 达到预热时间
             long interval = wakeupTimestamp - System.currentTimeMillis();
             if (interval <= 0) {
                 interval = 0;
+                // 当达到执行间隔，开始释放栅栏
+                // 唤醒线程
                 wakeup();
             }
+            // 挂起线程，直到等待超时
             this.waitForRunning(interval);
         }
         LOGGER.info("End transaction op batch thread!");
     }
 
+    /**
+     * 在唤醒线程
+     */
     @Override
     protected void onWaitEnd() {
         wakeupTimestamp = transactionalMessageService.batchSendOpMessage();

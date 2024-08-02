@@ -611,7 +611,7 @@ public class DefaultMessageStore implements MessageStore {
 
     @Override
     public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBrokerInner msg) {
-
+        // 存储消息前，遍历执行钩子函数
         for (PutMessageHook putMessageHook : putMessageHookList) {
             PutMessageResult handleResult = putMessageHook.executeBeforePutMessage(msg);
             if (handleResult != null) {
@@ -619,12 +619,14 @@ public class DefaultMessageStore implements MessageStore {
             }
         }
 
+        // 批量消息检查
         if (msg.getProperties().containsKey(MessageConst.PROPERTY_INNER_NUM)
             && !MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
             LOGGER.warn("[BUG]The message had property {} but is not an inner batch", MessageConst.PROPERTY_INNER_NUM);
             return CompletableFuture.completedFuture(new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null));
         }
 
+        // 批量消息和 topic 配置匹配
         if (MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
             Optional<TopicConfig> topicConfig = this.getTopicConfig(msg.getTopic());
             if (!QueueTypeUtils.isBatchCq(topicConfig)) {
@@ -634,8 +636,10 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         long beginTime = this.getSystemClock().now();
+        // 向 commitLog 中添加消息
         CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
 
+        // 结束后，消息进行统计
         putResultFuture.thenAccept(result -> {
             long elapsedTime = this.getSystemClock().now() - beginTime;
             if (elapsedTime > 500) {
@@ -682,6 +686,7 @@ public class DefaultMessageStore implements MessageStore {
 
     @Override
     public PutMessageResult putMessage(MessageExtBrokerInner msg) {
+        // 向 commit Log 中存储消息
         return waitForPutResult(asyncPutMessage(msg));
     }
 
@@ -695,6 +700,7 @@ public class DefaultMessageStore implements MessageStore {
             int putMessageTimeout =
                 Math.max(this.messageStoreConfig.getSyncFlushTimeout(),
                     this.messageStoreConfig.getSlaveTimeout()) + 5000;
+            // 获取结果
             return putMessageResultFuture.get(putMessageTimeout, TimeUnit.MILLISECONDS);
         } catch (ExecutionException | InterruptedException e) {
             return new PutMessageResult(PutMessageStatus.UNKNOWN_ERROR, null);
@@ -2177,9 +2183,11 @@ public class DefaultMessageStore implements MessageStore {
 
     @Override
     public void assignOffset(MessageExtBrokerInner msg) throws RocksDBException {
-        final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
 
+        final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
         if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
+            // 不是事务类型消息/事务提交消息
+            // 在 queueOffsetOperator.topicQueueTable 的缓存中，通过 key：Topic-QueueId ，获取缓存的队列偏移量，放入消息中
             this.consumeQueueStore.assignQueueOffset(msg);
         }
     }

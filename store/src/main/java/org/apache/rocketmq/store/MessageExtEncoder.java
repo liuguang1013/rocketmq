@@ -48,6 +48,7 @@ public class MessageExtEncoder {
     public MessageExtEncoder(final MessageStoreConfig messageStoreConfig) {
         ByteBufAllocator alloc = UnpooledByteBufAllocator.DEFAULT;
         this.messageStoreConfig = messageStoreConfig;
+        // 4M
         this.maxMessageBodySize = messageStoreConfig.getMaxMessageSize();
         //Reserve 64kb for encoding buffer outside body
         int maxMessageSize = Integer.MAX_VALUE - maxMessageBodySize >= 64 * 1024 ?
@@ -57,8 +58,7 @@ public class MessageExtEncoder {
         this.crc32ReservedLength = messageStoreConfig.isEnabledAppendPropCRC() ? CommitLog.CRC32_RESERVED_LEN : 0;
     }
 
-    public static int calMsgLength(MessageVersion messageVersion,
-        int sysFlag, int bodyLength, int topicLength, int propertiesLength) {
+    public static int calMsgLength(MessageVersion messageVersion, int sysFlag, int bodyLength, int topicLength, int propertiesLength) {
 
         int bornhostLength = (sysFlag & MessageSysFlag.BORNHOST_V6_FLAG) == 0 ? 8 : 20;
         int storehostAddressLength = (sysFlag & MessageSysFlag.STOREHOSTADDRESS_V6_FLAG) == 0 ? 8 : 20;
@@ -185,11 +185,13 @@ public class MessageExtEncoder {
         final byte[] propertiesData =
             msgInner.getPropertiesString() == null ? null : msgInner.getPropertiesString().getBytes(MessageDecoder.CHARSET_UTF8);
 
+        // 判断是够需要补充最后一个属性的分隔符
         boolean needAppendLastPropertySeparator = crc32ReservedLength > 0 && propertiesData != null && propertiesData.length > 0
             && propertiesData[propertiesData.length - 1] != MessageDecoder.PROPERTY_SEPARATOR;
-
+        // 消息属性长度
         final int propertiesLength = (propertiesData == null ? 0 : propertiesData.length) + (needAppendLastPropertySeparator ? 1 : 0) + crc32ReservedLength;
 
+        // 属性长度大于 32767
         if (propertiesLength > Short.MAX_VALUE) {
             log.warn("putMessage message properties length too long. length={}", propertiesLength);
             return new PutMessageResult(PutMessageStatus.PROPERTIES_SIZE_EXCEEDED, null);
@@ -199,10 +201,12 @@ public class MessageExtEncoder {
         final int topicLength = topicData.length;
 
         final int bodyLength = msgInner.getBody() == null ? 0 : msgInner.getBody().length;
+        // 计算消息的大小
         final int msgLen = calMsgLength(
             msgInner.getVersion(), msgInner.getSysFlag(), bodyLength, topicLength, propertiesLength);
 
         // Exceeds the maximum message body
+        // 消息体大小 大于 4M
         if (bodyLength > this.maxMessageBodySize) {
             CommitLog.log.warn("message body size exceeded, msg total size: " + msgLen + ", msg body size: " + bodyLength
                 + ", maxMessageSize: " + this.maxMessageBodySize);
@@ -212,6 +216,7 @@ public class MessageExtEncoder {
         final long queueOffset = msgInner.getQueueOffset();
 
         // Exceeds the maximum message
+        // 消息总大小 大于 4M + 64KB
         if (msgLen > this.maxMessageSize) {
             CommitLog.log.warn("message size exceeded, msg total size: " + msgLen + ", msg body size: " + bodyLength
                 + ", maxMessageSize: " + this.maxMessageSize);
@@ -417,6 +422,9 @@ public class MessageExtEncoder {
     }
 
     static class PutMessageThreadLocal {
+        /**
+         * 将消息对象 转换成 字节数组
+         */
         private final MessageExtEncoder encoder;
         private final StringBuilder keyBuilder;
 

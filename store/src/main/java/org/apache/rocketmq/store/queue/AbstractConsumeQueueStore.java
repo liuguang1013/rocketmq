@@ -66,9 +66,13 @@ public abstract class AbstractConsumeQueueStore implements ConsumeQueueStoreInte
         return this.queueOffsetOperator.getTopicQueueTable();
     }
 
+    /**
+     * 在 queueOffsetOperator.topicQueueTable 的缓存中，通过 key：Topic-QueueId ，获取缓存的队列偏移量，放入消息中
+     */
     @Override
     public void assignQueueOffset(MessageExtBrokerInner msg) throws RocksDBException {
         ConsumeQueueInterface consumeQueue = findOrCreateConsumeQueue(msg.getTopic(), msg.getQueueId());
+
         consumeQueue.assignQueueOffset(this.queueOffsetOperator, msg);
     }
 

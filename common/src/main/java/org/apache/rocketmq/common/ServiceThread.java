@@ -120,7 +120,7 @@ public abstract class ServiceThread implements Runnable {
         waitPoint.reset();
 
         try {
-            // 挂起线程
+            // 挂起线程，超时后继续执行
             waitPoint.await(interval, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             log.error("Interrupted", e);

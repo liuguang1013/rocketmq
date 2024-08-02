@@ -17,6 +17,9 @@
 
 package org.apache.rocketmq.store;
 
+/**
+ * todo：作用是啥？
+ */
 public class PutMessageContext {
     private String topicQueueTableKey;
     private long[] phyPos;

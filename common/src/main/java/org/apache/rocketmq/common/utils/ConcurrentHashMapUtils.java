@@ -37,7 +37,8 @@ public abstract class ConcurrentHashMapUtils {
     /**
      * A temporary workaround for Java 8 specific performance issue JDK-8161372 .<br> Use implementation of
      * ConcurrentMap.computeIfAbsent instead.
-     * 
+     *  Java 8特定性能问题的临时解决方案JDK-8161372 .<br>使用ConcurrentMap.computeIfAbsent的实现代替。
+     *
      * Requirement: <strong>The mapping function should not modify this map during computation.</strong>
      *
      * @see <a href="https://bugs.openjdk.java.net/browse/JDK-8161372">https://bugs.openjdk.java.net/browse/JDK-8161372</a>

@@ -60,7 +60,7 @@ import static org.apache.rocketmq.broker.metrics.BrokerMetricsConstant.LABEL_TOP
 public class TransactionalMessageBridge {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.TRANSACTION_LOGGER_NAME);
 
-    private final ConcurrentHashMap<Integer, MessageQueue> opQueueMap = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Integer/*queueId*/, MessageQueue> opQueueMap = new ConcurrentHashMap<>();
     private final BrokerController brokerController;
     private final MessageStore store;
     private final SocketAddress storeHost;
@@ -234,7 +234,9 @@ public class TransactionalMessageBridge {
 
     public PutMessageResult putMessageReturnResult(MessageExtBrokerInner messageInner) {
         LOGGER.debug("[BUG-TO-FIX] Thread:{} msgID:{}", Thread.currentThread().getName(), messageInner.getMsgId());
+       // 保存消息
         PutMessageResult result = store.putMessage(messageInner);
+
         if (result != null && result.getPutMessageStatus() == PutMessageStatus.PUT_OK) {
             this.brokerController.getBrokerStatsManager().incTopicPutNums(messageInner.getTopic());
             this.brokerController.getBrokerStatsManager().incTopicPutSize(messageInner.getTopic(),
@@ -290,12 +292,22 @@ public class TransactionalMessageBridge {
         return msgInner;
     }
 
+    /**
+     * 将 message、messageQueue 对象属性，封装 MessageExtBrokerInner 对象
+     *
+     * MessageExtBrokerInner -> MessageExt -> Message
+     *
+     * MessageExt 是和 commit log 中存储格式最相似的
+     * MessageExtBrokerInner 是存储将消息转换为字节数组的对象
+     */
     private MessageExtBrokerInner makeOpMessageInner(Message message, MessageQueue messageQueue) {
+
         MessageExtBrokerInner msgInner = new MessageExtBrokerInner();
         msgInner.setTopic(message.getTopic());
         msgInner.setBody(message.getBody());
         msgInner.setQueueId(messageQueue.getQueueId());
         msgInner.setTags(message.getTags());
+        // 保存 getTags 字符串的 hashcode
         msgInner.setTagsCode(MessageExtBrokerInner.tagsString2tagsCode(msgInner.getTags()));
         msgInner.setSysFlag(0);
         MessageAccessor.setProperties(msgInner, message.getProperties());
@@ -320,13 +332,14 @@ public class TransactionalMessageBridge {
     public boolean writeOp(Integer queueId,Message message) {
         MessageQueue opQueue = opQueueMap.get(queueId);
         if (opQueue == null) {
+            // RMQ_SYS_TRANS_OP_HALF_TOPIC
             opQueue = getOpQueueByHalf(queueId, this.brokerController.getBrokerConfig().getBrokerName());
             MessageQueue oldQueue = opQueueMap.putIfAbsent(queueId, opQueue);
             if (oldQueue != null) {
                 opQueue = oldQueue;
             }
         }
-
+        // 向 commit Log 中保存消息
         PutMessageResult result = putMessageReturnResult(makeOpMessageInner(message, opQueue));
         if (result != null && result.getPutMessageStatus() == PutMessageStatus.PUT_OK) {
             return true;
@@ -335,6 +348,9 @@ public class TransactionalMessageBridge {
         return false;
     }
 
+    /**
+     * 创建 MessageQueue  RMQ_SYS_TRANS_OP_HALF_TOPIC
+     */
     private MessageQueue getOpQueueByHalf(Integer queueId, String brokerName) {
         MessageQueue opQueue = new MessageQueue();
         opQueue.setTopic(TransactionalMessageUtil.buildOpTopic());

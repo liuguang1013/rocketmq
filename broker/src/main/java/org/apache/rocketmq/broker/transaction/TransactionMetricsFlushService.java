@@ -41,9 +41,12 @@ public class TransactionMetricsFlushService extends ServiceThread {
         long start = System.currentTimeMillis();
         while (!this.isStopped()) {
             try {
+                // 配置刷新间隔 默认 3s
                 if (System.currentTimeMillis() - start > brokerController.getBrokerConfig().getTransactionMetricFlushInterval()) {
                     start = System.currentTimeMillis();
+                    // TransactionMetricsSerializeWrapper 持久化
                     brokerController.getTransactionalMessageService().getTransactionMetrics().persist();
+                    //  3 s 刷新一次
                     waitForRunning(brokerController.getBrokerConfig().getTransactionMetricFlushInterval());
                 }
             } catch (Throwable e) {
