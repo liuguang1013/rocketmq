@@ -40,8 +40,7 @@ public class FileWatchService extends LifecycleAwareServiceThread {
     private static final int WATCH_INTERVAL = 500;
     private final MessageDigest md = MessageDigest.getInstance("MD5");
 
-    public FileWatchService(final String[] watchFiles,
-        final Listener listener) throws Exception {
+    public FileWatchService(final String[] watchFiles, final Listener listener) throws Exception {
         this.listener = listener;
         for (String file : watchFiles) {
             if (!Strings.isNullOrEmpty(file) && new File(file).exists()) {
@@ -55,12 +54,16 @@ public class FileWatchService extends LifecycleAwareServiceThread {
         return "FileWatchService";
     }
 
+    /**
+     * 检查文件内容是否变化
+     */
     @Override
     public void run0() {
         log.info(this.getServiceName() + " service started");
 
         while (!this.isStopped()) {
             try {
+                // 500 ms
                 this.waitForRunning(WATCH_INTERVAL);
                 for (Map.Entry<String, String> entry : currentHash.entrySet()) {
                     String newHash = md5Digest(entry.getKey());
@@ -80,9 +83,11 @@ public class FileWatchService extends LifecycleAwareServiceThread {
      * Note: we ignore DELETE event on purpose. This is useful when application renew CA file.
      * When the operator delete/rename the old CA file and copy a new one, this ensures the old CA file is used during
      * the operation.
+     * 注意:我们有意忽略DELETE事件。这在应用程序更新CA文件时非常有用。当操作员删除旧的CA文件并复制一个新文件时，可以确保在操作期间使用旧的CA文件。
      * <p>
      * As we know exactly what to do when file does not exist or when IO exception is raised, there is no need to
      * propagate the exception up.
+     * 由于我们确切地知道当文件不存在或IO异常引发时该怎么做，因此不需要将异常向上传播。
      *
      * @param filePath Absolute path of the file to calculate its MD5 digest.
      * @return Hash of the file content if exists; empty string otherwise.

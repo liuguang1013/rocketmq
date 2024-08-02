@@ -964,47 +964,16 @@ public class BrokerController {
             initializeScheduledTasks();
             // 初始化事务
             initialTransaction();
-
+            // AccessValidator 权限管理 默认不开
             initialAcl();
-
+            // 初始化 rpc 钩子函数
             initialRpcHooks();
 
+            // 默认是 可选的
             if (TlsSystemConfig.tlsMode != TlsMode.DISABLED) {
                 // Register a listener to reload SslContext
                 try {
-                    fileWatchService = new FileWatchService(
-                        new String[] {
-                            TlsSystemConfig.tlsServerCertPath,
-                            TlsSystemConfig.tlsServerKeyPath,
-                            TlsSystemConfig.tlsServerTrustCertPath
-                        },
-                        new FileWatchService.Listener() {
-                            boolean certChanged, keyChanged = false;
-
-                            @Override
-                            public void onChanged(String path) {
-                                if (path.equals(TlsSystemConfig.tlsServerTrustCertPath)) {
-                                    LOG.info("The trust certificate changed, reload the ssl context");
-                                    reloadServerSslContext();
-                                }
-                                if (path.equals(TlsSystemConfig.tlsServerCertPath)) {
-                                    certChanged = true;
-                                }
-                                if (path.equals(TlsSystemConfig.tlsServerKeyPath)) {
-                                    keyChanged = true;
-                                }
-                                if (certChanged && keyChanged) {
-                                    LOG.info("The certificate and private key changed, reload the ssl context");
-                                    certChanged = keyChanged = false;
-                                    reloadServerSslContext();
-                                }
-                            }
-
-                            private void reloadServerSslContext() {
-                                ((NettyRemotingServer) remotingServer).loadSslContext();
-                                ((NettyRemotingServer) fastRemotingServer).loadSslContext();
-                            }
-                        });
+                    sslFileWatch();
                 } catch (Exception e) {
                     result = false;
                     LOG.warn("FileWatchService created error, can't load the certificate dynamically");
@@ -1013,6 +982,42 @@ public class BrokerController {
         }
 
         return result;
+    }
+
+    private void sslFileWatch() throws Exception {
+        fileWatchService = new FileWatchService(
+            new String[] {
+                TlsSystemConfig.tlsServerCertPath,
+                TlsSystemConfig.tlsServerKeyPath,
+                TlsSystemConfig.tlsServerTrustCertPath
+            },
+            new FileWatchService.Listener() {
+                boolean certChanged, keyChanged = false;
+
+                @Override
+                public void onChanged(String path) {
+                    if (path.equals(TlsSystemConfig.tlsServerTrustCertPath)) {
+                        LOG.info("The trust certificate changed, reload the ssl context");
+                        reloadServerSslContext();
+                    }
+                    if (path.equals(TlsSystemConfig.tlsServerCertPath)) {
+                        certChanged = true;
+                    }
+                    if (path.equals(TlsSystemConfig.tlsServerKeyPath)) {
+                        keyChanged = true;
+                    }
+                    if (certChanged && keyChanged) {
+                        LOG.info("The certificate and private key changed, reload the ssl context");
+                        certChanged = keyChanged = false;
+                        reloadServerSslContext();
+                    }
+                }
+
+                private void reloadServerSslContext() {
+                    ((NettyRemotingServer) remotingServer).loadSslContext();
+                    ((NettyRemotingServer) fastRemotingServer).loadSslContext();
+                }
+            });
     }
 
     public void registerMessageStoreHook() {
@@ -1101,6 +1106,8 @@ public class BrokerController {
     }
 
     private void initialAcl() {
+        // todo：加快看代码进度，待看
+        // 默认不开启  AccessValidator 开关
         if (!this.brokerConfig.isAclEnable()) {
             LOG.info("The broker dose not enable acl");
             return;
@@ -1137,6 +1144,7 @@ public class BrokerController {
         if (rpcHooks == null || rpcHooks.isEmpty()) {
             return;
         }
+        // 遍历 向 fastRemotingServer 添加
         for (RPCHook rpcHook : rpcHooks) {
             this.registerServerRPCHook(rpcHook);
         }
