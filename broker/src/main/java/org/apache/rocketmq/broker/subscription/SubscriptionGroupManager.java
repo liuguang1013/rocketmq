@@ -257,18 +257,22 @@ public class SubscriptionGroupManager extends ConfigManager {
     public SubscriptionGroupConfig findSubscriptionGroupConfig(final String group) {
         SubscriptionGroupConfig subscriptionGroupConfig = getSubscriptionGroupConfig(group);
         if (null == subscriptionGroupConfig) {
+            // 默认自定创建订阅组信息
             if (brokerController.getBrokerConfig().isAutoCreateSubscriptionGroup() || MixAll.isSysConsumerGroup(group)) {
+                // 校验订阅组名
                 if (group.length() > Validators.CHARACTER_MAX_LENGTH || TopicValidator.isTopicOrGroupIllegal(group)) {
                     return null;
                 }
                 subscriptionGroupConfig = new SubscriptionGroupConfig();
                 subscriptionGroupConfig.setGroupName(group);
+                // 存入缓存 subscriptionGroupTable
                 SubscriptionGroupConfig preConfig = putSubscriptionGroupConfigIfAbsent(subscriptionGroupConfig);
                 if (null == preConfig) {
                     log.info("auto create a subscription group, {}", subscriptionGroupConfig.toString());
                 }
                 long stateMachineVersion = brokerController.getMessageStore() != null ? brokerController.getMessageStore().getStateMachineVersion() : 0;
                 dataVersion.nextVersion(stateMachineVersion);
+                // 将待对象持久化到  subscriptionGroup.json 文件中
                 this.persist();
             }
         }

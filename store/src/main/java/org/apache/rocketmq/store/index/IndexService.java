@@ -285,7 +285,7 @@ public class IndexService {
      * 向索引文件中写入消息索引， 文件写满后，创建新的文件，再次保存
      * @param indexFile 索引文件
      * @param msg 消息
-     * @param idxKey topic + "#" + uniqKey
+     * @param idxKey topic + "#" + uniqKey  或者是 topic + "#" + keys          其中 keys 一个消息可能包含多个
      * @return
      */
     private IndexFile putKey(IndexFile indexFile, DispatchRequest msg, String idxKey) {

@@ -189,6 +189,7 @@ public class TopicQueueMappingManager extends ConfigManager {
     //Do not return a null context
     public TopicQueueMappingContext buildTopicQueueMappingContext(TopicRequestHeader requestHeader, boolean selectOneWhenMiss) {
         // if lo is set to false explicitly, it maybe the forwarded request
+        // 如果lo显式设置为false，则可能转发请求
         if (requestHeader.getLo() != null
                 && Boolean.FALSE.equals(requestHeader.getLo())) {
             return new TopicQueueMappingContext(requestHeader.getTopic(), null, null, null, null);
@@ -198,12 +199,14 @@ public class TopicQueueMappingManager extends ConfigManager {
         if (requestHeader instanceof  TopicQueueRequestHeader) {
             globalId = ((TopicQueueRequestHeader) requestHeader).getQueueId();
         }
-
+        // 获取 topic 和队列的映射信息
         TopicQueueMappingDetail mappingDetail = getTopicQueueMapping(topic);
         if (mappingDetail == null) {
             //it is not static topic
+            // todo：不是一个 static topic 有怎么样？
             return new TopicQueueMappingContext(topic, null, null, null, null);
         }
+        // 判断 brokerName 相同,不同抛出异常
         assert mappingDetail.getBname().equals(this.brokerController.getBrokerConfig().getBrokerName());
 
         if (globalId == null) {
@@ -211,10 +214,12 @@ public class TopicQueueMappingManager extends ConfigManager {
         }
 
         //If not find mappingItem, it encounters some errors
+        //如果没有找到mappingItem，它会遇到一些错误
         if (globalId < 0 && !selectOneWhenMiss) {
             return new TopicQueueMappingContext(topic, globalId, mappingDetail, null, null);
         }
 
+        // 在 host 队列中获取下一个
         if (globalId < 0) {
             try {
                 if (!mappingDetail.getHostedQueues().isEmpty()) {
@@ -228,10 +233,10 @@ public class TopicQueueMappingManager extends ConfigManager {
             return new TopicQueueMappingContext(topic, globalId,  mappingDetail, null, null);
         }
 
+        // 获取 leader 项
         List<LogicQueueMappingItem> mappingItemList = TopicQueueMappingDetail.getMappingInfo(mappingDetail, globalId);
         LogicQueueMappingItem leaderItem = null;
-        if (mappingItemList != null
-                && mappingItemList.size() > 0) {
+        if (mappingItemList != null && mappingItemList.size() > 0) {
             leaderItem = mappingItemList.get(mappingItemList.size() - 1);
         }
         return new TopicQueueMappingContext(topic, globalId, mappingDetail, mappingItemList, leaderItem);

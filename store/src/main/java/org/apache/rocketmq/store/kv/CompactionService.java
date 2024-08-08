@@ -44,7 +44,10 @@ public class CompactionService {
     }
 
     /**
-     * broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求
+     * 1、broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求
+     * 2、broker 启动，开启 ReputMessageService 服务，每隔 1ms 触发一次，当 reputFromOffset < confirmOffset 时调用
+     *
+     * 实际是 向 CompactionLog 中添加消息
      */
     public void putRequest(DispatchRequest request) {
         if (request == null) {

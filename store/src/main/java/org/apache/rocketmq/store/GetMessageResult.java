@@ -23,8 +23,15 @@ import java.util.List;
 
 public class GetMessageResult {
 
+    /**
+     * 保存在commit log 中获取的消息的字节数组
+     */
     private final List<SelectMappedBufferResult> messageMapedList;
+    /**
+     * 保存在commit log 中获取的消息的字节数组
+     */
     private final List<ByteBuffer> messageBufferList;
+
     private final List<Long> messageQueueOffset;
 
     private GetMessageStatus status;
@@ -32,8 +39,14 @@ public class GetMessageResult {
     private long minOffset;
     private long maxOffset;
 
+    /**
+     * 此次请求中 所有消息的字节数总和
+     */
     private int bufferTotalSize = 0;
 
+    /**
+     * 此次请求中 消息的数量
+     */
     private int messageCount = 0;
 
     private boolean suggestPullingFromSlave = false;
@@ -119,6 +132,9 @@ public class GetMessageResult {
         this.messageCount++;
     }
 
+    /**
+     * 更新/补充 GetMessageResult 属性：messageMapedList、bufferTotalSize、messageCount等
+     */
     public void addMessage(final SelectMappedBufferResult mapedBuffer, final long queueOffset) {
         this.messageMapedList.add(mapedBuffer);
         this.messageBufferList.add(mapedBuffer.getByteBuffer());
@@ -131,6 +147,7 @@ public class GetMessageResult {
 
 
     public void addMessage(final SelectMappedBufferResult mapedBuffer, final long queueOffset, final int batchNum) {
+        // 更新/补充 GetMessageResult 属性：messageMapedList、bufferTotalSize、messageCount等
         addMessage(mapedBuffer, queueOffset);
         messageCount += batchNum - 1;
     }

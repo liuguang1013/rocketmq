@@ -22,6 +22,11 @@ import org.apache.rocketmq.broker.processor.NotificationProcessor;
 import org.apache.rocketmq.broker.processor.PopMessageProcessor;
 import org.apache.rocketmq.store.MessageArrivingListener;
 
+/**
+ * broker 启动，开启 ReputMessageService 服务，每隔 1ms 触发一次，当 reputFromOffset < confirmOffset 时调用
+ *
+ * 通知 consumer 有消息到达
+ */
 public class NotifyMessageArrivingListener implements MessageArrivingListener {
     private final PullRequestHoldService pullRequestHoldService;
     private final PopMessageProcessor popMessageProcessor;
@@ -33,12 +38,25 @@ public class NotifyMessageArrivingListener implements MessageArrivingListener {
         this.notificationProcessor = notificationProcessor;
     }
 
+    /**
+     *
+     * @param topic topic name
+     * @param queueId consume queue id
+     * @param logicOffset consume queue offset     logicOffset = dispatchRequest.getConsumeQueueOffset() + 1
+     * @param tagsCode message tags hash code
+     * @param msgStoreTime message store time
+     * @param filterBitMap message bloom filter
+     * @param properties message properties
+     */
     @Override
     public void arriving(String topic, int queueId, long logicOffset, long tagsCode,
                          long msgStoreTime, byte[] filterBitMap, Map<String, String> properties) {
+        // 通知拉取请求持有服务
         this.pullRequestHoldService.notifyMessageArriving(topic, queueId, logicOffset, tagsCode,
             msgStoreTime, filterBitMap, properties);
+
         this.popMessageProcessor.notifyMessageArriving(topic, queueId);
+
         this.notificationProcessor.notifyMessageArriving(topic, queueId);
     }
 }

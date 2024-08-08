@@ -28,6 +28,9 @@ public class DefaultMessageFilter implements MessageFilter {
         this.subscriptionData = subscriptionData;
     }
 
+    /**
+     * 消费者订阅的消息类型 是否 和消息匹配
+     */
     @Override
     public boolean isMatchedByConsumeQueue(Long tagsCode, ConsumeQueueExt.CqExtUnit cqExtUnit) {
         if (null == tagsCode || null == subscriptionData) {

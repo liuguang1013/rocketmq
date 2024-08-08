@@ -24,18 +24,26 @@ public class PermName {
 
     /**
      * 8 优先级权限
+     *
+     * 1000
      */
     public static final int PERM_PRIORITY = 0x1 << INDEX_PERM_PRIORITY;
     /**
      * 4 读权限
+     *
+     * 0100
      */
     public static final int PERM_READ = 0x1 << INDEX_PERM_READ;
     /**
      * 2 写权限
+     *
+     * 0010
      */
     public static final int PERM_WRITE = 0x1 << INDEX_PERM_WRITE;
     /**
      * 1 继承权限
+     *
+     * 0001
      */
     public static final int PERM_INHERIT = 0x1 << INDEX_PERM_INHERIT;
 

@@ -146,8 +146,7 @@ public class RemotingCommand {
         return buildErrorResponse(code, remark, null);
     }
 
-    public static RemotingCommand createResponseCommand(int code, String remark,
-        Class<? extends CommandCustomHeader> classHeader) {
+    public static RemotingCommand createResponseCommand(int code, String remark, Class<? extends CommandCustomHeader> classHeader) {
         RemotingCommand cmd = new RemotingCommand();
         cmd.markResponseType();
         cmd.setCode(code);
@@ -259,13 +258,13 @@ public class RemotingCommand {
         this.customHeader = customHeader;
     }
 
-    public CommandCustomHeader decodeCommandCustomHeader(
-        Class<? extends CommandCustomHeader> classHeader) throws RemotingCommandException {
+    public CommandCustomHeader decodeCommandCustomHeader(Class<? extends CommandCustomHeader> classHeader) throws RemotingCommandException {
+
         return decodeCommandCustomHeader(classHeader, false);
     }
 
-    public CommandCustomHeader decodeCommandCustomHeader(
-        Class<? extends CommandCustomHeader> classHeader, boolean isCached) throws RemotingCommandException {
+    public CommandCustomHeader decodeCommandCustomHeader(Class<? extends CommandCustomHeader> classHeader, boolean isCached) throws RemotingCommandException {
+
         if (isCached && cachedHeader != null) {
             return cachedHeader;
         }
@@ -273,8 +272,7 @@ public class RemotingCommand {
         return cachedHeader;
     }
 
-    public CommandCustomHeader decodeCommandCustomHeaderDirectly(Class<? extends CommandCustomHeader> classHeader,
-        boolean useFastEncode) throws RemotingCommandException {
+    public CommandCustomHeader decodeCommandCustomHeaderDirectly(Class<? extends CommandCustomHeader> classHeader, boolean useFastEncode) throws RemotingCommandException {
         CommandCustomHeader objectHeader;
         try {
             objectHeader = classHeader.getDeclaredConstructor().newInstance();

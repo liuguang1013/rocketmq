@@ -67,11 +67,15 @@ public class DefaultHAService implements HAService {
     @Override
     public void init(final DefaultMessageStore defaultMessageStore) throws IOException {
         this.defaultMessageStore = defaultMessageStore;
+        // 创建 接收Socket。默认监听端口 10912
         this.acceptSocketService = new DefaultAcceptSocketService(defaultMessageStore.getMessageStoreConfig());
+        // 创建 groupTransferService 服务 todo：干啥不知道
         this.groupTransferService = new GroupTransferService(this, defaultMessageStore);
+        // 从节点创建 HA 客户端
         if (this.defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
             this.haClient = new DefaultHAClient(this.defaultMessageStore);
         }
+        // 创建 HA连接状态通知服务  todo：干啥不知道
         this.haConnectionStateNotificationService = new HAConnectionStateNotificationService(this, defaultMessageStore);
     }
 
@@ -288,6 +292,7 @@ public class DefaultHAService implements HAService {
 
         public AcceptSocketService(final MessageStoreConfig messageStoreConfig) {
             this.messageStoreConfig = messageStoreConfig;
+            // 默认监听端口：10912
             this.socketAddressListen = new InetSocketAddress(messageStoreConfig.getHaListenPort());
         }
 

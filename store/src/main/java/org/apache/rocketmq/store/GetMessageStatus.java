@@ -20,21 +20,48 @@ public enum GetMessageStatus {
 
     FOUND,
 
+    /**
+     * 消息 通过 messageFilter 和 消费队列 tag 或者 commit log 匹配 ，匹配失败
+     */
     NO_MATCHED_MESSAGE,
 
+    /**
+     * 根据消息绝对偏移量、大小，在commit log 中未找到消息
+     */
     MESSAGE_WAS_REMOVING,
 
+    /**
+     * 在消费队列中未找到对映的文件
+     */
     OFFSET_FOUND_NULL,
 
+    /**
+     * 请求获取消息开始的位置，在消息队列中最后一个消息之后
+     */
     OFFSET_OVERFLOW_BADLY,
 
+    /**
+     * 请求获取消息开始的位置，在消息队列中最后一个消息位置
+     */
     OFFSET_OVERFLOW_ONE,
 
+    /**
+     * 请求获取消息开始的位置，在消息队列中第一个消息之前
+     */
     OFFSET_TOO_SMALL,
 
+    /**
+     * 通过 topic queueId 在 consumeQueueTable 中未找到逻辑队列信息
+     */
     NO_MATCHED_LOGIC_QUEUE,
 
+    /**
+     * 消费队列中不存在消息：字节数0
+     */
     NO_MESSAGE_IN_QUEUE,
 
+    /**
+     * 偏移量重置
+     */
     OFFSET_RESET
 }

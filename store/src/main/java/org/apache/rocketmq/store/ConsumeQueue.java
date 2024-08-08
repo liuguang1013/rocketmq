@@ -735,8 +735,10 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
 
     /**
      *
-     * broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求，
+     * 1、broker 启动，恢复 commit log 的时候，在异常恢复情况下，发送 dispatch 请求，
      * 在 CommitLogDispatcherBuildConsumeQueue 中，对于普通消息、事务提交消息，调用该方法
+     * 2、2、broker 启动，开启 ReputMessageService 服务，每隔 1ms 触发一次，当 reputFromOffset < confirmOffset 时调用
+     *
      * 实际是向 消费队列、消费队列额外信息文件中放置消息的特征：消息在commitLog中物理偏移、消息大小、tags，方便后面消费
      * 期间还会检查消息所属的topic是否配置多分发，在多分发的情况下，向每个队列都写入消息
      */
@@ -1177,7 +1179,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
      */
     @Override
     public long getMaxOffsetInQueue() {
-        // /20
+        // （FileFromOffset+ReadPosition）/20
         return this.mappedFileQueue.getMaxOffset() / CQ_STORE_UNIT_SIZE;
     }
 

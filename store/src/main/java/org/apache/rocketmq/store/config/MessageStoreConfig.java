@@ -184,16 +184,32 @@ public class MessageStoreConfig {
     //是否检查消耗记录的CRC32。这可确保不会对消息发生在线或磁盘上的损坏。
     // 此检查增加了一些开销，因此在寻求极端性能的情况下可能会禁用它。
     private boolean checkCRCOnRecover = true;
-    // How many pages are to be flushed when flush CommitLog
-    private int flushCommitLogLeastPages = 4;
     // How many pages are to be committed when commit data to file
+    /**
+     * 消息数据现在只是暂存在 writeBuffer 中，当积攒的数据超过了 16K
+     * 或者消息在 writeBuffer 中停留时间超过了 200 ms
+     *  RocketMQ  就会将 writeBuffer 中的消息数据通过 FileChannel 一次性批量异步写入到 page cache 中。
+     *  RocketMQ 在读写分离模式下设计的是通过 FileChannel 来批量写入消息，那么就需要考虑 FileChannel 的最佳写入性能点，这里 RocketMQ 选择了 16K
+     */
     private int commitCommitLogLeastPages = 4;
+    private int commitCommitLogThoroughInterval = 200;
+    // How many pages are to be flushed when flush CommitLog
+    /**
+     * 无论是通过 MappedByteBuffer 还是 FileChannel 对文件进行写入，当系统中的脏页积累到一定量的时候，都会对其写入文件的性能造成非常大的影响。
+     * 另外脏页不及时回写还会造成数据丢失的风险。
+     *
+     * 因此为了避免数据丢失的风险以及对写入性能的影响，当脏页在 page  cache 中积累到 16K 或者脏页在 page cache 中停留时间超过 10s 的时候，
+     * RocketMQ 就会通过 force 方法将脏页回写到磁盘中。
+     *
+     */
+    private int flushCommitLogLeastPages = 4;
+    private int flushCommitLogThoroughInterval = 1000 * 10;
+
+
     // Flush page size when the disk in warming state
     private int flushLeastPagesWhenWarmMapedFile = 1024 / 4 * 16;
     // How many pages are to be flushed when flush ConsumeQueue
     private int flushConsumeQueueLeastPages = 2;
-    private int flushCommitLogThoroughInterval = 1000 * 10;
-    private int commitCommitLogThoroughInterval = 200;
     private int flushConsumeQueueThoroughInterval = 1000 * 60;
     @ImportantField
     private int maxTransferBytesOnMessageInMemory = 1024 * 256;
@@ -237,6 +253,12 @@ public class MessageStoreConfig {
     @ImportantField
     private boolean cleanFileForciblyEnable = true;
     private boolean warmMapedFileEnable = false;
+    /**
+     * 该配置针对从节点
+     * 当请求的消息，与消费队列中消息的 偏移量存在偏差
+     * 如：不在消息队列的偏移量范围内
+     * 是否纠正偏移量
+     */
     private boolean offsetCheckInSlave = false;
     private boolean debugLockEnable = false;
 
@@ -245,6 +267,22 @@ public class MessageStoreConfig {
     private long osPageCacheBusyTimeOutMills = 1000;
     private int defaultQueryMaxNum = 32;
 
+    /**
+     * mappedByteBuffer 非常适合频繁小数据量的文件读写场景，而 RocketMQ  主要处理的是业务消息，通常这些业务消息不会很大，
+     * 所以 RocketMQ 选择 mappedByteBuffer 来读写文件实在是太合适了。
+     *
+     * 但是如果我们通过 mappedByteBuffer 来高频地不断向 CommitLog 写入消息的话， page cache 中的脏页比例就会越来越大，
+     * 而 page cache 回写脏页的时机是由内核来控制的，当脏页积累到一定程度，内核就会启动 pdflush 线程来将 page cache 中的脏页回写到磁盘中。
+     *
+     * 虽然现在 page cache 已经被我们 mlock 住了，但是我们在用户态无法控制脏页的回写，当脏页回写完毕之后
+     * ，我们通过 mappedByteBuffer 写入文件时仍然会触发写保护缺页中断。这样也会加大 mappedByteBuffer 的写入延迟，产生性能毛刺。
+     *
+     * 为了避免这种写入毛刺的产生，RocketMQ  引入了读写分离的机制，默认是关闭的，可以通过 transientStorePoolEnable 开启。
+     *
+     * 后续 Broker 再对 CommitLog 写入消息的时候，首先会写到 writeBuffer 中，因为 writeBuffer 只是一段普通的堆外内存，不会涉及到脏页回写，
+     * 因此 CommitLog 的写入过程就会非常平滑，不会有性能毛刺。
+     * 而从 CommitLog 读取消息的时候仍然是通过 mappedByteBuffer 进行。
+     */
     @ImportantField
     private boolean transientStorePoolEnable = false;
     private int transientStorePoolSize = 5;

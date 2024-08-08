@@ -30,6 +30,9 @@ import org.apache.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 import org.apache.rocketmq.store.ConsumeQueueExt;
 import org.apache.rocketmq.store.MessageFilter;
 
+/**
+ * 表达式消息过滤器：使用 BloomFilter 进行验证
+ */
 public class ExpressionMessageFilter implements MessageFilter {
 
     protected static final Logger log = LoggerFactory.getLogger(LoggerName.FILTER_LOGGER_NAME);
@@ -41,6 +44,7 @@ public class ExpressionMessageFilter implements MessageFilter {
 
     public ExpressionMessageFilter(SubscriptionData subscriptionData, ConsumerFilterData consumerFilterData,
         ConsumerFilterManager consumerFilterManager) {
+
         this.subscriptionData = subscriptionData;
         this.consumerFilterData = consumerFilterData;
         this.consumerFilterManager = consumerFilterManager;
@@ -67,6 +71,7 @@ public class ExpressionMessageFilter implements MessageFilter {
         }
 
         // by tags code.
+        // 表达式是 tag 类型
         if (ExpressionType.isTagType(subscriptionData.getExpressionType())) {
 
             if (tagsCode == null) {

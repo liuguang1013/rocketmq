@@ -215,7 +215,7 @@ public class CompactionStore {
     }
 
     public void doDispatch(DispatchRequest dispatchRequest, SelectMappedBufferResult smr) throws Exception {
-        // 加载或创建CompactionLog ，其中包含 TopicPartitionLog 对象，对象中包含 mappedFileQueue、SparseConsumeQueue
+        // 加载或创建 CompactionLog ，其中包含 TopicPartitionLog 对象，对象中包含 mappedFileQueue、SparseConsumeQueue
         CompactionLog clog = loadAndGetClog(dispatchRequest.getTopic(), dispatchRequest.getQueueId());
 
         if (clog != null) {
@@ -226,10 +226,12 @@ public class CompactionStore {
 
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
         final int maxMsgNums, final int maxTotalMsgSize) {
+        // key ：topic_queueId
         CompactionLog log = compactionLogTable.get(topic + "_" + queueId);
         if (log == null) {
             return GetMessageResult.NO_MATCH_LOGIC_QUEUE;
         } else {
+
             return log.getMessage(group, topic, queueId, offset, maxMsgNums, maxTotalMsgSize);
         }
 

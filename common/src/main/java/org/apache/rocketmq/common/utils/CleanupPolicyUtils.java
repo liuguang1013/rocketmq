@@ -35,10 +35,12 @@ public class CleanupPolicyUtils {
             return CleanupPolicy.valueOf(TopicAttributes.CLEANUP_POLICY_ATTRIBUTE.getDefaultValue());
         }
 
+        // cleanup.policy
         String attributeName = TopicAttributes.CLEANUP_POLICY_ATTRIBUTE.getName();
 
         Map<String, String> attributes = topicConfig.get().getAttributes();
         if (attributes == null || attributes.size() == 0) {
+            // 默认是删除
             return CleanupPolicy.valueOf(TopicAttributes.CLEANUP_POLICY_ATTRIBUTE.getDefaultValue());
         }
 

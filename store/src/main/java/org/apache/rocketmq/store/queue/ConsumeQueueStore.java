@@ -157,7 +157,9 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
 
     @Override
     public void putMessagePositionInfoWrapper(DispatchRequest dispatchRequest) {
-        // 找到消息队列
+        // 先 consumeQueueTable 缓存中获取 某 topic 的多个消费队列信息
+        // 再获取某个具体消费队列的信息
+        // 消费队列信息中，存在逻辑队列属性，包含多个具体的消息队列文件
         ConsumeQueueInterface cq = this.findOrCreateConsumeQueue(dispatchRequest.getTopic(), dispatchRequest.getQueueId());
 
         this.putMessagePositionInfoWrapper(cq, dispatchRequest);
@@ -411,6 +413,9 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
         return fileQueueLifeCycle.isFirstFileExist();
     }
 
+    /**
+     * 获取 某topic下 某队列 的信息
+     */
     @Override
     public ConsumeQueueInterface findOrCreateConsumeQueue(String topic, int queueId) {
         //

@@ -621,12 +621,17 @@ public class TopicQueueMappingUtils {
         return new TopicRemappingDetailWrapper(topic, TopicRemappingDetailWrapper.TYPE_REMAPPING, newEpoch, brokerConfigMap, brokersToMapIn, brokersToMapOut);
     }
 
+    /**
+     * 先在 mappingItems 中，倒叙查找，
+     * 没找到，可能超出范围，返回第一个
+     */
     public static LogicQueueMappingItem findLogicQueueMappingItem(List<LogicQueueMappingItem> mappingItems, long logicOffset, boolean ignoreNegative) {
-        if (mappingItems == null
-                || mappingItems.isEmpty()) {
+        if (mappingItems == null || mappingItems.isEmpty()) {
             return null;
         }
         //Could use bi-search to polish performance
+        // 可以使用双搜索来优化性能吗
+        // 先在 mappingItems 中，倒叙查找
         for (int i = mappingItems.size() - 1; i >= 0; i--) {
             LogicQueueMappingItem item =  mappingItems.get(i);
             if (ignoreNegative && item.getLogicOffset() < 0) {
@@ -637,6 +642,7 @@ public class TopicQueueMappingUtils {
             }
         }
         //if not found, maybe out of range, return the first one
+        // 没找到，可能超出范围，返回第一个
         for (int i = 0; i < mappingItems.size(); i++) {
             LogicQueueMappingItem item =  mappingItems.get(i);
             if (ignoreNegative && item.getLogicOffset() < 0) {

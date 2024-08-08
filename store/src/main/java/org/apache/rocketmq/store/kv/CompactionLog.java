@@ -402,6 +402,7 @@ public class CompactionLog {
     }
 
     /**
+     * 向   向最后一个compactLog 文件写入消息
      * 入参的信息 都是在 commit log 中拿的
      */
     public CompletableFuture<PutMessageResult> asyncPutMessage(final ByteBuffer msgBuffer
@@ -482,6 +483,7 @@ public class CompactionLog {
 
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
         final int maxMsgNums, final int maxTotalMsgSize) {
+        // 获取消息加 独占锁
         readMessageLock.lock();
         try {
             long beginTime = System.nanoTime();
@@ -516,6 +518,7 @@ public class CompactionLog {
                 } else {
 
                     long maxPullSize = Math.max(maxTotalMsgSize, 100);
+                    // MAX_PULL_MSG_SIZE ： 默认 128M
                     if (maxPullSize > MAX_PULL_MSG_SIZE) {
                         log.warn("The max pull size is too large maxPullSize={} topic={} queueId={}",
                             maxPullSize, topic, queueId);

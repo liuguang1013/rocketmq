@@ -185,6 +185,19 @@ public class DefaultMappedFile extends AbstractMappedFile {
         // 使用 mmap 文件映射
         try {
             this.fileChannel = new RandomAccessFile(this.file, "rw").getChannel();
+            /**
+             * 当调用 mmap 之后，OS 内核只是会为我们分配了一段虚拟内存（MappedByteBuffer），然后将虚拟内存与磁盘文件进行映射，仅此而已。
+             * 映射的文件内容此时还静静地躺在磁盘中还未加载进内存，映射文件的 page cache 还是空的，
+             * 由于还未发生物理内存的分配，所以 MappedByteBuffer 在 JVM 进程页表中相关的页表项 pte 也是空的。
+             *
+             * 当我们开始访问这段 MappedByteBuffer 的时候，由于此时还没有物理内存与之映射，于是会产生一个缺页中断，
+             * 随后 JVM 进程进入内核态，在内核缺页处理程序中分配物理内存页，然后将刚刚分配的物理内存页加入到映射文件的 page cache。
+             * 最后将映射的文件内容从磁盘中读取到这个物理内存页中并在页表中建立 MappedByteBuffer 与物理内存页的映射关系，
+             * 后面我们在访问这段 MappedByteBuffer 的时候就是直接访问 page cache 了
+             *
+             * 利用 MappedByteBuffer 去映射磁盘文件的目的其实就是为了通过 MappedByteBuffer 去直接访问磁盘文件的 page cache，
+             * 不想切到内核态，也不想发生数据拷贝。
+             */
             this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
             // 增加 进程虚拟内存 映射的大小，每个commitlog 都是 1G
             TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(fileSize);
@@ -546,6 +559,9 @@ public class DefaultMappedFile extends AbstractMappedFile {
 
     /**
      *
+     * @param pos  消息在文件中相对的偏移量
+     * @param size  获取的 字节数组 的大小
+     * @return
      */
     @Override
     public SelectMappedBufferResult selectMappedBuffer(int pos, int size) {
@@ -685,6 +701,18 @@ public class DefaultMappedFile extends AbstractMappedFile {
         COMMITTED_POSITION_UPDATER.set(this, pos);
     }
 
+    /**
+     *
+     * MappedByteBuffer 去映射磁盘文件的目的其实就是为了通过 MappedByteBuffer 去直接访问磁盘文件的 page cache，
+     * 不想切到内核态，也不想发生数据拷贝。
+     *
+     * 预热文件：
+     * 为了避免访问 MappedByteBuffer 可能带来的缺页中断产生的开销，
+     * 我们通常会在调用 FileChannel#map 映射完磁盘文件之后，马上主动去触发一次缺页中断，
+     * 目的就是先把 MappedByteBuffer 背后映射的文件内容预先加载到 page cache 中，
+     * 并在 JVM 进程页表中建立好 page cache 中的物理内存与 MappedByteBuffer 的映射关系。
+     *
+     */
     @Override
     public void warmMappedFile(FlushDiskType type, int pages) {
         this.mappedByteBufferAccessCountSinceLastSwap++;
@@ -693,7 +721,12 @@ public class DefaultMappedFile extends AbstractMappedFile {
         ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
         long flush = 0;
         // long time = System.currentTimeMillis();
+        // i 每次 4K 递增
         for (long i = 0, j = 0; i < this.fileSize; i += DefaultMappedFile.OS_PAGE_SIZE, j++) {
+            /**
+             * 对 mappedByteBuffer 这段虚拟内存范围内的虚拟内存按照内存页为单位，逐个触发缺页中断
+             * ，目的是提前讲映射文件的内容加载到 page cache 中，并在进程页表中建立好 mappedByteBuffer 与 page cache 的映射关系。
+             */
             byteBuffer.put((int) i, (byte) 0);
             // force flush when flush disk type is sync
             if (type == FlushDiskType.SYNC_FLUSH) {
@@ -724,6 +757,16 @@ public class DefaultMappedFile extends AbstractMappedFile {
         log.info("mapped file warm-up done. mappedFile={}, costTime={}", this.getFileName(),
             System.currentTimeMillis() - beginTime);
 
+        /**
+         *MappedByteBuffer 背后所映射的文件内容已经加载到 page cache 中了，
+         * 并且在 JVM 进程页表中也已经建立好了 MappedByteBuffer 与 page cache 的映射关系。
+         * 但 page cache 所占用的是物理内存，当系统中物理内存压力大的时候，内核仍然会将 page cache 中的文件页 swap out 出去
+         * 再次访问 MappedByteBuffer 的时候，依然会发生缺页中断，
+         * 当 MappedByteBuffer 被我们用来实现系统中的核心功能时，这就迫使我们要想办法让 MappedByteBuffer 背后映射的物理内存一直驻留在内存中，
+         * 不允许内核 swap 。那么 mlock 系统调用就派上用场了。
+         *
+         * mlock 系统调用将 mappedByteBuffer 背后映射的 page cache 锁定在内存中，不允许内核 swap。
+         */
         this.mlock();
     }
 

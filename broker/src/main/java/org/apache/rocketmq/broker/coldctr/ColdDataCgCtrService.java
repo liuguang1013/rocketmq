@@ -187,6 +187,7 @@ public class ColdDataCgCtrService extends ServiceThread {
     }
 
     public boolean isCgNeedColdDataFlowCtr(String consumerGroup) {
+        // 默认 false
         if (!this.messageStoreConfig.isColdDataFlowControlEnable()) {
             return false;
         }

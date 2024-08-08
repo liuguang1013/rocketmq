@@ -36,6 +36,7 @@ public class SubscriptionGroupConfig {
      * 默认可以消费，
      * 在 broker 启动的时候会启动定时任务，检查 brokerStatsManager 中 GROUP_GET_FALL_SIZE 的值，是否达到阈值，达到后，会不可消费 设置为 false
      * todo：对于 统计值什么时候累加，待看；这个值在何处使用，待看
+     * 当在消费者拉取消息的时候，会使用。如： PullMessageProcessor#processRequest 会使用
      */
     private boolean consumeEnable = true;
     private boolean consumeFromMinEnable = true;

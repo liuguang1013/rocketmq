@@ -493,7 +493,7 @@ public class CommitLog implements Swappable {
     /**
      *
      * check the message and returns the message size
-     * 解析消息字节数组，并封装成DispatchRequest 对象
+     * 解析传入的 commitLog 消息字节数组，并封装成DispatchRequest 对象
      *
      * @return 0 Come the end of the file // >0 Normal messages // -1 Message checksum failure
      */
@@ -1491,13 +1491,23 @@ public class CommitLog implements Swappable {
         return -1;
     }
 
+    /**
+     * 将  commit log  中的消息封装到对象中
+     * @param offset  消息 在 commit log 中的绝对偏移量
+     * @param size 消息的大小
+     * @return
+     */
     public SelectMappedBufferResult getMessage(final long offset, final int size) {
+        // 1g
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
+
         MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset, offset == 0);
         if (mappedFile != null) {
+            // 计算 消息在文件中的相对偏移量
             int pos = (int) (offset % mappedFileSize);
             SelectMappedBufferResult selectMappedBufferResult = mappedFile.selectMappedBuffer(pos, size);
             if (null != selectMappedBufferResult) {
+                // 设置消息在缓存中
                 selectMappedBufferResult.setInCache(coldDataCheckService.isDataInPageCache(offset));
                 return selectMappedBufferResult;
             }
@@ -2474,15 +2484,18 @@ public class CommitLog implements Swappable {
         }
 
         public boolean isDataInPageCache(final long offset) {
+            // 默认 不开启 冷数据流控
             if (!defaultMessageStore.getMessageStoreConfig().isColdDataFlowControlEnable()) {
                 return true;
             }
             if (pageSize <= 0 || sampleSteps <= 0) {
                 return true;
             }
+            // 数据不再冷数据
             if (!defaultMessageStore.checkInColdAreaByCommitOffset(offset, getMaxOffset())) {
                 return true;
             }
+            // 默认不开启冷数据浏览
             if (!defaultMessageStore.getMessageStoreConfig().isColdDataScanEnable()) {
                 return false;
             }

@@ -521,6 +521,7 @@ public class BrokerController {
             new ThreadFactoryImpl("SendMessageThread_", getBrokerIdentity()));
 
         this.pullMessageExecutor = ThreadUtils.newThreadPoolExecutor(
+            // 16 + PROCESSOR_NUMBER * 2
             this.brokerConfig.getPullMessageThreadPoolNums(),
             this.brokerConfig.getPullMessageThreadPoolNums(),
             1000 * 60,
@@ -1781,13 +1782,16 @@ public class BrokerController {
 
         this.shouldStartTime = System.currentTimeMillis() + messageStoreConfig.getDisappearTimeAfterStart();
 
+        // 副本数 > 1 ，并且允许从节点成为主节点
         if (messageStoreConfig.getTotalReplicas() > 1 && this.brokerConfig.isEnableSlaveActingMaster()) {
             isIsolated = true;
         }
 
+        // 开启 netty 客户端
         if (this.brokerOuterAPI != null) {
             this.brokerOuterAPI.start();
         }
+
 
         startBasicService();
 

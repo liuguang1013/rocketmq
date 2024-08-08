@@ -34,14 +34,17 @@ public class PullRequestHoldService extends ServiceThread {
     protected static final String TOPIC_QUEUEID_SEPARATOR = "@";
     protected final BrokerController brokerController;
     private final SystemClock systemClock = new SystemClock();
-    protected ConcurrentMap<String/* topic@queueId */, ManyPullRequest> pullRequestTable =
-        new ConcurrentHashMap<>(1024);
+    protected ConcurrentMap<String/* topic@queueId */, ManyPullRequest> pullRequestTable = new ConcurrentHashMap<>(1024);
 
     public PullRequestHoldService(final BrokerController brokerController) {
         this.brokerController = brokerController;
     }
 
+    /**
+     * 暂停拉取请求，将请求缓存到 pullRequestTable 缓存中
+     */
     public void suspendPullRequest(final String topic, final int queueId, final PullRequest pullRequest) {
+        // topic@queueId
         String key = this.buildKey(topic, queueId);
         ManyPullRequest mpr = this.pullRequestTable.get(key);
         if (null == mpr) {
@@ -56,6 +59,9 @@ public class PullRequestHoldService extends ServiceThread {
         mpr.addPullRequest(pullRequest);
     }
 
+    /**
+     * topic@queueId
+     */
     private String buildKey(final String topic, final int queueId) {
         StringBuilder sb = new StringBuilder(topic.length() + 5);
         sb.append(topic);
@@ -103,6 +109,7 @@ public class PullRequestHoldService extends ServiceThread {
             if (2 == kArray.length) {
                 String topic = kArray[0];
                 int queueId = Integer.parseInt(kArray[1]);
+
                 final long offset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                 try {
                     this.notifyMessageArriving(topic, queueId, offset);
@@ -121,22 +128,33 @@ public class PullRequestHoldService extends ServiceThread {
 
     public void notifyMessageArriving(final String topic, final int queueId, final long maxOffset, final Long tagsCode,
         long msgStoreTime, byte[] filterBitMap, Map<String, String> properties) {
+        // topic@queueId
         String key = this.buildKey(topic, queueId);
+        // 在缓存中获取 拉取请求
         ManyPullRequest mpr = this.pullRequestTable.get(key);
+
         if (mpr != null) {
+            // 复制请求，并清空缓存
+            // 同步方法，并发下保证消息单次处理
             List<PullRequest> requestList = mpr.cloneListAndClear();
             if (requestList != null) {
+                // 保存 不匹配的 但是并未超时的请求，下次触发后再执行逻辑
                 List<PullRequest> replayList = new ArrayList<>();
 
+                // 遍历处理请求，先校验消费队列中最新的偏移量和请求的偏移量对比
                 for (PullRequest request : requestList) {
+                    // 消息在消息队列的偏移量
                     long newestOffset = maxOffset;
+                    // 请求中获取的偏移量 > 当前新来的消息的偏移量
                     if (newestOffset <= request.getPullFromThisOffset()) {
+                        // 将消费队列中，到可读位置为止，消息的数量
                         newestOffset = this.brokerController.getMessageStore().getMaxOffsetInQueue(topic, queueId);
                     }
-
+                    // 最新的偏移量 > 请求的开始偏移量
                     if (newestOffset > request.getPullFromThisOffset()) {
-                        boolean match = request.getMessageFilter().isMatchedByConsumeQueue(tagsCode,
-                            new ConsumeQueueExt.CqExtUnit(tagsCode, msgStoreTime, filterBitMap));
+                        // 判断消息是否是消费者请求需要获取的
+                        boolean match = request.getMessageFilter().isMatchedByConsumeQueue(tagsCode, new ConsumeQueueExt.CqExtUnit(tagsCode, msgStoreTime, filterBitMap));
+
                         // match by bit map, need eval again when properties is not null.
                         if (match && properties != null) {
                             match = request.getMessageFilter().isMatchedByCommitLog(null, properties);
@@ -144,8 +162,8 @@ public class PullRequestHoldService extends ServiceThread {
 
                         if (match) {
                             try {
-                                this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
-                                    request.getRequestCommand());
+                                // 向 消费者 下发消息：此处并没有使用消息的信息
+                                this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(), request.getRequestCommand());
                             } catch (Throwable e) {
                                 log.error(
                                     "PullRequestHoldService#notifyMessageArriving: failed to execute request when "
@@ -155,10 +173,10 @@ public class PullRequestHoldService extends ServiceThread {
                         }
                     }
 
+                    // 到 超时时间，发送请求
                     if (System.currentTimeMillis() >= (request.getSuspendTimestamp() + request.getTimeoutMillis())) {
                         try {
-                            this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(),
-                                request.getRequestCommand());
+                            this.brokerController.getPullMessageProcessor().executeRequestWhenWakeup(request.getClientChannel(), request.getRequestCommand());
                         } catch (Throwable e) {
                             log.error(
                                 "PullRequestHoldService#notifyMessageArriving: failed to execute request when time's "
@@ -166,7 +184,7 @@ public class PullRequestHoldService extends ServiceThread {
                         }
                         continue;
                     }
-
+                    // 请求重新添加到缓存的集合中
                     replayList.add(request);
                 }
 

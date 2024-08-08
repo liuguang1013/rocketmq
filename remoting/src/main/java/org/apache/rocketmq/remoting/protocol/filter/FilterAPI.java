@@ -24,7 +24,11 @@ import java.util.Arrays;
 
 public class FilterAPI {
 
+    /**
+     * 构建 tag 类型的订阅数据： 设置 Topic、订阅tag
+     */
     public static SubscriptionData buildSubscriptionData(String topic, String subString) throws Exception {
+
         final SubscriptionData subscriptionData = new SubscriptionData();
         subscriptionData.setTopic(topic);
         subscriptionData.setSubString(subString);
@@ -33,6 +37,7 @@ public class FilterAPI {
             subscriptionData.setSubString(SubscriptionData.SUB_ALL);
             return subscriptionData;
         }
+        // 订阅多个 tag，tag 通过 || 分割
         String[] tags = subString.split("\\|\\|");
         if (tags.length > 0) {
             Arrays.stream(tags).map(String::trim).filter(tag -> !tag.isEmpty()).forEach(tag -> {
@@ -54,9 +59,16 @@ public class FilterAPI {
         return subscriptionData;
     }
 
-    public static SubscriptionData build(final String topic, final String subString,
-        final String type) throws Exception {
+    /**
+     * 构建订阅数据信息：封装 topic 、tag
+     * @param topic
+     * @param subString 订阅内容：tag 类型：保存为具体的 tag，如 "*" ，"tag1||tag2||tag3"
+     * @param type  requestHeader.getExpressionType()  可能是 tag 类型，也有可能是表达式类型
+     */
+    public static SubscriptionData build(final String topic, final String subString, final String type) throws Exception {
+
         if (ExpressionType.TAG.equals(type) || type == null) {
+            // 构建订阅数据
             return buildSubscriptionData(topic, subString);
         }
 

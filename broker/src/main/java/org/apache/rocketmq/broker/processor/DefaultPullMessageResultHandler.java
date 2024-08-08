@@ -86,12 +86,20 @@ public class DefaultPullMessageResultHandler implements PullMessageResultHandler
         RemotingCommand response,
         TopicQueueMappingContext mappingContext,
         long beginTimeMills) {
+
+
         PullMessageProcessor processor = brokerController.getPullMessageProcessor();
+
         final String clientAddress = RemotingHelper.parseChannelRemoteAddr(channel);
+
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
+
+        // 构建响应头 设置 Response ： code、suggestWhichBrokerId、nextBeginOffset、minOffset、maxOffset等信息
         processor.composeResponseHeader(requestHeader, getMessageResult, topicConfig.getTopicSysFlag(),
             subscriptionGroupConfig, response, clientAddress);
+
         try {
+            // 处理消费消息前的 钩子函数
             processor.executeConsumeMessageHookBefore(request, requestHeader, getMessageResult, brokerAllowSuspend, response.getCode());
         } catch (AbortProcessException e) {
             response.setCode(e.getResponseCode());

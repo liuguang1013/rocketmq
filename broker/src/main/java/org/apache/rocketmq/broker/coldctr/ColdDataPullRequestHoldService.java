@@ -32,6 +32,10 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
  * if the pull request is reading cold data and that request will be cold at the first time,
  * then the pull request will be cold in this @code pullRequestLinkedBlockingQueue,
  * in @code coldTimeoutMillis later the pull request will be warm and marked holded
+ *
+ * 只有pull类型的请求才有资格放入此保持队列。
+ * 如果拉取请求正在读取冷数据，并且该请求第一次将是冷的，那么在@code pullRequestLinkedBlockingQueue中拉取请求将是冷的，
+ * 在@code coldTimeoutMillis中稍后拉取请求将是热的并标记为持有
  */
 public class ColdDataPullRequestHoldService extends ServiceThread {
 

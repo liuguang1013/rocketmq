@@ -35,16 +35,22 @@ import org.apache.rocketmq.store.logfile.MappedFile;
 
 /**
  * Create MappedFile in advance
+ * 提前创建 MappedFile 服务
  * 分配 MappedFile 服务：
  *  相比于直接创建，该服务可以创建两个MappedFile，预先创建下个MappedFile，并且预热文件
  */
 public class AllocateMappedFileService extends ServiceThread {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static int waitTimeOut = 1000 * 5;
-    private ConcurrentMap<String, AllocateRequest> requestTable =
-        new ConcurrentHashMap<>();
-    private PriorityBlockingQueue<AllocateRequest> requestQueue =
-        new PriorityBlockingQueue<>();
+    /**
+     * key：
+     */
+    private ConcurrentMap<String, AllocateRequest> requestTable = new ConcurrentHashMap<>();
+
+    /**
+     * 请求队列；存放创建 MappedFile 文件请求
+     */
+    private PriorityBlockingQueue<AllocateRequest> requestQueue = new PriorityBlockingQueue<>();
     private volatile boolean hasException = false;
     private DefaultMessageStore messageStore;
 
@@ -52,6 +58,13 @@ public class AllocateMappedFileService extends ServiceThread {
         this.messageStore = messageStore;
     }
 
+    /**
+     * 构建两个 AllocateRequest，放入requestTable缓存中，之后挂起当前线程，等待文件创建完毕
+     * @param nextFilePath
+     * @param nextNextFilePath
+     * @param fileSize
+     * @return
+     */
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
         int canSubmitRequests = 2;
         // 开启
@@ -145,6 +158,7 @@ public class AllocateMappedFileService extends ServiceThread {
         }
     }
 
+    @Override
     public void run() {
         log.info(this.getServiceName() + " service started");
 
@@ -166,6 +180,7 @@ public class AllocateMappedFileService extends ServiceThread {
             req = this.requestQueue.take();
             AllocateRequest expectedRequest = this.requestTable.get(req.getFilePath());
             if (null == expectedRequest) {
+                // 获取到队列中的请求，但是放入请求的线程，等待超时，会移除requestTable 中的请求
                 log.warn("this mmap request expired, maybe cause timeout " + req.getFilePath() + " "
                     + req.getFileSize());
                 return true;
@@ -181,6 +196,8 @@ public class AllocateMappedFileService extends ServiceThread {
                 long beginTime = System.currentTimeMillis();
 
                 MappedFile mappedFile;
+                // 是否使用临时存储池
+                // 创建 mappedFile 内存映射文件对象
                 if (messageStore.isTransientStorePoolEnable()) {
                     try {
                         mappedFile = ServiceLoader.load(MappedFile.class).iterator().next();
@@ -192,7 +209,7 @@ public class AllocateMappedFileService extends ServiceThread {
                 } else {
                     mappedFile = new DefaultMappedFile(req.getFilePath(), req.getFileSize());
                 }
-                // 创建 内存映射文件的时间
+                // 创建 内存映射文件的时间：当前时间-开始时间
                 long elapsedTime = UtilAll.computeElapsedTimeMilliseconds(beginTime);
                 if (elapsedTime > 10) {
                     int queueSize = this.requestQueue.size();
@@ -201,9 +218,10 @@ public class AllocateMappedFileService extends ServiceThread {
                 }
 
                 // pre write mappedFile
+                // 当新创建的 mappedFile 文件的大小 > 1G ，并且开启预热文件配置
                 if (mappedFile.getFileSize() >= this.messageStore.getMessageStoreConfig().getMappedFileSizeCommitLog()
                     && this.messageStore.getMessageStoreConfig().isWarmMapedFileEnable()) {
-                    // 预热映射文件
+                    // 预热映射文件：默认刷盘方式 异步刷盘、
                     mappedFile.warmMappedFile(this.messageStore.getMessageStoreConfig().getFlushDiskType(),
                         this.messageStore.getMessageStoreConfig().getFlushLeastPagesWhenWarmMapedFile());
                 }
@@ -220,6 +238,7 @@ public class AllocateMappedFileService extends ServiceThread {
             log.warn(this.getServiceName() + " service has exception. ", e);
             this.hasException = true;
             if (null != req) {
+                // 请求重入队列
                 requestQueue.offer(req);
                 try {
                     Thread.sleep(1);

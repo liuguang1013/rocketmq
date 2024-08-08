@@ -89,8 +89,12 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         this.pullMessageResultHandler = new DefaultPullMessageResultHandler(brokerController);
     }
 
-    private RemotingCommand rewriteRequestForStaticTopic(PullMessageRequestHeader requestHeader,
-        TopicQueueMappingContext mappingContext) {
+    /**
+     * todo：不知道干啥的
+     * 为 mappingContext 设置 LogicQueueMappingItem 值、
+     * 为 requestHeader 设置属性
+     */
+    private RemotingCommand rewriteRequestForStaticTopic(PullMessageRequestHeader requestHeader, TopicQueueMappingContext mappingContext) {
         try {
             if (mappingContext.getMappingDetail() == null) {
                 return null;
@@ -99,11 +103,13 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             String topic = mappingContext.getTopic();
             Integer globalId = mappingContext.getGlobalId();
             // if the leader? consider the order consumer, which will lock the mq
+            // 不是主节点，返回异常
             if (!mappingContext.isLeader()) {
                 return buildErrorResponse(ResponseCode.NOT_LEADER_FOR_QUEUE, String.format("%s-%d cannot find mapping item in request process of current broker %s", topic, globalId, mappingDetail.getBname()));
             }
-
+            // 获取队列偏移量
             Long globalOffset = requestHeader.getQueueOffset();
+            // 在 mappingContext.getMappingItemList() 不为null 时，在其中查找，找不到返回第一个
             LogicQueueMappingItem mappingItem = TopicQueueMappingUtils.findLogicQueueMappingItem(mappingContext.getMappingItemList(), globalOffset, true);
             mappingContext.setCurrentItem(mappingItem);
 
@@ -113,13 +119,14 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 //Otherwise, we could just transfer it to the physical process
             }
             //below are physical info
+
             String bname = mappingItem.getBname();
             Integer phyQueueId = mappingItem.getQueueId();
             Long phyQueueOffset = mappingItem.computePhysicalQueueOffset(globalOffset);
             requestHeader.setQueueId(phyQueueId);
             requestHeader.setQueueOffset(phyQueueOffset);
-            if (mappingItem.checkIfEndOffsetDecided()
-                && requestHeader.getMaxMsgNums() != null) {
+
+            if (mappingItem.checkIfEndOffsetDecided() && requestHeader.getMaxMsgNums() != null) {
                 requestHeader.setMaxMsgNums((int) Math.min(mappingItem.getEndOffset() - mappingItem.getStartOffset(), requestHeader.getMaxMsgNums()));
             }
 
@@ -134,6 +141,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             sysFlag = PullSysFlag.clearSuspendFlag(sysFlag);
             sysFlag = PullSysFlag.clearCommitOffsetFlag(sysFlag);
             requestHeader.setSysFlag(sysFlag);
+            // 向其他 broker 请求
             RpcRequest rpcRequest = new RpcRequest(RequestCode.PULL_MESSAGE, requestHeader, null);
             RpcResponse rpcResponse = this.brokerController.getBrokerOuterAPI().getRpcClient().invoke(rpcRequest, this.brokerController.getBrokerConfig().getForwardTimeout()).get();
             if (rpcResponse.getException() != null) {
@@ -154,9 +162,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         }
     }
 
-    protected RemotingCommand rewriteResponseForStaticTopic(PullMessageRequestHeader requestHeader,
-        PullMessageResponseHeader responseHeader,
-        TopicQueueMappingContext mappingContext, final int code) {
+    protected RemotingCommand rewriteResponseForStaticTopic(PullMessageRequestHeader requestHeader, PullMessageResponseHeader responseHeader,
+                                                            TopicQueueMappingContext mappingContext, final int code) {
         try {
             if (mappingContext.getMappingDetail() == null) {
                 return null;
@@ -299,18 +306,42 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         return false;
     }
 
-    private RemotingCommand processRequest(final Channel channel, RemotingCommand request, boolean brokerAllowSuspend, boolean brokerAllowFlowCtrSuspend)
-        throws RemotingCommandException {
-        final long beginTimeMills = this.brokerController.getMessageStore().now();
-        RemotingCommand response = RemotingCommand.createResponseCommand(PullMessageResponseHeader.class);
-        final PullMessageResponseHeader responseHeader = (PullMessageResponseHeader) response.readCustomHeader();
-        final PullMessageRequestHeader requestHeader =
-            (PullMessageRequestHeader) request.decodeCommandCustomHeader(PullMessageRequestHeader.class);
+    /**
+     * 处理拉取消息的请求：各种校验
+     *     构建响应对象
+     *     检查 broker 状态
+     *     检查请求类型，是否支持 LITE_PULL_MESSAGE 请求
+     *     获取/创建消费者所属组的配置信息，并持久化
+     *     获取 topic配置信息，判断可读
+     *     补充消费者缓存信息、
+     *     订阅信息缓存
+     *     创建 messageFilter
+     *
+     * 最终在messageStore中获取一个或/多个封装到 GetMessageResult 中，通过 netty channel 发送到客户端
+     *
+     *
+     * @param channel  客户端 netty channel
+     * @param request  客户端请求
+     * @param brokerAllowSuspend
+     * @param brokerAllowFlowCtrSuspend   请求中 不包含 _noSuspend_ 属性
+     * @return
+     * @throws RemotingCommandException
+     */
+    private RemotingCommand processRequest(final Channel channel, RemotingCommand request, boolean brokerAllowSuspend, boolean brokerAllowFlowCtrSuspend) throws RemotingCommandException {
 
+        final long beginTimeMills = this.brokerController.getMessageStore().now();
+        // 创建响应，响应头： PullMessageResponseHeader （通过反射创建）
+        RemotingCommand response = RemotingCommand.createResponseCommand(PullMessageResponseHeader.class);
+
+        final PullMessageResponseHeader responseHeader = (PullMessageResponseHeader) response.readCustomHeader();
+        final PullMessageRequestHeader requestHeader = (PullMessageRequestHeader) request.decodeCommandCustomHeader(PullMessageRequestHeader.class);
+
+        // 设置请求id
         response.setOpaque(request.getOpaque());
 
         LOGGER.debug("receive PullMessage request command, {}", request);
 
+        // 查看 broker 状态是否 可读
         if (!PermName.isReadable(this.brokerController.getBrokerConfig().getBrokerPermission())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.BROKER_FORBIDDEN);
@@ -318,7 +349,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 this.brokerController.getBrokerConfig().getBrokerIP1()));
             return response;
         }
-
+        // 请求是 LITE_PULL_MESSAGE 类型，但是 broker 不允许
         if (request.getCode() == RequestCode.LITE_PULL_MESSAGE && !this.brokerController.getBrokerConfig().isLitePullMessageEnable()) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.BROKER_FORBIDDEN);
@@ -327,14 +358,16 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
-        SubscriptionGroupConfig subscriptionGroupConfig =
-            this.brokerController.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getConsumerGroup());
+        // 获取消费者所属组的配置信息：不存在，就创建，并持久化到 subscriptionGroup.json 文件
+        SubscriptionGroupConfig subscriptionGroupConfig = this.brokerController.getSubscriptionGroupManager()
+                .findSubscriptionGroupConfig(requestHeader.getConsumerGroup());
         if (null == subscriptionGroupConfig) {
             response.setCode(ResponseCode.SUBSCRIPTION_GROUP_NOT_EXIST);
             response.setRemark(String.format("subscription group [%s] does not exist, %s", requestHeader.getConsumerGroup(), FAQUrl.suggestTodo(FAQUrl.SUBSCRIPTION_GROUP_NOT_EXIST)));
             return response;
         }
 
+        // 判断是否可消费
         if (!subscriptionGroupConfig.isConsumeEnable()) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.GROUP_FORBIDDEN);
@@ -342,6 +375,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 获取 topic 配置信息
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
             LOGGER.error("the topic {} not exist, consumer: {}", requestHeader.getTopic(), RemotingHelper.parseChannelRemoteAddr(channel));
@@ -349,7 +383,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             response.setRemark(String.format("topic[%s] not exist, apply first please! %s", requestHeader.getTopic(), FAQUrl.suggestTodo(FAQUrl.APPLY_TOPIC_URL)));
             return response;
         }
-
+        // 判断 topic 是否可读
         if (!PermName.isReadable(topicConfig.getPerm())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             responseHeader.setForbiddenType(ForbiddenType.TOPIC_FORBIDDEN);
@@ -357,15 +391,18 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 封装对象 new TopicQueueMappingContext(topic, globalId, mappingDetail, mappingItemList, leaderItem);
         TopicQueueMappingContext mappingContext = this.brokerController.getTopicQueueMappingManager().buildTopicQueueMappingContext(requestHeader, false);
 
         {
+            // 不知道干啥
             RemotingCommand rewriteResult = rewriteRequestForStaticTopic(requestHeader, mappingContext);
             if (rewriteResult != null) {
                 return rewriteResult;
             }
         }
 
+        // 判断 队列id 是否 大于配置的可读的 队列数，基本校验：客户端请求的队列信息肯定要小于配置的读队列数
         if (requestHeader.getQueueId() < 0 || requestHeader.getQueueId() >= topicConfig.getReadQueueNums()) {
             String errorInfo = String.format("queueId[%d] is illegal, topic:[%s] topicConfig.readQueueNums:[%d] consumer:[%s]",
                 requestHeader.getQueueId(), requestHeader.getTopic(), topicConfig.getReadQueueNums(), channel.remoteAddress());
@@ -375,29 +412,35 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 补充消费者信息：向 consumerManager.consumerCompensationTable 缓存的value ConsumerGroupInfo中补充 消费类型、消息类型；key：ConsumerGroup，
         ConsumerManager consumerManager = brokerController.getConsumerManager();
         switch (RequestSource.parseInteger(requestHeader.getRequestSource())) {
             case PROXY_FOR_BROADCAST:
+                // 广播消息
                 consumerManager.compensateBasicConsumerInfo(requestHeader.getConsumerGroup(), ConsumeType.CONSUME_PASSIVELY, MessageModel.BROADCASTING);
                 break;
             case PROXY_FOR_STREAM:
+                // 集群消息，拉取
                 consumerManager.compensateBasicConsumerInfo(requestHeader.getConsumerGroup(), ConsumeType.CONSUME_ACTIVELY, MessageModel.CLUSTERING);
                 break;
             default:
+                // 集群消息，推送
                 consumerManager.compensateBasicConsumerInfo(requestHeader.getConsumerGroup(), ConsumeType.CONSUME_PASSIVELY, MessageModel.CLUSTERING);
                 break;
         }
 
         SubscriptionData subscriptionData = null;
         ConsumerFilterData consumerFilterData = null;
+        // 判断是否有 订阅标识
         final boolean hasSubscriptionFlag = PullSysFlag.hasSubscriptionFlag(requestHeader.getSysFlag());
         if (hasSubscriptionFlag) {
+            // 向缓存中添加数据
             try {
-                subscriptionData = FilterAPI.build(
-                    requestHeader.getTopic(), requestHeader.getSubscription(), requestHeader.getExpressionType()
-                );
+                // 构建订阅数据信息：封装 topic 、tag 、tag容
+                subscriptionData = FilterAPI.build(requestHeader.getTopic(), requestHeader.getSubscription(), requestHeader.getExpressionType());
+                //  向 consumerManager.consumerCompensationTable 缓存，group 对映当 value consumerGroupInfo 中添加 topic、subscriptionData 的键值对
                 consumerManager.compensateSubscribeData(requestHeader.getConsumerGroup(), requestHeader.getTopic(), subscriptionData);
-
+                // 不是 tag 类型表达式
                 if (!ExpressionType.isTagType(subscriptionData.getExpressionType())) {
                     consumerFilterData = ConsumerFilterManager.build(
                         requestHeader.getTopic(), requestHeader.getConsumerGroup(), requestHeader.getSubscription(),
@@ -413,15 +456,16 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 return response;
             }
         } else {
-            ConsumerGroupInfo consumerGroupInfo =
-                this.brokerController.getConsumerManager().getConsumerGroupInfo(requestHeader.getConsumerGroup());
+            // 在 ConsumerManager 消费者缓存中，获取消费者组信息
+            ConsumerGroupInfo consumerGroupInfo = this.brokerController.getConsumerManager().getConsumerGroupInfo(requestHeader.getConsumerGroup());
+
             if (null == consumerGroupInfo) {
                 LOGGER.warn("the consumer's group info not exist, group: {}", requestHeader.getConsumerGroup());
                 response.setCode(ResponseCode.SUBSCRIPTION_NOT_EXIST);
                 response.setRemark("the consumer's group info not exist" + FAQUrl.suggestTodo(FAQUrl.SAME_GROUP_DIFFERENT_TOPIC));
                 return response;
             }
-
+            // 校验 消费者组 消息类型一致
             if (!subscriptionGroupConfig.isConsumeBroadcastEnable()
                 && consumerGroupInfo.getMessageModel() == MessageModel.BROADCASTING) {
                 response.setCode(ResponseCode.NO_PERMISSION);
@@ -430,8 +474,9 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 return response;
             }
 
-            boolean readForbidden = this.brokerController.getSubscriptionGroupManager().getForbidden(//
-                subscriptionGroupConfig.getGroupName(), requestHeader.getTopic(), PermName.INDEX_PERM_READ);
+            // 消费者组中，topic 是否可读
+            boolean readForbidden = this.brokerController.getSubscriptionGroupManager()
+                    .getForbidden(subscriptionGroupConfig.getGroupName(), requestHeader.getTopic(), PermName.INDEX_PERM_READ);
             if (readForbidden) {
                 response.setCode(ResponseCode.NO_PERMISSION);
                 responseHeader.setForbiddenType(ForbiddenType.SUBSCRIPTION_FORBIDDEN);
@@ -439,6 +484,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 return response;
             }
 
+            // 校验消费者组 订阅 topic 信息
             subscriptionData = consumerGroupInfo.findSubscriptionData(requestHeader.getTopic());
             if (null == subscriptionData) {
                 LOGGER.warn("the consumer's subscription not exist, group: {}, topic:{}", requestHeader.getConsumerGroup(), requestHeader.getTopic());
@@ -447,6 +493,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 return response;
             }
 
+            // 校验订阅版本
             if (subscriptionData.getSubVersion() < requestHeader.getSubVersion()) {
                 LOGGER.warn("The broker's subscription is not latest, group: {} {}", requestHeader.getConsumerGroup(),
                     subscriptionData.getSubString());
@@ -454,9 +501,12 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 response.setRemark("the consumer's subscription not latest");
                 return response;
             }
+            // 订阅的 表达式 不是 tag 类型
             if (!ExpressionType.isTagType(subscriptionData.getExpressionType())) {
-                consumerFilterData = this.brokerController.getConsumerFilterManager().get(requestHeader.getTopic(),
-                    requestHeader.getConsumerGroup());
+                // 获取 topic 下的消费者组的过滤信息
+                consumerFilterData = this.brokerController.getConsumerFilterManager().get(requestHeader.getTopic(), requestHeader.getConsumerGroup());
+
+
                 if (consumerFilterData == null) {
                     response.setCode(ResponseCode.FILTER_DATA_NOT_EXIST);
                     response.setRemark("The broker's consumer filter data is not exist!Your expression may be wrong!");
@@ -472,6 +522,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             }
         }
 
+        // 表达式不是 tag ，并且不支持属性过滤
         if (!ExpressionType.isTagType(subscriptionData.getExpressionType())
             && !this.brokerController.getBrokerConfig().isEnablePropertyFilter()) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -479,7 +530,9 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 构建消息过滤器
         MessageFilter messageFilter;
+        // 默认 false，不支持重试时候 过滤
         if (this.brokerController.getBrokerConfig().isFilterSupportRetry()) {
             messageFilter = new ExpressionForRetryMessageFilter(subscriptionData, consumerFilterData,
                 this.brokerController.getConsumerFilterManager());
@@ -491,7 +544,9 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         final MessageStore messageStore = brokerController.getMessageStore();
         if (this.brokerController.getMessageStore() instanceof DefaultMessageStore) {
             DefaultMessageStore defaultMessageStore = (DefaultMessageStore)this.brokerController.getMessageStore();
+
             boolean cgNeedColdDataFlowCtr = brokerController.getColdDataCgCtrService().isCgNeedColdDataFlowCtr(requestHeader.getConsumerGroup());
+            // 默认false
             if (cgNeedColdDataFlowCtr) {
                 boolean isMsgLogicCold = defaultMessageStore.getCommitLog()
                     .getColdDataCheckService().isMsgInColdArea(requestHeader.getConsumerGroup(),
@@ -515,14 +570,17 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             }
         }
 
+        // 默认 true
         final boolean useResetOffsetFeature = brokerController.getBrokerConfig().isUseServerSideResetOffset();
         String topic = requestHeader.getTopic();
         String group = requestHeader.getConsumerGroup();
         int queueId = requestHeader.getQueueId();
+        // 移除 resetOffsetTable 缓存中数据
         Long resetOffset = brokerController.getConsumerOffsetManager().queryThenEraseResetOffset(topic, group, queueId);
 
         GetMessageResult getMessageResult = null;
         if (useResetOffsetFeature && null != resetOffset) {
+            //
             getMessageResult = new GetMessageResult();
             getMessageResult.setStatus(GetMessageStatus.OFFSET_RESET);
             getMessageResult.setNextBeginOffset(resetOffset);
@@ -530,6 +588,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             getMessageResult.setMaxOffset(messageStore.getMaxOffsetInQueue(topic, queueId));
             getMessageResult.setSuggestPullingFromSlave(false);
         } else {
+            // 查找广播消息 初始偏移量
             long broadcastInitOffset = queryBroadcastPullInitOffset(topic, group, queueId, requestHeader, channel);
             if (broadcastInitOffset >= 0) {
                 getMessageResult = new GetMessageResult();
@@ -538,30 +597,34 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             } else {
                 SubscriptionData finalSubscriptionData = subscriptionData;
                 RemotingCommand finalResponse = response;
-                messageStore.getMessageAsync(group, topic, queueId, requestHeader.getQueueOffset(),
-                        requestHeader.getMaxMsgNums(), messageFilter)
-                    .thenApply(result -> {
-                        if (null == result) {
-                            finalResponse.setCode(ResponseCode.SYSTEM_ERROR);
-                            finalResponse.setRemark("store getMessage return null");
-                            return finalResponse;
-                        }
-                        brokerController.getColdDataCgCtrService().coldAcc(requestHeader.getConsumerGroup(), result.getColdDataSum());
-                        return pullMessageResultHandler.handle(
-                            result,
-                            request,
-                            requestHeader,
-                            channel,
-                            finalSubscriptionData,
-                            subscriptionGroupConfig,
-                            brokerAllowSuspend,
-                            messageFilter,
-                            finalResponse,
-                            mappingContext,
-                            beginTimeMills
-                        );
-                    })
-                    .thenAccept(result -> NettyRemotingAbstract.writeResponse(channel, request, result));
+                // 真正的获取消息：将一个或/多个封装到 GetMessageResult 中
+                messageStore.getMessageAsync(group, topic, queueId, requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter)
+
+                        .thenApply(result -> {
+                            if (null == result) {
+                                finalResponse.setCode(ResponseCode.SYSTEM_ERROR);
+                                finalResponse.setRemark("store getMessage return null");
+                                return finalResponse;
+                            }
+                            // todo：待看
+                            brokerController.getColdDataCgCtrService().coldAcc(requestHeader.getConsumerGroup(), result.getColdDataSum());
+                            //
+                            return pullMessageResultHandler.handle(
+                                    result,
+                                    request,
+                                    requestHeader,
+                                    channel,
+                                    finalSubscriptionData,
+                                    subscriptionGroupConfig,
+                                    brokerAllowSuspend,
+                                    messageFilter,
+                                    finalResponse,
+                                    mappingContext,
+                                    beginTimeMills
+                            );
+                        })
+                        // 推送到客户端
+                        .thenAccept(result -> NettyRemotingAbstract.writeResponse(channel, request, result));
             }
         }
 
@@ -590,6 +653,10 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
     /**
      * Composes the header of the response message to be sent back to the client
+     * 组成要发送回客户端的响应消息的报头
+     *
+     * 设置 Response ： code、suggestWhichBrokerId、nextBeginOffset、minOffset、maxOffset等信息
+     *
      * @param requestHeader - the header of the request message
      * @param getMessageResult - the result of the GetMessage request
      * @param topicSysFlag - the system flag of the topic
@@ -598,8 +665,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
      * @param clientAddress - the address of the client
      */
     protected void composeResponseHeader(PullMessageRequestHeader requestHeader, GetMessageResult getMessageResult,
-        int topicSysFlag, SubscriptionGroupConfig subscriptionGroupConfig, RemotingCommand response,
-        String clientAddress) {
+        int topicSysFlag, SubscriptionGroupConfig subscriptionGroupConfig, RemotingCommand response, String clientAddress) {
+
         final PullMessageResponseHeader responseHeader = (PullMessageResponseHeader) response.readCustomHeader();
         response.setRemark(getMessageResult.getStatus().name());
         responseHeader.setNextBeginOffset(getMessageResult.getNextBeginOffset());
@@ -661,7 +728,9 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
         if (this.brokerController.getBrokerConfig().isSlaveReadEnable() && !this.brokerController.getBrokerConfig().isInBrokerContainer()) {
             // consume too slow ,redirect to another machine
+            // 消耗太慢，重定向到另一台机器
             if (getMessageResult.isSuggestPullingFromSlave()) {
+                // 1
                 responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
             }
             // consume ok
@@ -672,6 +741,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
         }
 
+        //
         if (this.brokerController.getBrokerConfig().getBrokerId() != MixAll.MASTER_ID && !getMessageResult.isSuggestPullingFromSlave()) {
             if (this.brokerController.getMinBrokerIdInGroup() == MixAll.MASTER_ID) {
                 LOGGER.debug("slave redirect pullRequest to master, topic: {}, queueId: {}, consumer group: {}, next: {}, min: {}, max: {}",
@@ -693,6 +763,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
     protected void executeConsumeMessageHookBefore(RemotingCommand request, PullMessageRequestHeader requestHeader,
         GetMessageResult getMessageResult, boolean brokerAllowSuspend, int responseCode) {
+        // 默认没有钩子函数
         if (this.hasConsumeMessageHook()) {
             String owner = request.getExtFields().get(BrokerStatsManager.COMMERCIAL_OWNER);
             String authType = request.getExtFields().get(BrokerStatsManager.ACCOUNT_AUTH_TYPE);
@@ -779,13 +850,16 @@ public class PullMessageProcessor implements NettyRequestProcessor {
     public void executeRequestWhenWakeup(final Channel channel, final RemotingCommand request) {
         Runnable run = () -> {
             try {
+                // 判断 请求中 不包含 _noSuspend_ 属性， todo：作用待看
                 boolean brokerAllowFlowCtrSuspend = !(request.getExtFields() != null && request.getExtFields().containsKey(ColdDataPullRequestHoldService.NO_SUSPEND_KEY));
+
                 final RemotingCommand response = PullMessageProcessor.this.processRequest(channel, request, false, brokerAllowFlowCtrSuspend);
 
                 if (response != null) {
                     response.setOpaque(request.getOpaque());
                     response.markResponseType();
                     try {
+                        // 向客户端写响应
                         NettyRemotingAbstract.writeResponse(channel, request, response, future -> {
                             if (!future.isSuccess()) {
                                 LOGGER.error("processRequestWrapper response to {} failed", channel.remoteAddress(), future.cause());
@@ -856,15 +930,15 @@ public class PullMessageProcessor implements NettyRequestProcessor {
      * When pull request is not broadcast or not return -1
      */
     protected long queryBroadcastPullInitOffset(String topic, String group, int queueId,
-        PullMessageRequestHeader requestHeader, Channel channel) {
+                                                PullMessageRequestHeader requestHeader, Channel channel) {
 
         if (!this.brokerController.getBrokerConfig().isEnableBroadcastOffsetStore()) {
             return -1L;
         }
 
         ConsumerGroupInfo consumerGroupInfo = this.brokerController.getConsumerManager().getConsumerGroupInfo(group);
-        boolean proxyPullBroadcast = Objects.equals(
-            RequestSource.PROXY_FOR_BROADCAST.getValue(), requestHeader.getRequestSource());
+        // 判断是否为广播消息
+        boolean proxyPullBroadcast = Objects.equals(RequestSource.PROXY_FOR_BROADCAST.getValue(), requestHeader.getRequestSource());
 
         if (isBroadcast(proxyPullBroadcast, consumerGroupInfo)) {
             String clientId;

@@ -42,8 +42,13 @@ public class ConsumerManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final ConcurrentMap<String, ConsumerGroupInfo> consumerTable =
         new ConcurrentHashMap<>(1024);
-    private final ConcurrentMap<String, ConsumerGroupInfo> consumerCompensationTable =
-        new ConcurrentHashMap<>(1024);
+    /**
+     * 消费者补充信息缓存
+     * key： group 消费者组名
+     * value： 消费者组信息
+     */
+    private final ConcurrentMap<String, ConsumerGroupInfo> consumerCompensationTable = new ConcurrentHashMap<>(1024);
+
     private final List<ConsumerIdsChangeListener> consumerIdsChangeListenerList = new CopyOnWriteArrayList<>();
     protected final BrokerStatsManager brokerStatsManager;
     private final long channelExpiredTimeout;
@@ -152,6 +157,10 @@ public class ConsumerManager {
     }
 
     // compensate consumer info for consumer without heartbeat
+    /**
+     * 为没有心跳的消费者补偿消费者信息
+     * 向 consumerManager.consumerCompensationTable 缓存中补充 消费类型、消息类型
+     */
     public void compensateBasicConsumerInfo(String group, ConsumeType consumeType, MessageModel messageModel) {
         ConsumerGroupInfo consumerGroupInfo = consumerCompensationTable.computeIfAbsent(group, ConsumerGroupInfo::new);
         consumerGroupInfo.setConsumeType(consumeType);
@@ -159,6 +168,9 @@ public class ConsumerManager {
     }
 
     // compensate subscription for pull consumer and consumer via proxy
+    /**
+     * 向 consumerManager.consumerCompensationTable 缓存中添加 topic、subscriptionData 的键值对
+     */
     public void compensateSubscribeData(String group, String topic, SubscriptionData subscriptionData) {
         ConsumerGroupInfo consumerGroupInfo = consumerCompensationTable.computeIfAbsent(group, ConsumerGroupInfo::new);
         consumerGroupInfo.getSubscriptionTable().put(topic, subscriptionData);

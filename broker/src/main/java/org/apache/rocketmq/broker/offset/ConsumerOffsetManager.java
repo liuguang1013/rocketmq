@@ -47,7 +47,7 @@ public class ConsumerOffsetManager extends ConfigManager {
     protected ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> offsetTable =
         new ConcurrentHashMap<>(512);
 
-    private final ConcurrentMap<String, ConcurrentMap<Integer, Long>> resetOffsetTable =
+    private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> resetOffsetTable =
         new ConcurrentHashMap<>(512);
 
     private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> pullOffsetTable =
@@ -429,7 +429,9 @@ public class ConsumerOffsetManager extends ConfigManager {
         return map.containsKey(queueId);
     }
 
+
     public Long queryThenEraseResetOffset(String topic, String group, Integer queueId) {
+        // topic@group
         String key = topic + TOPIC_GROUP_SEPARATOR + group;
         ConcurrentMap<Integer, Long> map = resetOffsetTable.get(key);
         if (null == map) {

@@ -17,10 +17,21 @@
 package org.apache.rocketmq.remoting.protocol;
 
 public enum RequestSource {
-
+    /**
+     * 普通客户端消息
+     */
     SDK(-1),
+    /**
+     * 顺序消息
+     */
     PROXY_FOR_ORDER(0),
+    /**
+     * 广播消息
+     */
     PROXY_FOR_BROADCAST(1),
+    /**
+     * 流式消息
+     */
     PROXY_FOR_STREAM(2);
 
     public static final String SYSTEM_PROPERTY_KEY = "rocketmq.requestSource";

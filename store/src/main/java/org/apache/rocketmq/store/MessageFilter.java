@@ -23,6 +23,8 @@ public interface MessageFilter {
     /**
      * match by tags code or filter bit map which is calculated when message received
      * and stored in consume queue ext.
+     * 当接收到消息通过tags code 或过滤器位图进行匹配
+     * 并将其存储在消费队列ext中时计算。
      *
      * @param tagsCode tagsCode
      * @param cqExtUnit extend unit of consume queue

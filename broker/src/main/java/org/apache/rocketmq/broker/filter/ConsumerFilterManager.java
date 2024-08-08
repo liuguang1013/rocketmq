@@ -57,6 +57,11 @@ public class ConsumerFilterManager extends ConfigManager {
 
     private static final long MS_24_HOUR = 24 * 3600 * 1000;
 
+    /**
+     * 过滤信息缓存
+     * key ： Topic
+     * value： key： consumer group   value：ConsumerFilterData 包含表达式等信息
+     */
     private ConcurrentMap<String/*Topic*/, FilterDataMapByTopic> filterDataByTopic = new ConcurrentHashMap<>(256);
 
     private transient BrokerController brokerController;
@@ -85,12 +90,11 @@ public class ConsumerFilterManager extends ConfigManager {
 
     /**
      * Build consumer filter data.Be care, bloom filter data is not included.
-     *
+     * 构建消费者过滤器数据。注意，布隆过滤器数据不包括在内。
      * @return maybe null
      */
     public static ConsumerFilterData build(final String topic, final String consumerGroup,
-        final String expression, final String type,
-        final long clientVersion) {
+                                           final String expression, final String type, final long clientVersion) {
         if (ExpressionType.isTagType(type)) {
             return null;
         }

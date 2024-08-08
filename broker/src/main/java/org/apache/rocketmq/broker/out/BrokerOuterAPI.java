@@ -144,6 +144,9 @@ import org.apache.rocketmq.store.timer.TimerMetrics;
 import static org.apache.rocketmq.remoting.protocol.RemotingSysResponseCode.SUCCESS;
 import static org.apache.rocketmq.remoting.protocol.ResponseCode.CONTROLLER_MASTER_STILL_EXIST;
 
+/**
+ * netty 的客户端，用户访问其他 broker
+ */
 public class BrokerOuterAPI {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final RemotingClient remotingClient;
