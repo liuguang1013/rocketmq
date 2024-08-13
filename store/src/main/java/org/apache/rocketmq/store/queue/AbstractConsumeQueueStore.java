@@ -32,6 +32,9 @@ public abstract class AbstractConsumeQueueStore implements ConsumeQueueStoreInte
 
     protected final DefaultMessageStore messageStore;
     protected final MessageStoreConfig messageStoreConfig;
+    /**
+     *
+     */
     protected final QueueOffsetOperator queueOffsetOperator = new QueueOffsetOperator();
     /**
      *

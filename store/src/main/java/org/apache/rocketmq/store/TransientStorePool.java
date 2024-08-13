@@ -39,12 +39,22 @@ public class TransientStorePool {
      */
     private final int fileSize;
     /**
-     * 开启 TransientStorePool 后，默认创建 5个 ByteBuffer
-     * ByteBuffer 调用 mlock 方法对内存进行处理
-     * 在初始化的时候添加
+     * 添加时机：
+     * 开启 TransientStorePool 后，默认创建 5个 ByteBuffer，
+     * 每个 ByteBuffer 创建时候，调用 mlock 方法对内存进行处理，添加到双队列中
+     *
+     * 重新添加时机：
+     * 以 commit log 为例，CommitRealTimeService 服务会刷新 将写入位置复制给提交位置，
+     * 此时如果 mappedFile 提交位置已经和文件大小相同，整个文件刷新完成，会清空 ByteBuffer，并再次添加到队头
      */
     private final Deque<ByteBuffer> availableBuffers;
 
+    /**
+     * 是否真正提交 标识
+     * 当开启缓冲池后，commit log 的 CommitRealTimeService 服务，
+     * isRealCommit = false： 刷新提交位置 不是向 fileChanel 写数据，而是将 mappedFile 的 committedPosition 设置为 writeposition。
+     * isRealCommit = true：向 fileChannel 中写入数据
+     */
     private volatile boolean isRealCommit = true;
 
     public TransientStorePool(final int poolSize, final int fileSize) {

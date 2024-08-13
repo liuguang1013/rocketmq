@@ -35,6 +35,9 @@ public class GetMessageResult {
     private final List<Long> messageQueueOffset;
 
     private GetMessageStatus status;
+    /**
+     * 下次开始的偏移量，消息个数
+     */
     private long nextBeginOffset;
     private long minOffset;
     private long maxOffset;

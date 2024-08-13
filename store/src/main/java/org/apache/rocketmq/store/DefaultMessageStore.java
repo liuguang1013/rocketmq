@@ -182,6 +182,12 @@ public class DefaultMessageStore implements MessageStore {
      * CommitLogDispatcherBuildConsumeQueue
      * CommitLogDispatcherBuildIndex
      * CommitLogDispatcherCompaction
+     *
+     * dispatcherList作用：通过这些分发处理，构建消息队列、索引
+     *
+     * 使用场景：
+     * 当 broker 重启，不是正常退出恢复数据的时候，会构建 dispatcherReq 请求；
+     * 当添加新的消息的时候，通过 ReputMessageService 会构建 dispatcherReq 请求；
      */
     private final LinkedList<CommitLogDispatcher> dispatcherList;
 
@@ -292,7 +298,7 @@ public class DefaultMessageStore implements MessageStore {
         } else {
             this.reputMessageService = new ConcurrentReputMessageService();
         }
-        //  堆外内存池  5 、1G
+        //  堆外内存池  5 、1G。 此处虽然创建了，但是并不一定使用，start 方法会判断
         this.transientStorePool = new TransientStorePool(messageStoreConfig.getTransientStorePoolSize(), messageStoreConfig.getMappedFileSizeCommitLog());
 
         this.scheduledExecutorService =
@@ -439,7 +445,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     /**
-     * @throws Exception
+     *
      */
     @Override
     public void start() throws Exception {
@@ -481,10 +487,21 @@ public class DefaultMessageStore implements MessageStore {
 
         // Checking is not necessary, as long as the dLedger's implementation exactly follows the definition of Recover,
         // which is eliminating the dispatch inconsistency between the commitLog and consumeQueue at the end of recovery.
+        // 默认不开启。补全 commit log 与消费队列之间的相差的消息 的消费队列和索引
         this.doRecheckReputOffsetFromCq();
 
+        /**
+         * 每 1s 执行一次，刷新数据页至少达到两个，
+         * 每 1分钟，强制执行刷盘一次，
+         * 持久化 ConsumeQueue、compactionLog、StoreCheckpoint
+         */
         this.flushConsumeQueueService.start();
+        /**
+         * 开启数据刷盘相关服务
+         */
         this.commitLog.start();
+
+
         this.consumeQueueStore.start();
         this.storeStatsService.start();
 
@@ -498,17 +515,33 @@ public class DefaultMessageStore implements MessageStore {
         this.shutdown = false;
     }
 
+    /**
+     * 设置 reputMessageService 的开始偏移量，
+     * 在broker 刚启动的时候没有请求进来，所以只会构建消费队列、构建索引，
+     * 保证 reputMessageService 开始扫描的点和 commit log 中的 commit 位置相同
+     * @throws InterruptedException
+     */
     private void doRecheckReputOffsetFromCq() throws InterruptedException {
+        // 默认不开启
         if (!messageStoreConfig.isRecheckReputOffsetFromCq()) {
             return;
         }
 
         /**
          * 1. Make sure the fast-forward messages to be truncated during the recovering according to the max physical offset of the commitlog;
+         *    确保在恢复期间根据提交日志的最大物理偏移量截断快进消息;
+         *
          * 2. DLedger committedPos may be missing, so the maxPhysicalPosInLogicQueue maybe bigger that maxOffset returned by DLedgerCommitLog, just let it go;
+         *    DLedger committedPos 可能丢失，导致 maxPhysicalPosInLogicQueue 可能 比 DLedgerCommitLog 返回的 maxOffset 大
+         *
          * 3. Calculate the reput offset according to the consume queue;
+         *    根据消费队列计算  reput offset  todo：为什么要这么干？ 为了补全 commit log 与消费队列之间的相差的消息 的消费队列和索引
+         *
          * 4. Make sure the fall-behind messages to be dispatched before starting the commitlog, especially when the broker role are automatically changed.
+         *    确保在 commitlog 开始保存消息之前 dispatched 消息，构建消费队列和索引
          */
+
+        // 获取 所有 topic 的 队列中的消息在 commit log 的最大值
         long maxPhysicalPosInLogicQueue = commitLog.getMinOffset();
         for (ConcurrentMap<Integer, ConsumeQueueInterface> maps : this.getConsumeQueueTable().values()) {
             for (ConsumeQueueInterface logic : maps.values()) {
@@ -535,10 +568,13 @@ public class DefaultMessageStore implements MessageStore {
         }
         LOGGER.info("[SetReputOffset] maxPhysicalPosInLogicQueue={} clMinOffset={} clMaxOffset={} clConfirmedOffset={}",
             maxPhysicalPosInLogicQueue, this.commitLog.getMinOffset(), this.commitLog.getMaxOffset(), this.commitLog.getConfirmOffset());
+
+        // 设置 重放开始位置
         this.reputMessageService.setReputFromOffset(maxPhysicalPosInLogicQueue);
 
         /**
          *  1. Finish dispatching the messages fall behind, then to start other services.
+         *  // 等待落后消息，被 reputMessageService 消费后，
          *  2. DLedger committedPos may be missing, so here just require dispatchBehindBytes <= 0
          */
         while (true) {
@@ -995,7 +1031,7 @@ public class DefaultMessageStore implements MessageStore {
                             maxPhyOffsetPulling = offsetPy;
 
                             //Be careful, here should before the isTheBatchFull
-                            // 记录下个开始的位置
+                            // 记录下个开始的位置：当前消息的位置 + 消息的数量
                             nextBeginOffset = cqUnit.getQueueOffset() + cqUnit.getBatchNum();
 
                             if (nextPhyFileStartOffset != Long.MIN_VALUE) {
@@ -1024,7 +1060,8 @@ public class DefaultMessageStore implements MessageStore {
                                 continue;
                             }
 
-                            if (messageStoreConfig.isColdDataFlowControlEnable() && !MixAll.isSysConsumerGroupForNoColdReadLimit(group) && !selectResult.isInCache()) {
+                            if (messageStoreConfig.isColdDataFlowControlEnable() && !MixAll.isSysConsumerGroupForNoColdReadLimit(group)
+                                    && !selectResult.isInCache()) {
                                 getResult.setColdDataSum(getResult.getColdDataSum() + sizePy);
                             }
 
@@ -2820,7 +2857,15 @@ public class DefaultMessageStore implements MessageStore {
         private static final int RETRY_TIMES_OVER = 3;
         private long lastFlushTimestamp = 0;
 
+        /**
+         * 每 1s 执行一次，刷新数据页至少达到两个
+         * 每 1分钟，强制执行刷盘一次
+         * 刷新/持久化 ConsumeQueue、compactionLog、StoreCheckpoint
+         * @param retryTimes
+         */
         private void doFlush(int retryTimes) {
+            // 默认值：2。
+            // 立刻刷新标识
             int flushConsumeQueueLeastPages = DefaultMessageStore.this.getMessageStoreConfig().getFlushConsumeQueueLeastPages();
 
             if (retryTimes == RETRY_TIMES_OVER) {
@@ -2829,16 +2874,21 @@ public class DefaultMessageStore implements MessageStore {
 
             long logicsMsgTimestamp = 0;
 
+            // 1 分钟
             int flushConsumeQueueThoroughInterval = DefaultMessageStore.this.getMessageStoreConfig().getFlushConsumeQueueThoroughInterval();
+
+
             long currentTimeMillis = System.currentTimeMillis();
             if (currentTimeMillis >= (this.lastFlushTimestamp + flushConsumeQueueThoroughInterval)) {
                 this.lastFlushTimestamp = currentTimeMillis;
                 flushConsumeQueueLeastPages = 0;
+                // 最新消息 StoreTimestamp
                 logicsMsgTimestamp = DefaultMessageStore.this.getStoreCheckpoint().getLogicsMsgTimestamp();
             }
 
-            ConcurrentMap<String, ConcurrentMap<Integer, ConsumeQueueInterface>> tables = DefaultMessageStore.this.getConsumeQueueTable();
+            ConcurrentMap<String/*topic*/, ConcurrentMap<Integer/*queueId*/, ConsumeQueueInterface>> tables = DefaultMessageStore.this.getConsumeQueueTable();
 
+            // 遍历消息队列，执行刷新操作
             for (ConcurrentMap<Integer, ConsumeQueueInterface> maps : tables.values()) {
                 for (ConsumeQueueInterface cq : maps.values()) {
                     boolean result = false;
@@ -2847,11 +2897,12 @@ public class DefaultMessageStore implements MessageStore {
                     }
                 }
             }
-
+            // 遍历 压缩日志、压缩队列，执行刷新操作
             if (messageStoreConfig.isEnableCompaction()) {
                 compactionStore.flush(flushConsumeQueueLeastPages);
             }
 
+            // 当超过刷新时间
             if (0 == flushConsumeQueueLeastPages) {
                 if (logicsMsgTimestamp > 0) {
                     DefaultMessageStore.this.getStoreCheckpoint().setLogicsMsgTimestamp(logicsMsgTimestamp);
@@ -2860,12 +2911,16 @@ public class DefaultMessageStore implements MessageStore {
             }
         }
 
+        /**
+         * 定时刷新
+         */
         @Override
         public void run() {
             DefaultMessageStore.LOGGER.info(this.getServiceName() + " service started");
 
             while (!this.isStopped()) {
                 try {
+                    // 1s 执行一次
                     int interval = DefaultMessageStore.this.getMessageStoreConfig().getFlushIntervalConsumeQueue();
                     this.waitForRunning(interval);
                     this.doFlush(1);
@@ -3560,6 +3615,8 @@ public class DefaultMessageStore implements MessageStore {
      * 配置打开，并且 是 ControllerMode 或者 不是从节点
      * 认为开启
      * @return <tt>true</tt> or <tt>false</tt>
+     *
+     * 是否使用堆外内存 暂存消息，之后批量写入到 commitlog，避免频繁小块写入，提高磁盘写入效率，减少GC频率/停顿
      */
     public boolean isTransientStorePoolEnable() {
         // 默认不开启

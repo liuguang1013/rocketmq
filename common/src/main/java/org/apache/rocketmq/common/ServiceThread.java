@@ -77,6 +77,7 @@ public abstract class ServiceThread implements Runnable {
 
             long beginTime = System.currentTimeMillis();
             if (!this.thread.isDaemon()) {
+                // 当前线程暂停，等待服务线程执行完成
                 this.thread.join(this.getJoinTime());
             }
             long elapsedTime = System.currentTimeMillis() - beginTime;
@@ -107,6 +108,7 @@ public abstract class ServiceThread implements Runnable {
 
     protected void waitForRunning(long interval) {
         // 判断是否是 运行
+        // 唤醒后，执行该方法，会立即执行一次
         if (hasNotified.compareAndSet(true, false)) {
             // 运行状态，CAS-> 不运行状态
             this.onWaitEnd();

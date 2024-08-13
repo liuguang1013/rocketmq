@@ -56,7 +56,17 @@ public class MappedFileQueue implements Swappable {
 
     protected final AllocateMappedFileService allocateMappedFileService;
 
+    /**
+     * 记录刷新的位置
+     * 在broker 启动的时候，ConsumeQueue#recover 恢复数据会设置刷新位置
+     * commitLog 的 FlushConsumeQueueService 定时任务 1s 刷新一次，可能会更新提交位置
+     */
     protected long flushedWhere = 0;
+    /**
+     * 记录提交位置
+     * 1、在broker 启动的时候，ConsumeQueue#recover 恢复数据会设置提交位置
+     * 2、commitLog 的 CommitRealTimeService 会更新提交位置
+     */
     protected long committedWhere = 0;
 
     protected volatile long storeTimestamp = 0;
@@ -676,14 +686,25 @@ public class MappedFileQueue implements Swappable {
         return deleteCount;
     }
 
+    /**
+     * 强制刷盘，更新刷盘位置、时间；
+     * MappedFileQueue ：记录最后一条消息的存储时间、记录 FileFromOffset+读指针位置 为刷盘位置
+     * MappedFile：记录读指针位置为刷盘位置、记录当前时间为刷盘时间
+     * @return
+     */
     public boolean flush(final int flushLeastPages) {
         boolean result = true;
+        // 获取 刷新的位置
         MappedFile mappedFile = this.findMappedFileByOffset(this.getFlushedWhere(), this.getFlushedWhere() == 0);
         if (mappedFile != null) {
+            // 最后一条消息的存储时间
             long tmpTimeStamp = mappedFile.getStoreTimestamp();
+            // 文件刷盘
             int offset = mappedFile.flush(flushLeastPages);
+            // 计算整个队列的刷新绝对偏移量
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.getFlushedWhere();
+            // 更新刷新位置
             this.setFlushedWhere(where);
             if (0 == flushLeastPages) {
                 this.setStoreTimestamp(tmpTimeStamp);
@@ -693,11 +714,19 @@ public class MappedFileQueue implements Swappable {
         return result;
     }
 
+    /**
+     * 找到 提交位置 的 MappedFile
+     * 获取并更新 提交位置
+     */
     public synchronized boolean commit(final int commitLeastPages) {
         boolean result = true;
         MappedFile mappedFile = this.findMappedFileByOffset(this.getCommittedWhere(), this.getCommittedWhere() == 0);
         if (mappedFile != null) {
+            // 不开启读写分离，直接返回写位置；
+            // 开启，并达到要求的写入数据页数，向fileChanel 中写入数据，更新 MappedFile 提交位置
             int offset = mappedFile.commit(commitLeastPages);
+
+            // 计算并更新 MappedFileQueue 的提交位置
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.getCommittedWhere();
             this.setCommittedWhere(where);

@@ -21,6 +21,11 @@ import java.util.HashSet;
 public class MessageConst {
     public static final String PROPERTY_KEYS = "KEYS";
     public static final String PROPERTY_TAGS = "TAGS";
+    /**
+     * todo ：在 FlushDiskType.SYNC_FLUSH 同步刷盘下，这个属性会影响 GroupCommitService 处理消息的 刷盘
+     * 存在属性 ：创建 GroupCommitRequest ，之后
+     *
+     */
     public static final String PROPERTY_WAIT_STORE_MSG_OK = "WAIT";
     public static final String PROPERTY_DELAY_TIME_LEVEL = "DELAY";
     public static final String PROPERTY_RETRY_TOPIC = "RETRY_TOPIC";

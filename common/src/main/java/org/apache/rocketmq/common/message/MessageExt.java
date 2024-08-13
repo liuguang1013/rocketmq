@@ -24,6 +24,9 @@ import java.nio.ByteBuffer;
 import org.apache.rocketmq.common.TopicFilterType;
 import org.apache.rocketmq.common.sysflag.MessageSysFlag;
 
+/**
+ * 消息的扩展信息：对映 commit log 的数据格式
+ */
 public class MessageExt extends Message {
     private static final long serialVersionUID = 5720810158625748049L;
 

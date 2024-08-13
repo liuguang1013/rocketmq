@@ -109,15 +109,17 @@ public class DefaultPullMessageResultHandler implements PullMessageResultHandler
 
         //rewrite the response for the static topic
         final PullMessageResponseHeader responseHeader = (PullMessageResponseHeader) response.readCustomHeader();
+
         RemotingCommand rewriteResult = processor.rewriteResponseForStaticTopic(requestHeader, responseHeader, mappingContext, response.getCode());
         if (rewriteResult != null) {
             response = rewriteResult;
         }
-
+        // 处理广播消息拉取偏移量
         processor.updateBroadcastPulledOffset(requestHeader.getTopic(), requestHeader.getConsumerGroup(),
             requestHeader.getQueueId(), requestHeader, channel, response, getMessageResult.getNextBeginOffset());
-        processor.tryCommitOffset(brokerAllowSuspend, requestHeader, getMessageResult.getNextBeginOffset(),
-            clientAddress);
+
+        // 缓存 nextOffset、requestHeader.getCommitOffset
+        processor.tryCommitOffset(brokerAllowSuspend, requestHeader, getMessageResult.getNextBeginOffset(), clientAddress);
 
         switch (response.getCode()) {
             case ResponseCode.SUCCESS:
@@ -144,12 +146,14 @@ public class DefaultPullMessageResultHandler implements PullMessageResultHandler
                     //ignore pull request
                     return null;
                 }
-
+                // 默认是 true
                 if (this.brokerController.getBrokerConfig().isTransferMsgByHeap()) {
                     final byte[] r = this.readGetMessageResult(getMessageResult, requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId());
+
                     this.brokerController.getBrokerStatsManager().incGroupGetLatency(requestHeader.getConsumerGroup(),
                         requestHeader.getTopic(), requestHeader.getQueueId(),
                         (int) (this.brokerController.getMessageStore().now() - beginTimeMills));
+
                     response.setBody(r);
                     return response;
                 } else {

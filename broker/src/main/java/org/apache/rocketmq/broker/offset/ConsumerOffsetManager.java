@@ -44,14 +44,20 @@ public class ConsumerOffsetManager extends ConfigManager {
 
     private DataVersion dataVersion = new DataVersion();
 
-    protected ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> offsetTable =
-        new ConcurrentHashMap<>(512);
+    /**
+     * 缓存 拉取请求中的 commitOffset
+     * broker 中处理 pullMessage 请求，还未发送到消费者之前,更新 topic 的 queue 的偏移量
+     * 开启brokerAllowSuspend && 请求头中有 hasCommitOffsetFlag
+     */
+    protected ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> offsetTable = new ConcurrentHashMap<>(512);
 
-    private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> resetOffsetTable =
-        new ConcurrentHashMap<>(512);
+    private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> resetOffsetTable = new ConcurrentHashMap<>(512);
 
-    private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> pullOffsetTable =
-        new ConcurrentHashMap<>(512);
+    /**
+     * 缓存 下次拉取的开始偏移量
+     * broker 中处理 pullMessage 请求，还未发送到消费者之前,更新 topic 的 queue 的偏移量
+     */
+    private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> pullOffsetTable = new ConcurrentHashMap<>(512);
 
     protected transient BrokerController brokerController;
 
@@ -211,14 +217,15 @@ public class ConsumerOffsetManager extends ConfigManager {
                 LOG.warn("[NOTIFYME]update consumer offset less than store. clientHost={}, key={}, queueId={}, requestOffset={}, storeOffset={}", clientHost, key, queueId, offset, storeOffset);
             }
         }
+
         if (versionChangeCounter.incrementAndGet() % brokerController.getBrokerConfig().getConsumerOffsetUpdateVersionStep() == 0) {
             long stateMachineVersion = brokerController.getMessageStore() != null ? brokerController.getMessageStore().getStateMachineVersion() : 0;
             dataVersion.nextVersion(stateMachineVersion);
         }
     }
 
-    public void commitPullOffset(final String clientHost, final String group, final String topic, final int queueId,
-        final long offset) {
+    public void commitPullOffset(final String clientHost, final String group,
+                                 final String topic, final int queueId, final long offset) {
         // topic@group
         String key = topic + TOPIC_GROUP_SEPARATOR + group;
         ConcurrentMap<Integer, Long> map = this.pullOffsetTable.computeIfAbsent(

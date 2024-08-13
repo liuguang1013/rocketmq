@@ -72,6 +72,9 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
 
     private final String storePath;
     private final int mappedFileSize;
+    /**
+     * 某 topic 的 某 queue 的 多个文件存储中的最新消息，在 commit log 中的偏移量
+     */
     private long maxPhysicOffset = -1;
 
     /**
@@ -552,6 +555,14 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         return lastOffset;
     }
 
+    /**
+     *  刷新 消费队列、消费队列额外信息：强制刷盘 ；
+     *          MappedFileQueue ：记录最后一条消息的存储时间、记录 FileFromOffset+读指针位置 为刷盘位置
+     *          MappedFile：记录读指针位置为刷盘位置、记录当前时间为刷盘时间
+     *
+     *
+     *
+     */
     @Override
     public boolean flush(final int flushLeastPages) {
         boolean result = this.mappedFileQueue.flush(flushLeastPages);

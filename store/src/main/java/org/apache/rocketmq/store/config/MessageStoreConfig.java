@@ -189,16 +189,17 @@ public class MessageStoreConfig {
      * 消息数据现在只是暂存在 writeBuffer 中，当积攒的数据超过了 16K
      * 或者消息在 writeBuffer 中停留时间超过了 200 ms
      *  RocketMQ  就会将 writeBuffer 中的消息数据通过 FileChannel 一次性批量异步写入到 page cache 中。
-     *  RocketMQ 在读写分离模式下设计的是通过 FileChannel 来批量写入消息，那么就需要考虑 FileChannel 的最佳写入性能点，这里 RocketMQ 选择了 16K
+     *  RocketMQ 在读写分离模式下设计的是通过 FileChannel 来批量写入消息，那么就需要考虑 FileChannel 的最佳写入性能点，这里 RocketMQ 选择了 4*16K
      */
     private int commitCommitLogLeastPages = 4;
     private int commitCommitLogThoroughInterval = 200;
     // How many pages are to be flushed when flush CommitLog
     /**
-     * 无论是通过 MappedByteBuffer 还是 FileChannel 对文件进行写入，当系统中的脏页积累到一定量的时候，都会对其写入文件的性能造成非常大的影响。
+     * 无论是通过 MappedByteBuffer 还是 FileChannel 对文件进行写入，
+     * 当系统中的脏页积累到一定量的时候，都会对其写入文件的性能造成非常大的影响。
      * 另外脏页不及时回写还会造成数据丢失的风险。
      *
-     * 因此为了避免数据丢失的风险以及对写入性能的影响，当脏页在 page  cache 中积累到 16K 或者脏页在 page cache 中停留时间超过 10s 的时候，
+     * 因此为了避免数据丢失的风险以及对写入性能的影响，当脏页在 page  cache 中积累到 4*16K 或者脏页在 page cache 中停留时间超过 10s 的时候，
      * RocketMQ 就会通过 force 方法将脏页回写到磁盘中。
      *
      */
@@ -244,6 +245,7 @@ public class MessageStoreConfig {
     @ImportantField
     private FlushDiskType flushDiskType = FlushDiskType.ASYNC_FLUSH;
     // Used by GroupTransferService to sync messages from master to slave
+    //  GroupTransferService 用于主从同步消息
     private int syncFlushTimeout = 1000 * 5;
     // Used by PutMessage to wait messages be flushed to disk and synchronized in current broker member group.
     private int putMessageTimeout = 1000 * 8;

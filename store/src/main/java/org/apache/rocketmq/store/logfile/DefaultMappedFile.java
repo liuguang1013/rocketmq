@@ -71,10 +71,14 @@ public class DefaultMappedFile extends AbstractMappedFile {
     protected static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
 
     /**
-     * 标记文件写的位置
+     * 标记 mappedFile 文件消息写的位置
      * 在 appendMessagesInner() 保存消息的时候会增加 该值
      */
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> WROTE_POSITION_UPDATER;
+    /**
+     * 标记 mappedFile 文件消息提交位置
+     * 例如： 当开启写入缓存池时， commit log 的 CommitRealTimeService 服务会刷新提交位置
+     */
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> COMMITTED_POSITION_UPDATER;
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> FLUSHED_POSITION_UPDATER;
 
@@ -85,6 +89,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
     protected FileChannel fileChannel;
     /**
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
+     * 如果 writeBuffer 不为空，消息将首先放到这里，然后重新放到FileChannel。
      */
     protected ByteBuffer writeBuffer = null;
     protected TransientStorePool transientStorePool = null;
@@ -147,8 +152,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
         init(fileName, fileSize);
     }
 
-    public DefaultMappedFile(final String fileName, final int fileSize,
-        final TransientStorePool transientStorePool) throws IOException {
+    public DefaultMappedFile(final String fileName, final int fileSize, final TransientStorePool transientStorePool) throws IOException {
         init(fileName, fileSize, transientStorePool);
     }
 
@@ -164,6 +168,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
     public void init(final String fileName, final int fileSize, final TransientStorePool transientStorePool) throws IOException {
 
         init(fileName, fileSize);
+        // 在transientStorePool 双端缓存队列中中，获取 byteBuffer ，获取不到返回 null
         this.writeBuffer = transientStorePool.borrowBuffer();
         this.transientStorePool = transientStorePool;
     }
@@ -444,11 +449,14 @@ public class DefaultMappedFile extends AbstractMappedFile {
                     this.mappedByteBufferAccessCountSinceLastSwap++;
 
                     //We only append data to fileChannel or mappedByteBuffer, never both.
+                    // 我们只向 fileChannel 或 mappedBytebuffer 添加数据，而不是同时添加数据。
                     if (writeBuffer != null || this.fileChannel.position() != 0) {
                         this.fileChannel.force(false);
                     } else {
+                        // 强制刷盘
                         this.mappedByteBuffer.force();
                     }
+                    // 记录上次刷盘时间
                     this.lastFlushTime = System.currentTimeMillis();
                 } catch (Throwable e) {
                     log.error("Error occurred when force data to disk.", e);
@@ -464,18 +472,30 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return this.getFlushedPosition();
     }
 
+    /**
+     * 文件信息提交，返回提交位置：
+     * 1、对于 writeBuffer 为空，直接返回 writePosition
+     * 2、对于开启 读写分离 transientStorePoolEnable 情况下，并达到要求的数据页，向 fileChannel 中 添加数据，更新 提交位置
+     *
+     */
     @Override
     public int commit(final int commitLeastPages) {
         if (writeBuffer == null) {
             //no need to commit data to file channel, so just regard wrotePosition as committedPosition.
+            // 需要向文件通道提交数据，因此只需将 writePosition 视为 committedPosition。
             return WROTE_POSITION_UPDATER.get(this);
         }
 
-        //no need to commit data to file channel, so just set committedPosition to wrotePosition.
+        // 默认 isRealCommit = true
         if (transientStorePool != null && !transientStorePool.isRealCommit()) {
+            //no need to commit data to file channel, so just set committedPosition to wrotePosition.
+            // 不需要提交数据到文件通道，所以只需将committedPosition设置为 writeposition。
             COMMITTED_POSITION_UPDATER.set(this, WROTE_POSITION_UPDATER.get(this));
-        } else if (this.isAbleToCommit(commitLeastPages)) {
+        }
+        // 判断是否达到要求的数据页
+        else if (this.isAbleToCommit(commitLeastPages)) {
             if (this.hold()) {
+                //  向 fileChannel 中 添加数据，更新 提交位置
                 commit0();
                 this.release();
             } else {
@@ -485,6 +505,8 @@ public class DefaultMappedFile extends AbstractMappedFile {
 
         // All dirty data has been committed to FileChannel.
         if (writeBuffer != null && this.transientStorePool != null && this.fileSize == COMMITTED_POSITION_UPDATER.get(this)) {
+            // 当问整个文件写完，并且 提交位置 已经到文件大小，
+            // 清空 writeBuffer，再次添加到 availableBuffers 双端队列
             this.transientStorePool.returnBuffer(writeBuffer);
             this.writeBuffer = null;
         }
@@ -492,10 +514,13 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return COMMITTED_POSITION_UPDATER.get(this);
     }
 
+    /**
+     * 向 fileChannel 中 添加数据，更新 提交位置
+     */
     protected void commit0() {
         int writePos = WROTE_POSITION_UPDATER.get(this);
         int lastCommittedPosition = COMMITTED_POSITION_UPDATER.get(this);
-
+        // 写入位置 > 上次提交位置
         if (writePos - lastCommittedPosition > 0) {
             try {
                 ByteBuffer byteBuffer = writeBuffer.slice();

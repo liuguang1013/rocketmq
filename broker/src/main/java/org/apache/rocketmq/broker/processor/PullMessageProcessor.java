@@ -292,13 +292,14 @@ public class PullMessageProcessor implements NettyRequestProcessor {
     }
 
     @Override
-    public RemotingCommand processRequest(final ChannelHandlerContext ctx,
-        RemotingCommand request) throws RemotingCommandException {
+    public RemotingCommand processRequest(final ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
+
         return this.processRequest(ctx.channel(), request, true, true);
     }
 
     @Override
     public boolean rejectRequest() {
+        // 不开启 从节点可读，并且当前节点是从节点，拒绝请求
         if (!this.brokerController.getBrokerConfig().isSlaveReadEnable()
             && this.brokerController.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
             return true;
@@ -391,8 +392,10 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // todo： 这是干啥的？
         // 封装对象 new TopicQueueMappingContext(topic, globalId, mappingDetail, mappingItemList, leaderItem);
-        TopicQueueMappingContext mappingContext = this.brokerController.getTopicQueueMappingManager().buildTopicQueueMappingContext(requestHeader, false);
+        TopicQueueMappingContext mappingContext = this.brokerController.getTopicQueueMappingManager()
+                .buildTopicQueueMappingContext(requestHeader, false);
 
         {
             // 不知道干啥
@@ -455,7 +458,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 response.setRemark("parse the consumer's subscription failed");
                 return response;
             }
-        } else {
+        }
+        else {
             // 在 ConsumerManager 消费者缓存中，获取消费者组信息
             ConsumerGroupInfo consumerGroupInfo = this.brokerController.getConsumerManager().getConsumerGroupInfo(requestHeader.getConsumerGroup());
 
@@ -575,19 +579,20 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         String topic = requestHeader.getTopic();
         String group = requestHeader.getConsumerGroup();
         int queueId = requestHeader.getQueueId();
-        // 移除 resetOffsetTable 缓存中数据
+        // 移除 resetOffsetTable 缓存中数据, resetOffsetTable 中的数据是接收请求才会缓存的
         Long resetOffset = brokerController.getConsumerOffsetManager().queryThenEraseResetOffset(topic, group, queueId);
 
         GetMessageResult getMessageResult = null;
         if (useResetOffsetFeature && null != resetOffset) {
-            //
+            // 重置过偏移量后，不在commit log 中获取消息
             getMessageResult = new GetMessageResult();
             getMessageResult.setStatus(GetMessageStatus.OFFSET_RESET);
             getMessageResult.setNextBeginOffset(resetOffset);
             getMessageResult.setMinOffset(messageStore.getMinOffsetInQueue(topic, queueId));
             getMessageResult.setMaxOffset(messageStore.getMaxOffsetInQueue(topic, queueId));
             getMessageResult.setSuggestPullingFromSlave(false);
-        } else {
+        }
+        else {
             // 查找广播消息 初始偏移量
             long broadcastInitOffset = queryBroadcastPullInitOffset(topic, group, queueId, requestHeader, channel);
             if (broadcastInitOffset >= 0) {
@@ -606,7 +611,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                                 finalResponse.setRemark("store getMessage return null");
                                 return finalResponse;
                             }
-                            // todo：待看
+                            // todo：待看 看了代码好像只是做个统计用？这值的吗。
                             brokerController.getColdDataCgCtrService().coldAcc(requestHeader.getConsumerGroup(), result.getColdDataSum());
                             //
                             return pullMessageResultHandler.handle(
@@ -730,7 +735,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             // consume too slow ,redirect to another machine
             // 消耗太慢，重定向到另一台机器
             if (getMessageResult.isSuggestPullingFromSlave()) {
-                // 1
+                // 1，代表从节点
                 responseHeader.setSuggestWhichBrokerId(subscriptionGroupConfig.getWhichBrokerWhenConsumeSlowly());
             }
             // consume ok
@@ -741,8 +746,9 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
         }
 
-        //
+        // 不是主节点，并且不建议从节点拉取
         if (this.brokerController.getBrokerConfig().getBrokerId() != MixAll.MASTER_ID && !getMessageResult.isSuggestPullingFromSlave()) {
+            // 从节点的请求 重定向到 主节点
             if (this.brokerController.getMinBrokerIdInGroup() == MixAll.MASTER_ID) {
                 LOGGER.debug("slave redirect pullRequest to master, topic: {}, queueId: {}, consumer group: {}, next: {}, min: {}, max: {}",
                     requestHeader.getTopic(),
@@ -753,6 +759,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                     responseHeader.getMaxOffset()
                 );
                 responseHeader.setSuggestWhichBrokerId(MixAll.MASTER_ID);
+                // 未找到消息，建议重试拉取
                 if (!getMessageResult.getStatus().equals(GetMessageStatus.FOUND)) {
                     response.setCode(ResponseCode.PULL_RETRY_IMMEDIATELY);
                 }
@@ -835,15 +842,20 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
     protected void tryCommitOffset(boolean brokerAllowSuspend, PullMessageRequestHeader requestHeader,
         long nextOffset, String clientAddress) {
-        this.brokerController.getConsumerOffsetManager().commitPullOffset(clientAddress,
-            requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), nextOffset);
+
+        // 缓存 nextOffset 偏移量到  ConsumerOffsetManager.pullOffsetTable.offsetTable
+        this.brokerController.getConsumerOffsetManager()
+                .commitPullOffset(clientAddress, requestHeader.getConsumerGroup(),
+                                    requestHeader.getTopic(), requestHeader.getQueueId(), nextOffset);
 
         boolean storeOffsetEnable = brokerAllowSuspend;
         final boolean hasCommitOffsetFlag = PullSysFlag.hasCommitOffsetFlag(requestHeader.getSysFlag());
         storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
+        // 缓存 requestHeader.getCommitOffset 偏移量 到 ConsumerOffsetManager.
         if (storeOffsetEnable) {
-            this.brokerController.getConsumerOffsetManager().commitOffset(clientAddress, requestHeader.getConsumerGroup(),
-                requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getCommitOffset());
+            this.brokerController.getConsumerOffsetManager()
+                    .commitOffset(clientAddress, requestHeader.getConsumerGroup(), requestHeader.getTopic(),
+                            requestHeader.getQueueId(), requestHeader.getCommitOffset());
         }
     }
 
@@ -902,8 +914,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return;
         }
 
-        boolean proxyPullBroadcast = Objects.equals(
-            RequestSource.PROXY_FOR_BROADCAST.getValue(), requestHeader.getRequestSource());
+        boolean proxyPullBroadcast = Objects.equals(RequestSource.PROXY_FOR_BROADCAST.getValue(), requestHeader.getRequestSource());
+
         ConsumerGroupInfo consumerGroupInfo = this.brokerController.getConsumerManager().getConsumerGroupInfo(group);
 
         if (isBroadcast(proxyPullBroadcast, consumerGroupInfo)) {

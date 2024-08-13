@@ -63,7 +63,8 @@ public class CompactionStore {
     private final String compactionCqPath;
     private final DefaultMessageStore defaultMessageStore;
     private final CompactionPositionMgr positionMgr;
-    private final ConcurrentHashMap<String, CompactionLog> compactionLogTable;
+
+    private final ConcurrentHashMap<String/*topic_queueId*/, CompactionLog> compactionLogTable;
     private final ScheduledExecutorService compactionSchedule;
     private final int scanInterval = 30000;
     private final int compactionInterval;

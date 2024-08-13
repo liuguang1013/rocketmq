@@ -367,6 +367,12 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
         }
     }
 
+    /**
+     * 刷新 消费队列：
+     * @param consumeQueue the consumeQueue will be flushed
+     * @param flushLeastPages  the minimum number of pages to be flushed
+     * @return
+     */
     @Override
     public boolean flush(ConsumeQueueInterface consumeQueue, int flushLeastPages) {
         FileQueueLifeCycle fileQueueLifeCycle = getLifeCycle(consumeQueue.getTopic(), consumeQueue.getQueueId());
@@ -528,6 +534,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
         this.setTopicQueueTable(cqOffsetTable);
         this.setBatchTopicQueueTable(bcqOffsetTable);
     }
+
     private void compensateForHA(ConcurrentMap<String, Long> cqOffsetTable) {
         SelectMappedBufferResult lastBuffer = null;
         long startReadOffset = messageStore.getCommitLog().getConfirmOffset() == -1 ? 0 : messageStore.getCommitLog().getConfirmOffset();

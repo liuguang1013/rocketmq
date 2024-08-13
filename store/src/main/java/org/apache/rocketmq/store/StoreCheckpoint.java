@@ -33,8 +33,14 @@ public class StoreCheckpoint {
     private final RandomAccessFile randomAccessFile;
     private final FileChannel fileChannel;
     private final MappedByteBuffer mappedByteBuffer;
+    /**
+     * 属性：消息 StoreTimestamp
+     * 当 FlushRealTimeService 刷新服务，commitlog 数据刷盘后，将消息的存储时间设置到该属性
+     * 当 GroupCommitService 刷盘后，commitlog 数据刷盘后，将消息的存储时间设置到该属性
+     */
     private volatile long physicMsgTimestamp = 0;
     /**
+     * 属性：消息 StoreTimestamp
      * 当 commit log 落盘消息，发送 dispatch 请求，向消息队列添加数据后，将消息的存储时间设置到该属性
      */
     private volatile long logicsMsgTimestamp = 0;
@@ -98,8 +104,8 @@ public class StoreCheckpoint {
      * 触发时机：
      * 1、当broker启动，上次不是正常退出，触发异常恢复，进行消息分发调度，调用CommitLogDispatcherBuildIndex构建索引时
      * 索引文件最后一个索引文件已经写满，创建新索引文件，对最后一个写满的文件进行强制刷盘，并刷新存储检查点信息
-     * 2、
-     * 3、定时任务每 1S 刷新一次
+     * 2、关闭 broker 前，刷新
+     * 3、scheduledExecutorService、FlushConsumeQueueService 定时任务每 1S 刷新一次
      */
     public void flush() {
         this.mappedByteBuffer.putLong(0, this.physicMsgTimestamp);
