@@ -1433,6 +1433,7 @@ public class CommitLog implements Swappable {
         if (!needHandleHA) {
             replicaResultFuture = CompletableFuture.completedFuture(PutMessageStatus.PUT_OK);
         } else {
+            // 处理 高可用
             replicaResultFuture = handleHA(putMessageResult.getAppendMessageResult(), putMessageResult, needAckNums);
         }
 
@@ -1456,8 +1457,8 @@ public class CommitLog implements Swappable {
         return this.flushManager.handleDiskFlush(result, messageExt);
     }
 
-    private CompletableFuture<PutMessageStatus> handleHA(AppendMessageResult result, PutMessageResult putMessageResult,
-        int needAckNums) {
+    private CompletableFuture<PutMessageStatus> handleHA(AppendMessageResult result,
+                                                         PutMessageResult putMessageResult, int needAckNums) {
         if (needAckNums >= 0 && needAckNums <= 1) {
             return CompletableFuture.completedFuture(PutMessageStatus.PUT_OK);
         }
@@ -1544,6 +1545,7 @@ public class CommitLog implements Swappable {
     }
 
     public boolean appendData(long startOffset, byte[] data, int dataStart, int dataLength) {
+        // 获取 可重入锁
         putMessageLock.lock();
         try {
             MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(startOffset);

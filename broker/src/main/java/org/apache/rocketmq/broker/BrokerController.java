@@ -460,6 +460,7 @@ public class BrokerController {
 
         this.topicRouteInfoManager = new TopicRouteInfoManager(this);
 
+        // 默认 false
         if (this.brokerConfig.isEnableSlaveActingMaster() && !this.brokerConfig.isSkipPreOnline()) {
             this.brokerPreOnlineService = new BrokerPreOnlineService(this);
         }
@@ -714,11 +715,13 @@ public class BrokerController {
             }
         }, 1000 * 10, 1000 * 60, TimeUnit.MILLISECONDS);
 
-        if (!messageStoreConfig.isEnableDLegerCommitLog() && !messageStoreConfig.isDuplicationEnable() && !brokerConfig.isEnableControllerMode()) {
+        if (!messageStoreConfig.isEnableDLegerCommitLog()
+                && !messageStoreConfig.isDuplicationEnable() && !brokerConfig.isEnableControllerMode()) {
             // 从节点
             if (BrokerRole.SLAVE == this.messageStoreConfig.getBrokerRole()) {
                 // 地址长度 大于 6
                 if (this.messageStoreConfig.getHaMasterAddress() != null && this.messageStoreConfig.getHaMasterAddress().length() >= HA_ADDRESS_MIN_LENGTH) {
+                    // 设置主节点地址 到 HA 客户端
                     this.messageStore.updateHaMasterAddress(this.messageStoreConfig.getHaMasterAddress());
                     this.updateMasterHAServerAddrPeriodically = false;
                 } else {

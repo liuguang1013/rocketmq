@@ -501,13 +501,24 @@ public class DefaultMessageStore implements MessageStore {
          */
         this.commitLog.start();
 
-
+        /**
+         * do nothing
+         */
         this.consumeQueueStore.start();
+        /**
+         * todo：统计待看
+         */
         this.storeStatsService.start();
 
         if (this.haService != null) {
+            /**
+             * 开启高可用服务：主从模式
+             * 使用 JDk 自带 NIO 相关 API，创建 socket 服务端/客户端，监听对映连接、读、写事件
+             * 完成 commit log 的数据同步到从节点
+             */
             this.haService.start();
         }
+
 
         this.createTempFile();
         this.addScheduleTask();
@@ -1398,6 +1409,15 @@ public class DefaultMessageStore implements MessageStore {
         return this.commitLog.getBulkData(offset, size);
     }
 
+    /**
+     * HA 客户端接收到服务端消息后，调用该方法添加消息到从节点 commit log 中
+     *
+     * @param startOffset  commit Log 中开始添加消息的位置
+     * @param data         客户端接收到服务端传送的数据（包含传输头 8+4）
+     * @param dataStart    data 数据开始读取的地方，需要去除传输头
+     * @param dataLength   消息的大小
+     * @return
+     */
     @Override
     public boolean appendToCommitLog(long startOffset, byte[] data, int dataStart, int dataLength) {
         if (this.shutdown) {
@@ -1407,6 +1427,7 @@ public class DefaultMessageStore implements MessageStore {
 
         boolean result = this.commitLog.appendData(startOffset, data, dataStart, dataLength);
         if (result) {
+            // 唤醒 重放服务，通知有新消息到达
             this.reputMessageService.wakeup();
         } else {
             LOGGER.error(

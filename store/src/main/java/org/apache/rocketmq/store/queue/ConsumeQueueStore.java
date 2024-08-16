@@ -203,7 +203,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
     }
 
     /**
-     *
+     * 加载消息队列：创建消费队列/消费队列额外信息的内存映射文件
      */
     public boolean load(ConsumeQueueInterface consumeQueue) {
         FileQueueLifeCycle fileQueueLifeCycle = getLifeCycle(consumeQueue.getTopic(), consumeQueue.getQueueId());
@@ -211,8 +211,7 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
     }
 
     /**
-     * 加载 已经存在 的消息队列
-     *
+     * 遍历  user.home/store/consumequeue 文件夹下的文件，加载为内存映射文件
      */
     private boolean loadConsumeQueues(String storePath, CQType cqType) {
         File dirLogic = new File(storePath);
@@ -240,7 +239,6 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
                         // 缓存消息队列信息 到 consumeQueueTable 中
                         this.putConsumeQueue(topic, queueId, logic);
                         // 消息队列加载方法，最终就是真正执行 mmap 文件内存映射
-                        //
                         if (!this.load(logic)) {
                             return false;
                         }

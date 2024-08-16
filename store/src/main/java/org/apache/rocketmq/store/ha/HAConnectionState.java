@@ -20,6 +20,8 @@ package org.apache.rocketmq.store.ha;
 public enum HAConnectionState {
     /**
      * Ready to start connection.
+     * 客户端创建初始状态
+     * 客户端当与服务端发送消息失败，TRANSFER->READY
      */
     READY,
     /**
@@ -28,6 +30,8 @@ public enum HAConnectionState {
     HANDSHAKE,
     /**
      * Synchronizing data.
+     * 服务端创建初始状态
+     * 客户端成功连接到服务端后，READY->TRANSFER
      */
     TRANSFER,
     /**

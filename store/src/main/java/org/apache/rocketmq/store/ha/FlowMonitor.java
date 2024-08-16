@@ -22,6 +22,10 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.apache.rocketmq.common.ServiceThread;
 import org.apache.rocketmq.store.config.MessageStoreConfig;
 
+/**
+ * 服务端/客户端数据发送流控
+ * 1s执行一次，计数器置 0，缓存 过去1s内的数据量
+ */
 public class FlowMonitor extends ServiceThread {
     private final AtomicLong transferredByte = new AtomicLong(0L);
     private volatile long transferredByteInSecond;
@@ -71,6 +75,7 @@ public class FlowMonitor extends ServiceThread {
     }
 
     public long maxTransferByteInSecond() {
+        // 100 M
         return this.messageStoreConfig.getMaxHaTransferByteInSecond();
     }
 }

@@ -312,6 +312,7 @@ public class RemotingHelper {
             if (NettySystemConfig.socketRcvbufSize > 0) {
                 sc.socket().setSendBufferSize(NettySystemConfig.socketRcvbufSize);
             }
+            // 连接服务端
             sc.socket().connect(remote, timeoutMillis);
             sc.configureBlocking(false);
             return sc;

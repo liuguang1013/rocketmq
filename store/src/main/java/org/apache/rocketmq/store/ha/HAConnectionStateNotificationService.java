@@ -27,6 +27,12 @@ import org.apache.rocketmq.store.config.BrokerRole;
 
 /**
  * Service to periodically check and notify for certain connection state.
+ * 定期检查和通知某些连接状态的服务。
+ *
+ * 对添加的请求进行判断：主从节点判断维度不一样
+ * 从节点：判当前持有的HAClient 是否是请求期望的状态，不是的判断是否超时
+ * 主节点：遍历客户端连接，查找与请求中地址匹配的客户端，状态是否与请求中预期的状态相同，不相同判断是否超时
+ *
  */
 public class HAConnectionStateNotificationService extends ServiceThread {
 
@@ -65,11 +71,14 @@ public class HAConnectionStateNotificationService extends ServiceThread {
             return;
         }
 
+        // 从节点：判当前持有的HAClient 是否是请求期望的状态，不是的判断是否超时
         if (this.defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE) {
+            // 判断 HA 客户端状态 和请求期望状态（TRANSFER）是否一致
             if (haService.getHAClient().getCurrentState() == this.request.getExpectState()) {
                 this.request.getRequestFuture().complete(true);
                 this.request = null;
             } else if (haService.getHAClient().getCurrentState() == HAConnectionState.READY) {
+                // 连接状态是准备连接 ，判断是否大于超时时间
                 if ((System.currentTimeMillis() - lastCheckTimeStamp) > CONNECTION_ESTABLISH_TIMEOUT) {
                     LOGGER.error("Wait HA connection establish with {} timeout", this.request.getRemoteAddr());
                     this.request.getRequestFuture().complete(false);
@@ -78,7 +87,9 @@ public class HAConnectionStateNotificationService extends ServiceThread {
             } else {
                 lastCheckTimeStamp = System.currentTimeMillis();
             }
-        } else {
+        }
+        // 主节点，遍历客户端连接，查找与请求中地址匹配的客户端，状态是否与请求中预期的状态相同，不相同判断是否超时
+        else {
             boolean connectionFound = false;
             for (HAConnection connection : haService.getConnectionList()) {
                 if (checkConnectionStateAndNotify(connection)) {
@@ -138,6 +149,7 @@ public class HAConnectionStateNotificationService extends ServiceThread {
 
         while (!this.isStopped()) {
             try {
+                // 每 1s 执行一次
                 this.waitForRunning(1000);
                 this.doWaitConnectionState();
             } catch (Exception e) {

@@ -56,6 +56,7 @@ public class NetworkUtil {
     public static Selector openSelector() throws IOException {
         Selector result = null;
 
+        // 判断系统为 linux 系统，使用 EPoll Selector
         if (isLinuxPlatform()) {
             try {
                 final Class<?> providerClazz = Class.forName("sun.nio.ch.EPollSelectorProvider");
@@ -78,6 +79,9 @@ public class NetworkUtil {
         }
 
         if (result == null) {
+            // 根据当前平台和Java虚拟机的配置选择最合适的实现方式
+            // SelectorProvider.provider().openSelector();
+            // 本jdk中 可选的 KQueueSelectorImpl、PollSelectorImpl
             result = Selector.open();
         }
 
