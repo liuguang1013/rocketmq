@@ -25,17 +25,31 @@ public class QueueData implements Comparable<QueueData> {
     private String brokerName;
     /**
      * 读队列数
+     * 实际是  topicConfig.getWriteQueueNums()
+     * 默认 是 16
+     *
+     * updateTopicRouteInfoFromNameServer（）：默认 TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC ，生产者在 nameSrv 获取到 TopicRouteData 信息后，会对 readQueueNums 和生产者的配置值（默认是 4），取较小值
      */
     private int readQueueNums;
     /**
      * 写队列数
+     * 实际是   topicConfig.getReadQueueNums()
+     * 默认 是 16
+     *
+     * updateTopicRouteInfoFromNameServer（）：默认 TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC ，生产者在 nameSrv 获取到 TopicRouteData 信息后，会对 writeQueueNums 和生产者的配置值（默认是 4），取较小值
      */
     private int writeQueueNums;
     /**
      * 表示消息队列的权限
+     * topicConfig.getPerm()
+     * 但是 BrokerController#registerBrokerAll 方法，获取所有 topic 的配置后，
+     *  如果broker 是不可读或写，会将 所有 topic 的配置也设置为不可读或写
      */
     private int perm;
 
+    /**
+     * 默认是 0
+     */
     private int topicSysFlag;
 
     public QueueData() {

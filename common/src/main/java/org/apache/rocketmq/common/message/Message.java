@@ -30,7 +30,7 @@ public class Message implements Serializable {
      */
     private String topic;
     /**
-     * flag
+     * flag：默认是 0
      */
     private int flag;
     /**
@@ -43,9 +43,20 @@ public class Message implements Serializable {
      * WAIT：是否等待存储完成，默认是 true
      * DELAY：延迟等级，0 无延迟，大于 0才设置这个属性
      *
+     * UNIQ_KEY：消息id
+     * TRAN_MSG：是否是事务消息
+     * MSG_REGION：消息区域，默认  DefaultRegion
+     * TRACE_ON ：消息轨迹开关
+     * __SHARDINGKEY： 标识是否顺序消息
      */
     private Map<String, String> properties;
+    /**
+     * 消息体
+     * 消息大小 > 4M，抛出异常
+     * 消息大小 > 4K，启动压缩
+     */
     private byte[] body;
+
     private String transactionId;
 
     public Message() {
@@ -64,13 +75,34 @@ public class Message implements Serializable {
             this.setTags(tags);
         }
 
+        /**
+         * keys 属性十分重要：
+         * 消息路由：生产者端的作用
+         *          当生产者发送消息时，可以通过设置 keys 值来控制消息被路由到哪些队列。
+         *          这通常通过哈希算法实现，以确保具有相同 keys 的消息会被发送到相同的队列中。
+         *          例如，假设你有一个订单系统，并且希望所有与特定订单 ID 相关的消息都被发送到同一个队列中进行处理。
+         * 消息过滤：消费者端的作用
+         *          消费者可以通过设置消息过滤器来只接收具有特定 keys 的消息
+         *          例如，你可能有一个消费者只关心与特定用户 ID 关联的消息。在这种情况下，你可以为这些消息设置用户 ID 作为 keys，并配置消费者只消费具有这些 keys 的消息。
+         *
+         * compactionSchedule 定时压缩任务中也有使用到 keys 作为 offsetMap 的key
+         */
         if (keys != null && keys.length() > 0) {
             this.setKeys(keys);
         }
 
+        /**
+         * 在 FlushDiskType.SYNC_FLUSH 同步刷盘下，waitStoreMsgOK 属性会影响 GroupCommitService 处理消息的 刷盘方式
+         * WAIT 属性设置为 true，会创建 GroupCommitRequest 请求放入缓存，等待 GroupCommitService 定时扫描请求进行数据落盘
+         * WAIT 属性设置为 false，会马上唤醒 GroupCommitService 线程，进行数据实时落盘
+         */
         this.setWaitStoreMsgOK(waitStoreMsgOK);
     }
 
+    /**
+     * 在 使用 rocketMqTemplate.send(D destination, Message<?> message）方法
+     * 消息转换为rocketmq消息的时候，创建对象
+     */
     public Message(String topic, String tags, byte[] body) {
         this(topic, tags, "", 0, body, true);
     }
@@ -79,6 +111,9 @@ public class Message implements Serializable {
         this(topic, tags, keys, 0, body, true);
     }
 
+    /**
+     *  创建Message对象会获取spring message header 中的 keys 属性，不存在还会尝试获取 rocketmq_keys 属性
+     */
     public void setKeys(String keys) {
         this.putProperty(MessageConst.PROPERTY_KEYS, keys);
     }

@@ -137,6 +137,9 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
             // topic 注册、删除 到nameSrv
             case RequestCode.DELETE_TOPIC_IN_NAMESRV:
                 return this.deleteTopicInNamesrv(ctx, request);
+            /**
+             * 注册 topic
+             */
             case RequestCode.REGISTER_TOPIC_IN_NAMESRV:
                 return this.registerTopicToNamesrv(ctx, request);
 
@@ -230,13 +233,17 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         return response;
     }
 
+    /**
+     * 处理 RequestCode.REGISTER_BROKER 请求
+     */
     public RemotingCommand registerBroker(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
+
         final RemotingCommand response = RemotingCommand.createResponseCommand(RegisterBrokerResponseHeader.class);
         final RegisterBrokerResponseHeader responseHeader = (RegisterBrokerResponseHeader) response.readCustomHeader();
-        final RegisterBrokerRequestHeader requestHeader =
-            (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
+        final RegisterBrokerRequestHeader requestHeader = (RegisterBrokerRequestHeader) request.decodeCommandCustomHeader(RegisterBrokerRequestHeader.class);
 
+        // 冗余校验
         if (!checksum(ctx, request, requestHeader)) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark("crc32 not match");
@@ -247,6 +254,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         List<String> filterServerList = null;
 
         Version brokerVersion = MQVersion.value2Version(request.getVersion());
+        // 版本兼容
         if (brokerVersion.ordinal() >= MQVersion.Version.V3_0_11.ordinal()) {
             final RegisterBrokerBody registerBrokerBody = extractRegisterBrokerBodyFromRequest(request, requestHeader);
             topicConfigWrapper = registerBrokerBody.getTopicConfigSerializeWrapper();
@@ -261,7 +269,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
             requestHeader.getBrokerAddr(),
             requestHeader.getBrokerName(),
             requestHeader.getBrokerId(),
-            requestHeader.getHaServerAddr(),
+            requestHeader.getHaServerAddr(),// broker IP：：10912
             request.getExtFields().get(MixAll.ZONE_NAME),
             requestHeader.getHeartbeatTimeoutMillis(),
             requestHeader.getEnableActingMaster(),
@@ -280,7 +288,9 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
         responseHeader.setHaServerAddr(result.getHaServerAddr());
         responseHeader.setMasterAddr(result.getMasterAddr());
 
+        // 默认 true，返回 OrderTopicConfig：
         if (this.namesrvController.getNamesrvConfig().isReturnOrderTopicConfigToBroker()) {
+            // 获取 Namespace 为 ORDER_TOPIC_CONFIG  的 kv 信息
             byte[] jsonValue = this.namesrvController.getKvConfigManager().getKVListByNamespace(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG);
             response.setBody(jsonValue);
         }
@@ -482,6 +492,7 @@ public class DefaultRequestProcessor implements NettyRequestProcessor {
 
         TopicRouteData topicRouteData = TopicRouteData.decode(request.getBody(), TopicRouteData.class);
         if (topicRouteData != null && topicRouteData.getQueueDatas() != null && !topicRouteData.getQueueDatas().isEmpty()) {
+
             this.namesrvController.getRouteInfoManager().registerTopic(requestHeader.getTopic(), topicRouteData.getQueueDatas());
         }
 

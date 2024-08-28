@@ -496,13 +496,12 @@ public class BrokerController {
 
         NettyServerConfig fastConfig = (NettyServerConfig) this.nettyServerConfig.clone();
 
+        // 创建第二个 netty 客户端： 当使用 VIP channel 的时候 使用该服务端
         int listeningPort = nettyServerConfig.getListenPort() - 2;
         if (listeningPort < 0) {
             listeningPort = 0;
         }
         fastConfig.setListenPort(listeningPort);
-
-        // 创建第二个 netty 客户端
         this.fastRemotingServer = new NettyRemotingServer(fastConfig, this.clientHousekeepingService);
     }
 
@@ -1166,6 +1165,7 @@ public class BrokerController {
         this.remotingServer.registerProcessor(RequestCode.SEND_MESSAGE_V2, sendMessageProcessor, this.sendMessageExecutor);
         this.remotingServer.registerProcessor(RequestCode.SEND_BATCH_MESSAGE, sendMessageProcessor, this.sendMessageExecutor);
         this.remotingServer.registerProcessor(RequestCode.CONSUMER_SEND_MSG_BACK, sendMessageProcessor, this.sendMessageExecutor);
+
         this.fastRemotingServer.registerProcessor(RequestCode.SEND_MESSAGE, sendMessageProcessor, this.sendMessageExecutor);
         this.fastRemotingServer.registerProcessor(RequestCode.SEND_MESSAGE_V2, sendMessageProcessor, this.sendMessageExecutor);
         this.fastRemotingServer.registerProcessor(RequestCode.SEND_BATCH_MESSAGE, sendMessageProcessor, this.sendMessageExecutor);
@@ -1785,7 +1785,7 @@ public class BrokerController {
 
         this.shouldStartTime = System.currentTimeMillis() + messageStoreConfig.getDisappearTimeAfterStart();
 
-        // 副本数 > 1 ，并且允许从节点成为主节点
+        // 副本数 > 1 ，并且允许从节点成为主节点，默认 TotalReplicas 是 1 ，enableSlaveActingMaster =false
         if (messageStoreConfig.getTotalReplicas() > 1 && this.brokerConfig.isEnableSlaveActingMaster()) {
             isIsolated = true;
         }
@@ -1798,8 +1798,11 @@ public class BrokerController {
 
         startBasicService();
 
+        //
         if (!isIsolated && !this.messageStoreConfig.isEnableDLegerCommitLog() && !this.messageStoreConfig.isDuplicationEnable()) {
+            // 只对主节点：
             changeSpecialServiceStatus(this.brokerConfig.getBrokerId() == MixAll.MASTER_ID);
+            // 向所有的 NameSrv 注册 broker 信息
             this.registerBrokerAll(true, false, true);
         }
 
@@ -1885,6 +1888,9 @@ public class BrokerController {
         this.brokerOuterAPI.registerSingleTopicAll(this.brokerConfig.getBrokerName(), tmpTopic, 3000);
     }
 
+    /**
+     *  在发送消息的过程中，创建一个 topic
+     */
     public synchronized void registerIncrementBrokerData(TopicConfig topicConfig, DataVersion dataVersion) {
         this.registerIncrementBrokerData(Collections.singletonList(topicConfig), dataVersion);
     }
@@ -1893,13 +1899,14 @@ public class BrokerController {
         if (topicConfigList == null || topicConfigList.isEmpty()) {
             return;
         }
-
+        // 构建包装类：设置dataVersion、topicConfigTable缓存、属性
         TopicConfigAndMappingSerializeWrapper topicConfigSerializeWrapper = new TopicConfigAndMappingSerializeWrapper();
         topicConfigSerializeWrapper.setDataVersion(dataVersion);
 
         ConcurrentMap<String, TopicConfig> topicConfigTable = topicConfigList.stream()
             .map(topicConfig -> {
                 TopicConfig registerTopicConfig;
+                // broker 不可读/写
                 if (!PermName.isWriteable(this.getBrokerConfig().getBrokerPermission())
                     || !PermName.isReadable(this.getBrokerConfig().getBrokerPermission())) {
                     registerTopicConfig =
@@ -1927,14 +1934,23 @@ public class BrokerController {
             topicConfigSerializeWrapper.setTopicQueueMappingInfoMap(topicQueueMappingInfoMap);
         }
 
+        // 注册 broker 信息
         doRegisterBrokerAll(true, false, topicConfigSerializeWrapper);
     }
 
+    /**
+     * 向所有的 NameSrv 注册 broker 信息：包含所有 topic 的 topicConfig
+     *  brokerController#start() 方法：true、false、true
+     */
     public synchronized void registerBrokerAll(final boolean checkOrderConfig, boolean oneway, boolean forceRegister) {
+        // 获取所有 topic 的配置
         ConcurrentMap<String, TopicConfig> topicConfigMap = this.getTopicConfigManager().getTopicConfigTable();
+
         ConcurrentHashMap<String, TopicConfig> topicConfigTable = new ConcurrentHashMap<>();
 
+        // 将 topic 的配置 和 broker 的读/写配置取交集
         for (TopicConfig topicConfig : topicConfigMap.values()) {
+            //  默认 broker 是可读/写
             if (!PermName.isWriteable(this.getBrokerConfig().getBrokerPermission())
                 || !PermName.isReadable(this.getBrokerConfig().getBrokerPermission())) {
                 topicConfigTable.put(topicConfig.getTopicName(),
@@ -1944,6 +1960,7 @@ public class BrokerController {
                 topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
             }
 
+            // 默认不使用拆分注册、topicConfig数量 > 默认值 800
             if (this.brokerConfig.isEnableSplitRegistration()
                 && topicConfigTable.size() >= this.brokerConfig.getSplitRegistrationSize()) {
                 TopicConfigAndMappingSerializeWrapper topicConfigWrapper = this.getTopicConfigManager().buildSerializeWrapper(topicConfigTable);
@@ -1952,44 +1969,73 @@ public class BrokerController {
             }
         }
 
-        Map<String, TopicQueueMappingInfo> topicQueueMappingInfoMap = this.getTopicQueueMappingManager().getTopicQueueMappingTable().entrySet().stream()
-            .map(entry -> new AbstractMap.SimpleImmutableEntry<>(entry.getKey(), TopicQueueMappingDetail.cloneAsMappingInfo(entry.getValue())))
-            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        Map<String, TopicQueueMappingInfo> topicQueueMappingInfoMap = this.getTopicQueueMappingManager()
+                .getTopicQueueMappingTable().entrySet().stream()
+                .map(entry ->
+                        new AbstractMap.SimpleImmutableEntry<>(entry.getKey(),
+                                TopicQueueMappingDetail.cloneAsMappingInfo(entry.getValue())))
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
-        TopicConfigAndMappingSerializeWrapper topicConfigWrapper = this.getTopicConfigManager().
-            buildSerializeWrapper(topicConfigTable, topicQueueMappingInfoMap);
-        if (this.brokerConfig.isEnableSplitRegistration() || forceRegister || needRegister(this.brokerConfig.getBrokerClusterName(),
-            this.getBrokerAddr(),
-            this.brokerConfig.getBrokerName(),
-            this.brokerConfig.getBrokerId(),
-            this.brokerConfig.getRegisterBrokerTimeoutMills(),
-            this.brokerConfig.isInBrokerContainer())) {
+        // 将 topicConfigTable 、topicQueueMappingInfoMap 封装到 TopicConfigAndMappingSerializeWrapper 对象
+        TopicConfigAndMappingSerializeWrapper topicConfigWrapper = this.getTopicConfigManager()
+                .buildSerializeWrapper(topicConfigTable, topicQueueMappingInfoMap);
+
+        // broker 启动系统topic 强制注册
+        if (this.brokerConfig.isEnableSplitRegistration() || forceRegister ||
+                needRegister(this.brokerConfig.getBrokerClusterName(), this.getBrokerAddr(),
+                        this.brokerConfig.getBrokerName(), this.brokerConfig.getBrokerId(),
+                        this.brokerConfig.getRegisterBrokerTimeoutMills(), this.brokerConfig.isInBrokerContainer())) {
+
             doRegisterBrokerAll(checkOrderConfig, oneway, topicConfigWrapper);
         }
     }
 
-    protected void doRegisterBrokerAll(boolean checkOrderConfig, boolean oneway,
-        TopicConfigSerializeWrapper topicConfigWrapper) {
+    /**
+     *  向所有的 NameSrv 发送 RequestCode.REGISTER_BROKER 请求，
+     *  并在 nameSrv 端 RouteInfoManager#registerBroker 完成 broker 信息的缓存
+     *  主要是完成：
+     *       clusterAddrTable：clusterName 与 brokerName 关系
+     *       brokerAddrTable：brokerName 与 BrokerData 关系
+     *       topicQueueTable：topic 与 QueueData 关系
+     *       topicQueueMappingInfoTable：topic 与 TopicQueueMappingInfo 关系
+     *       brokerLiveTable：BrokerAddrInfo（封装clusterName、brokerAddr）与 BrokerLiveInfo（haServerAddr、channel）关系
+     *       filterServerTable：BrokerAddrInfo 与 Filter Server list 关系
+     */
+    protected void doRegisterBrokerAll(boolean checkOrderConfig, boolean oneway, TopicConfigSerializeWrapper topicConfigWrapper) {
 
         if (shutdown) {
             BrokerController.LOG.info("BrokerController#doRegisterBrokerAll: broker has shutdown, no need to register any more.");
             return;
         }
+        /**
+         * 向其他 NameSrv 注册 broker 信息
+         */
         List<RegisterBrokerResult> registerBrokerResultList = this.brokerOuterAPI.registerBrokerAll(
+            //默认：DefaultCluster
             this.brokerConfig.getBrokerClusterName(),
+            // ip：port
             this.getBrokerAddr(),
+            //
             this.brokerConfig.getBrokerName(),
+            // 标识主从节点
             this.brokerConfig.getBrokerId(),
+            // 本机ip：10912
             this.getHAServerAddr(),
             topicConfigWrapper,
             Lists.newArrayList(),
             oneway,
+            // 默认 24 s
             this.brokerConfig.getRegisterBrokerTimeoutMills(),
+            // 默认false
             this.brokerConfig.isEnableSlaveActingMaster(),
+            // 默认false
             this.brokerConfig.isCompressedRegister(),
+            //默认 null
             this.brokerConfig.isEnableSlaveActingMaster() ? this.brokerConfig.getBrokerNotActiveTimeoutMillis() : null,
+            // broker 身份验证信息
             this.getBrokerIdentity());
 
+        // 处理注册 broker 结果：更新主节点信息
         handleRegisterBrokerResult(registerBrokerResultList, checkOrderConfig);
     }
 
@@ -2048,17 +2094,22 @@ public class BrokerController {
         }
     }
 
-    protected void handleRegisterBrokerResult(List<RegisterBrokerResult> registerBrokerResultList,
-        boolean checkOrderConfig) {
+    /**
+     * 遍历处理 向 nameSrv 注册 broker 信息的结果：更新 主节点信息
+     */
+    protected void handleRegisterBrokerResult(List<RegisterBrokerResult> registerBrokerResultList, boolean checkOrderConfig) {
         for (RegisterBrokerResult registerBrokerResult : registerBrokerResultList) {
             if (registerBrokerResult != null) {
+                // 默认 false，不定期更新 HA 主节点地址信息
                 if (this.updateMasterHAServerAddrPeriodically && registerBrokerResult.getHaServerAddr() != null) {
                     this.messageStore.updateHaMasterAddress(registerBrokerResult.getHaServerAddr());
                     this.messageStore.updateMasterAddress(registerBrokerResult.getMasterAddr());
                 }
-
+                // 对于从节点有定时任务同步主节点信息，设置主节点地址
                 this.slaveSynchronize.setMasterAddr(registerBrokerResult.getMasterAddr());
+
                 if (checkOrderConfig) {
+
                     this.getTopicConfigManager().updateOrderTopicConfig(registerBrokerResult.getKvTable());
                 }
                 break;
@@ -2226,18 +2277,36 @@ public class BrokerController {
         }
     }
 
+    /**
+     *  主节点 开启
+     */
     public void changeSpecialServiceStatus(boolean shouldStart) {
 
+        /**
+         *
+         */
         for (BrokerAttachedPlugin brokerAttachedPlugin : brokerAttachedPlugins) {
             if (brokerAttachedPlugin != null) {
                 brokerAttachedPlugin.statusChanged(shouldStart);
             }
         }
 
+        /**
+         * 延迟消息服务：主节点开启
+         * todo：待看
+         */
         changeScheduleServiceStatus(shouldStart);
 
+        /**
+         * 事务消息检查服务：主节点开启
+         * todo：待看
+         */
         changeTransactionCheckServiceStatus(shouldStart);
 
+        /**
+         * 设置 ackMessageProcessor 状态
+         * todo：待看
+         */
         if (this.ackMessageProcessor != null) {
             LOG.info("Set PopReviveService Status to {}", shouldStart);
             this.ackMessageProcessor.setPopReviveServiceStatus(shouldStart);
@@ -2260,8 +2329,10 @@ public class BrokerController {
         if (isScheduleServiceStart != shouldStart) {
             LOG.info("ScheduleServiceStatus changed to {}", shouldStart);
             if (shouldStart) {
+                // 主节点开启
                 this.scheduleMessageService.start();
             } else {
+                // 从节点 关闭
                 this.scheduleMessageService.stop();
             }
             isScheduleServiceStart = shouldStart;
@@ -2305,6 +2376,7 @@ public class BrokerController {
     }
 
     public String getHAServerAddr() {
+        // 本机ip：10912
         return this.brokerConfig.getBrokerIP2() + ":" + this.messageStoreConfig.getHaListenPort();
     }
 

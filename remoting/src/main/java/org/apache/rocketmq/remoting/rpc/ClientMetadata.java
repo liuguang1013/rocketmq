@@ -95,22 +95,31 @@ public class ClientMetadata {
         return brokerAddrTable;
     }
 
+    /**
+     * 对 TopicRouteData.TopicQueueMappingInfo 数据进行处理，
+     * 最后封装成 MessageQueue 和 scope 的映射
+     */
     public static ConcurrentMap<MessageQueue, String> topicRouteData2EndpointsForStaticTopic(final String topic, final TopicRouteData route) {
+        // 默认不存在
         if (route.getTopicQueueMappingByBroker() == null
                 || route.getTopicQueueMappingByBroker().isEmpty()) {
             return new ConcurrentHashMap<>();
         }
+
         /**
          * 消息队列
          * key：MessageQueue：topic、brokerName、queueId
-         *
+         * value ： brokerName ，这是通过工具类生成的，TopicQueueMappingUtils.getMockBrokerName(info.getScope())
+         *          可能多个 MessageQueue 对映多个 brokerName
          */
-        ConcurrentMap<MessageQueue, String> mqEndPointsOfBroker = new ConcurrentHashMap<>();
+        ConcurrentMap<MessageQueue, String/*brokerName*/> mqEndPointsOfBroker = new ConcurrentHashMap<>();
+
 
         // 根据范围再次分组
-        // key： topic和队列的范围
+        // key： TopicQueueMappingInfo.scope
         // value：key：brokerName  value：TopicQueueMappingInfo
         Map<String, Map<String, TopicQueueMappingInfo>> mappingInfosByScope = new HashMap<>();
+
         for (Map.Entry<String, TopicQueueMappingInfo> entry : route.getTopicQueueMappingByBroker().entrySet()) {
             TopicQueueMappingInfo info = entry.getValue();
             String scope = info.getScope();
@@ -122,17 +131,20 @@ public class ClientMetadata {
             }
         }
 
-        // 遍历
+        // 根据 TopicQueueMappingInfo.scope 分组后，
+        // 再次遍历对每个 scope 下的 TopicQueueMappingInfo ，封装成 MessageQueue 对象，MessageQueue 中，brokerName 是根据 Scope 生成的 是一样的，topic 也是一样的， 只有 globalId 不同
+        // 期间找出 maxTotalNums 值，进行 mqEndPoints 中数据补充
         for (Map.Entry<String, Map<String, TopicQueueMappingInfo>> mapEntry : mappingInfosByScope.entrySet()) {
             String scope = mapEntry.getKey();
-            Map<String, TopicQueueMappingInfo> topicQueueMappingInfoMap =  mapEntry.getValue();
+            Map<String/*brokerName*/, TopicQueueMappingInfo> topicQueueMappingInfoMap =  mapEntry.getValue();
 
             ConcurrentMap<MessageQueue, TopicQueueMappingInfo> mqEndPoints = new ConcurrentHashMap<>();
             // 对某scope 下，映射信息排序：根据数据新旧标识,由大到小
-            List<Map.Entry<String, TopicQueueMappingInfo>> mappingInfos = new ArrayList<>(topicQueueMappingInfoMap.entrySet());
+            List<Map.Entry<String/*brokerName*/, TopicQueueMappingInfo>> mappingInfos = new ArrayList<>(topicQueueMappingInfoMap.entrySet());
             mappingInfos.sort((o1, o2) -> (int) (o2.getValue().getEpoch() - o1.getValue().getEpoch()));
-            // 某topic下，某scope下，所有brokerName中，最大队列数
+            // 查找 某topic下，某scope下，所有brokerName中，最大队列数
             int maxTotalNums = 0;
+
             long maxTotalNumOfEpoch = -1;
             for (Map.Entry<String, TopicQueueMappingInfo> entry : mappingInfos) {
                 TopicQueueMappingInfo info = entry.getValue();

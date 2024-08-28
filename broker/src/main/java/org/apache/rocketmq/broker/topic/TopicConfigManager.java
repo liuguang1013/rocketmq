@@ -245,11 +245,26 @@ public class TopicConfigManager extends ConfigManager {
         return getTopicConfig(topic);
     }
 
-    public TopicConfig createTopicInSendMessageMethod(final String topic, final String defaultTopic,
-        final String remoteAddress, final int clientDefaultTopicQueueNums, final int topicSysFlag) {
+    /**
+     * topic 继承 默认 topic ：TBW102 的配置，去除继承权限
+     *
+     * 在发送消息的过程中，创建 topic：
+     *
+     * 向所有的 NameSrv 发送 RequestCode.REGISTER_BROKER 请求，
+     * 并在 nameSrv 端 RouteInfoManager#registerBroker 完成 broker 信息的缓存
+     * 主要是完成：
+     *      clusterAddrTable：clusterName 与 brokerName 关系
+     *      brokerAddrTable：brokerName 与 BrokerData 关系
+     *      topicQueueTable：topic 与 QueueData 关系
+     *      topicQueueMappingInfoTable：topic 与 TopicQueueMappingInfo 关系
+     *      brokerLiveTable：BrokerAddrInfo（封装clusterName、brokerAddr）与 BrokerLiveInfo（haServerAddr、channel）关系
+     *      filterServerTable：BrokerAddrInfo 与 Filter Server list 关系
+     */
+    public TopicConfig createTopicInSendMessageMethod(final String topic, final String defaultTopic, final String remoteAddress,
+                                                      final int clientDefaultTopicQueueNums, final int topicSysFlag) {
+
         TopicConfig topicConfig = null;
         boolean createNew = false;
-
         try {
             if (this.topicConfigTableLock.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
@@ -257,18 +272,20 @@ public class TopicConfigManager extends ConfigManager {
                     if (topicConfig != null) {
                         return topicConfig;
                     }
-
+                    // 默认 topic ：TBW102
                     TopicConfig defaultTopicConfig = getTopicConfig(defaultTopic);
                     if (defaultTopicConfig != null) {
+                        //
                         if (defaultTopic.equals(TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC)) {
                             if (!this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
                                 defaultTopicConfig.setPerm(PermName.PERM_READ | PermName.PERM_WRITE);
                             }
                         }
 
+                        // 判断默认 topic 是否有 继承权限，默认具有
                         if (PermName.isInherited(defaultTopicConfig.getPerm())) {
                             topicConfig = new TopicConfig(topic);
-
+                            // 请求传来的是 4，默认 topic 的是 16
                             int queueNums = Math.min(clientDefaultTopicQueueNums, defaultTopicConfig.getWriteQueueNums());
 
                             if (queueNums < 0) {
@@ -278,9 +295,11 @@ public class TopicConfigManager extends ConfigManager {
                             topicConfig.setReadQueueNums(queueNums);
                             topicConfig.setWriteQueueNums(queueNums);
                             int perm = defaultTopicConfig.getPerm();
+                            // 去除继承权限
                             perm &= ~PermName.PERM_INHERIT;
                             topicConfig.setPerm(perm);
                             topicConfig.setTopicSysFlag(topicSysFlag);
+                            // 默认 单tag 过滤
                             topicConfig.setTopicFilterType(defaultTopicConfig.getTopicFilterType());
                         } else {
                             log.warn("Create new topic failed, because the default topic[{}] has no perm [{}] producer:[{}]",
@@ -294,14 +313,15 @@ public class TopicConfigManager extends ConfigManager {
                     if (topicConfig != null) {
                         log.info("Create new topic by default topic:[{}] config:[{}] producer:[{}]",
                             defaultTopic, topicConfig, remoteAddress);
-
+                        // 缓存 topicConfig
                         putTopicConfig(topicConfig);
 
                         long stateMachineVersion = brokerController.getMessageStore() != null ? brokerController.getMessageStore().getStateMachineVersion() : 0;
+                        // 下一个版本
                         dataVersion.nextVersion(stateMachineVersion);
 
                         createNew = true;
-
+                        // 数据持久化
                         this.persist();
                     }
                 } finally {
@@ -313,6 +333,7 @@ public class TopicConfigManager extends ConfigManager {
         }
 
         if (createNew) {
+            // 注册 BrokerData ：实际是构建 topicRouterInfo 等对象
             registerBrokerData(topicConfig);
         }
 
@@ -358,11 +379,9 @@ public class TopicConfigManager extends ConfigManager {
         return getTopicConfig(topicConfig.getTopicName());
     }
 
-    public TopicConfig createTopicInSendMessageBackMethod(
-        final String topic,
-        final int clientDefaultTopicQueueNums,
-        final int perm,
-        final int topicSysFlag) {
+    public TopicConfig createTopicInSendMessageBackMethod(final String topic, final int clientDefaultTopicQueueNums,
+                                                          final int perm, final int topicSysFlag) {
+
         return createTopicInSendMessageBackMethod(topic, clientDefaultTopicQueueNums, perm, false, topicSysFlag);
     }
 
@@ -614,8 +633,8 @@ public class TopicConfigManager extends ConfigManager {
 
     public TopicConfigAndMappingSerializeWrapper buildSerializeWrapper(
         final ConcurrentMap<String, TopicConfig> topicConfigTable,
-        final Map<String, TopicQueueMappingInfo> topicQueueMappingInfoMap
-    ) {
+        final Map<String, TopicQueueMappingInfo> topicQueueMappingInfoMap) {
+
         TopicConfigAndMappingSerializeWrapper topicConfigWrapper = new TopicConfigAndMappingSerializeWrapper();
         topicConfigWrapper.setTopicConfigTable(topicConfigTable);
         topicConfigWrapper.setTopicQueueMappingInfoMap(topicQueueMappingInfoMap);
@@ -696,6 +715,7 @@ public class TopicConfigManager extends ConfigManager {
     }
 
     private void registerBrokerData(TopicConfig topicConfig) {
+        // 默认 false
         if (brokerController.getBrokerConfig().isEnableSingleTopicRegister()) {
             this.brokerController.registerSingleTopicAll(topicConfig);
         } else {

@@ -44,6 +44,12 @@ import org.apache.rocketmq.remoting.protocol.ResponseCode;
 import org.apache.rocketmq.remoting.protocol.route.BrokerData;
 import org.apache.rocketmq.remoting.protocol.route.TopicRouteData;
 
+/**
+ * 存在定时刷新 topic 路由信息的服务
+ * 每 30 s 从 nameSrv 更新 TopicRouteData
+ *
+ *
+ */
 public class TopicRouteInfoManager {
 
     private static final long GET_TOPIC_ROUTE_TIMEOUT = 3000L;
@@ -51,9 +57,26 @@ public class TopicRouteInfoManager {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
 
     private final Lock lockNamesrv = new ReentrantLock();
+
+    /**
+     * key： topic
+     * value：TopicRouteData 封装 QueueData、BrokerData
+     *          QueueData：封装 readQueueNums、writeQueueNums、perm
+     *          BrokerData：封装 cluster、brokerName、brokerAddrs
+     *
+     */
     private final ConcurrentMap<String/* Topic */, TopicRouteData> topicRouteTable = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String/* Broker Name */, HashMap<Long/* brokerId */, String/* address */>> brokerAddrTable =
-        new ConcurrentHashMap<>();
+
+    /**
+     * key：Broker Name
+     * value：brokerId、address
+     */
+    private final ConcurrentMap<String/* Broker Name */, HashMap<Long/* brokerId */, String/* address */>> brokerAddrTable = new ConcurrentHashMap<>();
+
+    /**
+     * key： topic
+     * value：TopicPublishInfo：封装 MessageQueue、保存 TopicRouteData
+     */
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable = new ConcurrentHashMap<>();
 
     private final ConcurrentHashMap<String, Set<MessageQueue>> topicSubscribeInfoTable = new ConcurrentHashMap<>();
@@ -65,6 +88,9 @@ public class TopicRouteInfoManager {
         this.brokerController = brokerController;
     }
 
+    /**
+     *  延迟 1s 后，每 30 s 从 nameSrv 更新 TopicRouteData
+     */
     public void start() {
         this.scheduledExecutorService = ThreadUtils.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("TopicRouteInfoManagerScheduledThread"));
 
@@ -80,11 +106,14 @@ public class TopicRouteInfoManager {
     private void updateTopicRouteInfoFromNameServer() {
         final Set<String> topicSetForPopAssignment = this.topicSubscribeInfoTable.keySet();
         final Set<String> topicSetForEscapeBridge = this.topicRouteTable.keySet();
+        // 合并：订阅 topic、
         final Set<String> topicsAll = Sets.union(topicSetForPopAssignment, topicSetForEscapeBridge);
 
+        // 遍历更新
         for (String topic : topicsAll) {
             boolean isNeedUpdatePublishInfo = topicSetForEscapeBridge.contains(topic);
             boolean isNeedUpdateSubscribeInfo = topicSetForPopAssignment.contains(topic);
+
             updateTopicRouteInfoFromNameServer(topic, isNeedUpdatePublishInfo, isNeedUpdateSubscribeInfo);
         }
     }
@@ -94,6 +123,7 @@ public class TopicRouteInfoManager {
         try {
             if (this.lockNamesrv.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
+                    // 通过 BrokerOuterAPI
                     final TopicRouteData topicRouteData = this.brokerController.getBrokerOuterAPI()
                         .getTopicRouteInfoFromNameServer(topic, GET_TOPIC_ROUTE_TIMEOUT);
                     if (null == topicRouteData) {
@@ -101,10 +131,12 @@ public class TopicRouteInfoManager {
                         return;
                     }
 
+                    // 更新 订阅信息
                     if (isNeedUpdateSubscribeInfo) {
                         this.updateSubscribeInfoTable(topicRouteData, topic);
                     }
 
+                    // 更新 发布信息
                     if (isNeedUpdatePublishInfo) {
                         this.updateTopicRouteTable(topic, topicRouteData);
                     }
@@ -126,6 +158,10 @@ public class TopicRouteInfoManager {
         }
     }
 
+    /**
+     * nameSrv 获取到 TopicRouteData 后，更新本地数据
+     * brokerAddrTable、topicRouteTable、topicPublishInfoTable
+     */
     private boolean updateTopicRouteTable(String topic, TopicRouteData topicRouteData) {
         TopicRouteData old = this.topicRouteTable.get(topic);
         boolean changed = topicRouteData.topicRouteDataChanged(old);

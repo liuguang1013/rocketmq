@@ -36,7 +36,11 @@ public class MQFaultStrategy {
             this.lastBrokerName = lastBrokerName;
         }
 
-        @Override public boolean filter(MessageQueue mq) {
+        /**
+         * 选择的 BrokerName 与上个失败的不同
+         */
+        @Override
+        public boolean filter(MessageQueue mq) {
             if (lastBrokerName != null) {
                 return !mq.getBrokerName().equals(lastBrokerName);
             }
@@ -57,6 +61,7 @@ public class MQFaultStrategy {
     };
 
     private QueueFilter availableFilter = new QueueFilter() {
+
         @Override public boolean filter(MessageQueue mq) {
             return latencyFaultTolerance.isAvailable(mq.getBrokerName());
         }
@@ -69,6 +74,7 @@ public class MQFaultStrategy {
         this.latencyFaultTolerance.setDetectInterval(cc.getDetectInterval());
         this.latencyFaultTolerance.setDetectTimeout(cc.getDetectTimeout());
         this.setStartDetectorEnable(cc.isStartDetectorEnable());
+        // 发送延迟，默认不打开
         this.setSendLatencyFaultEnable(cc.isSendLatencyEnable());
     }
 
@@ -139,10 +145,13 @@ public class MQFaultStrategy {
     public MessageQueue selectOneMessageQueue(final TopicPublishInfo tpInfo, final String lastBrokerName, final boolean resetIndex) {
         BrokerFilter brokerFilter = threadBrokerFilter.get();
         brokerFilter.setLastBrokerName(lastBrokerName);
+        // 默认不打开
         if (this.sendLatencyFaultEnable) {
             if (resetIndex) {
+                // 重置索引值
                 tpInfo.resetIndex();
             }
+
             MessageQueue mq = tpInfo.selectOneMessageQueue(availableFilter, brokerFilter);
             if (mq != null) {
                 return mq;
@@ -156,10 +165,12 @@ public class MQFaultStrategy {
             return tpInfo.selectOneMessageQueue();
         }
 
+        // 使用 BrokerFilter 对消息队列进行晒勋啊
         MessageQueue mq = tpInfo.selectOneMessageQueue(brokerFilter);
         if (mq != null) {
             return mq;
         }
+        // 默认轮询方式
         return tpInfo.selectOneMessageQueue();
     }
 

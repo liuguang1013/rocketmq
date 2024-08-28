@@ -348,17 +348,22 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         }
     }
 
-    protected SendMessageContext buildMsgContext(ChannelHandlerContext ctx,
-        SendMessageRequestHeader requestHeader, RemotingCommand request) {
+    /**
+     * 构建 发送消息上线文，
+     * 对 requestHeader 的属性进行封装，并补充一些属性，如：MsgType、RequestTimeStamp、消息轨迹开关等
+     */
+    protected SendMessageContext buildMsgContext(ChannelHandlerContext ctx, SendMessageRequestHeader requestHeader, RemotingCommand request) {
+
+        // 获取 namespace  ，是 NamespaceUtil.wrapNamespace(this.getNamespace(), resource); 逆向
+        // 在发送消息 最开始的时候，会对 topic 进行包装
         String namespace = NamespaceUtil.getNamespaceFromResource(requestHeader.getTopic());
 
-        SendMessageContext sendMessageContext;
-        sendMessageContext = new SendMessageContext();
+        SendMessageContext sendMessageContext = new SendMessageContext();
         sendMessageContext.setNamespace(namespace);
         sendMessageContext.setProducerGroup(requestHeader.getProducerGroup());
         sendMessageContext.setTopic(requestHeader.getTopic());
         sendMessageContext.setBodyLength(request.getBody().length);
-        sendMessageContext.setMsgProps(requestHeader.getProperties());
+        sendMessageContext.setMsgProps(requestHeader.getProperties());// 从 message.properties 中复制
         sendMessageContext.setBornHost(RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
         sendMessageContext.setBrokerAddr(this.brokerController.getBrokerAddr());
         sendMessageContext.setQueueId(requestHeader.getQueueId());
@@ -366,6 +371,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         sendMessageContext.setBornTimeStamp(requestHeader.getBornTimestamp());
         sendMessageContext.setRequestTimeStamp(System.currentTimeMillis());
 
+        // 在扩展消息中获取 所有者
         String owner = request.getExtFields().get(BrokerStatsManager.COMMERCIAL_OWNER);
         sendMessageContext.setCommercialOwner(owner);
 
@@ -380,6 +386,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         }
         sendMessageContext.setMsgUniqueKey(uniqueKey);
 
+        //  标识是否顺序消息
         if (properties.containsKey(MessageConst.PROPERTY_SHARDING_KEY)) {
             sendMessageContext.setMsgType(MessageType.Order_Msg);
         } else {
@@ -456,9 +463,13 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         return response;
     }
 
-    protected RemotingCommand msgCheck(final ChannelHandlerContext ctx,
-        final SendMessageRequestHeader requestHeader, final RemotingCommand request,
-        final RemotingCommand response) {
+    /**
+     * 对 topic 进行校验、获取 topic 配置信息、校验 QueueId
+     */
+    protected RemotingCommand msgCheck(final ChannelHandlerContext ctx, final SendMessageRequestHeader requestHeader,
+                                       final RemotingCommand request, final RemotingCommand response) {
+
+        // broker 没有写权限、topic 是有序
         if (!PermName.isWriteable(this.brokerController.getBrokerConfig().getBrokerPermission())
             && this.brokerController.getTopicConfigManager().isOrderTopic(requestHeader.getTopic())) {
             response.setCode(ResponseCode.NO_PERMISSION);
@@ -466,23 +477,24 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
                 + "] sending message is forbidden");
             return response;
         }
-
+        // 校验 topic
         TopicValidator.ValidateTopicResult result = TopicValidator.validateTopic(requestHeader.getTopic());
         if (!result.isValid()) {
             response.setCode(ResponseCode.SYSTEM_ERROR);
             response.setRemark(result.getRemark());
             return response;
         }
+        // 校验 不是系统消息
         if (TopicValidator.isNotAllowedSendTopic(requestHeader.getTopic())) {
             response.setCode(ResponseCode.NO_PERMISSION);
             response.setRemark("Sending message to topic[" + requestHeader.getTopic() + "] is forbidden.");
             return response;
         }
-
-        TopicConfig topicConfig =
-            this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
+        // 获取 topic 配置信息：
+        TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
         if (null == topicConfig) {
             int topicSysFlag = 0;
+
             if (requestHeader.isUnitMode()) {
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                     topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
@@ -492,18 +504,25 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             }
 
             LOGGER.warn("the topic {} not exist, producer: {}", requestHeader.getTopic(), ctx.channel().remoteAddress());
-            topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageMethod(
-                requestHeader.getTopic(),
-                requestHeader.getDefaultTopic(),
-                RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
-                requestHeader.getDefaultTopicQueueNums(), topicSysFlag);
+
+            // 获取 topic 配置信息：当 topic 配置信息不存在，会自动继承 默认的 topic 信息，并遍历 NameSrv 列表注册 broker 信息
+            //                    在 NameSrv 中构建 BrokerData、QueueData、BrokerLiveInfo 等缓存数据
+            topicConfig = this.brokerController.getTopicConfigManager()
+                    .createTopicInSendMessageMethod(
+                            requestHeader.getTopic(),
+                            requestHeader.getDefaultTopic(),
+                            RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
+                            requestHeader.getDefaultTopicQueueNums(),
+                            topicSysFlag);
 
             if (null == topicConfig) {
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
-                    topicConfig =
-                        this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(
-                            requestHeader.getTopic(), 1, PermName.PERM_WRITE | PermName.PERM_READ,
-                            topicSysFlag);
+                    topicConfig = this.brokerController.getTopicConfigManager()
+                            .createTopicInSendMessageBackMethod(
+                                    requestHeader.getTopic(),
+                                    1,
+                                    PermName.PERM_WRITE | PermName.PERM_READ,
+                                    topicSysFlag);
                 }
             }
 
@@ -514,7 +533,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
                 return response;
             }
         }
-
+        // 校验 QueueId： topic 的队列id 不大于 topic 的读/写队列数
         int queueIdInt = requestHeader.getQueueId();
         int idValid = Math.max(topicConfig.getWriteQueueNums(), topicConfig.getReadQueueNums());
         if (queueIdInt >= idValid) {

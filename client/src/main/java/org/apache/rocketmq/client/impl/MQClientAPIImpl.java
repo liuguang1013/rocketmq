@@ -533,6 +533,9 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
 
     }
 
+    /**
+     * 发送同步消息
+     */
     public SendResult sendMessage(
         final String addr,
         final String brokerName,
@@ -541,11 +544,14 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         final long timeoutMillis,
         final CommunicationMode communicationMode,
         final SendMessageContext context,
-        final DefaultMQProducerImpl producer
-    ) throws RemotingException, MQBrokerException, InterruptedException {
+        final DefaultMQProducerImpl producer) throws RemotingException, MQBrokerException, InterruptedException {
+
         return sendMessage(addr, brokerName, msg, requestHeader, timeoutMillis, communicationMode, null, null, null, 0, context, producer);
     }
 
+    /**
+     * 发送异步消息
+     */
     public SendResult sendMessage(
         final String addr,
         final String brokerName,
@@ -558,10 +564,13 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         final MQClientInstance instance,
         final int retryTimesWhenSendFailed,
         final SendMessageContext context,
-        final DefaultMQProducerImpl producer
-    ) throws RemotingException, MQBrokerException, InterruptedException {
+        final DefaultMQProducerImpl producer) throws RemotingException, MQBrokerException, InterruptedException {
+
         long beginStartTime = System.currentTimeMillis();
         RemotingCommand request = null;
+
+        // 创建 request
+        // 创建请求头，先判断 reply
         String msgType = msg.getProperty(MessageConst.PROPERTY_MESSAGE_TYPE);
         boolean isReply = msgType != null && msgType.equals(MixAll.REPLY_MESSAGE_FLAG);
         if (isReply) {
@@ -572,6 +581,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
                 request = RemotingCommand.createRequestCommand(RequestCode.SEND_REPLY_MESSAGE, requestHeader);
             }
         } else {
+            // sendSmartMsg 默认 true
             if (sendSmartMsg || msg instanceof MessageBatch) {
                 SendMessageRequestHeaderV2 requestHeaderV2 = SendMessageRequestHeaderV2.createSendMessageRequestHeaderV2(requestHeader);
                 request = RemotingCommand.createRequestCommand(msg instanceof MessageBatch ? RequestCode.SEND_BATCH_MESSAGE : RequestCode.SEND_MESSAGE_V2, requestHeaderV2);
@@ -579,6 +589,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
                 request = RemotingCommand.createRequestCommand(RequestCode.SEND_MESSAGE, requestHeader);
             }
         }
+        // 设置请求体
         request.setBody(msg.getBody());
 
         switch (communicationMode) {
@@ -613,10 +624,11 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         final String brokerName,
         final Message msg,
         final long timeoutMillis,
-        final RemotingCommand request
-    ) throws RemotingException, MQBrokerException, InterruptedException {
+        final RemotingCommand request) throws RemotingException, MQBrokerException, InterruptedException {
+
         RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
         assert response != null;
+        // todo：
         return this.processSendResponse(brokerName, msg, response, addr);
     }
 
@@ -760,8 +772,8 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         final String brokerName,
         final Message msg,
         final RemotingCommand response,
-        final String addr
-    ) throws MQBrokerException, RemotingCommandException {
+        final String addr) throws MQBrokerException, RemotingCommandException {
+
         SendStatus sendStatus;
         switch (response.getCode()) {
             case ResponseCode.FLUSH_DISK_TIMEOUT: {
@@ -1973,14 +1985,13 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         throw new MQBrokerException(response.getCode(), response.getRemark());
     }
 
-    public TopicRouteData getDefaultTopicRouteInfoFromNameServer(final long timeoutMillis)
-        throws RemotingException, MQClientException, InterruptedException {
-
+    public TopicRouteData getDefaultTopicRouteInfoFromNameServer(final long timeoutMillis) throws RemotingException, MQClientException, InterruptedException {
+        // 默认 topic
         return getTopicRouteInfoFromNameServer(TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC, timeoutMillis, false);
     }
 
-    public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis)
-        throws RemotingException, MQClientException, InterruptedException {
+    public TopicRouteData getTopicRouteInfoFromNameServer(final String topic, final long timeoutMillis) throws RemotingException, MQClientException, InterruptedException {
+        // 指定某 topic
         return getTopicRouteInfoFromNameServer(topic, timeoutMillis, true);
     }
 

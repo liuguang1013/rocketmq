@@ -25,11 +25,22 @@ import org.apache.rocketmq.common.message.MessageQueue;
 import org.apache.rocketmq.remoting.protocol.route.QueueData;
 import org.apache.rocketmq.remoting.protocol.route.TopicRouteData;
 
+/**
+ * 某 topic 下的信息
+ */
 public class TopicPublishInfo {
     private boolean orderTopic = false;
     private boolean haveTopicRouterInfo = false;
     /**
      * 消息队列信息
+     * MessageQueue 封装 topic、brokerName、queueId
+     *
+     * 每个 topic 对映多个 brokerName
+     * 每个 brokerName 对映多个 queueId
+     *
+     * 消息对指定的队列进行发送的时候，会在该列表中进行筛选
+     * MessageQueueSelector
+     *
      */
     private List<MessageQueue> messageQueueList = new ArrayList<>();
     /**
@@ -38,6 +49,7 @@ public class TopicPublishInfo {
     private volatile ThreadLocalIndex sendWhichQueue = new ThreadLocalIndex();
     /**
      * topic 路由信息
+     *
      */
     private TopicRouteData topicRouteData;
 
@@ -86,10 +98,12 @@ public class TopicPublishInfo {
     }
 
     private MessageQueue selectOneMessageQueue(List<MessageQueue> messageQueueList, ThreadLocalIndex sendQueue, QueueFilter ...filter) {
+        // topic 不存在消息队列
         if (messageQueueList == null || messageQueueList.isEmpty()) {
             return null;
         }
 
+        // 过滤器 筛选： 默认的 BrokerFilter 必须与上次的 broker 不同
         if (filter != null && filter.length != 0) {
             for (int i = 0; i < messageQueueList.size(); i++) {
                 int index = Math.abs(sendQueue.incrementAndGet() % messageQueueList.size());
@@ -107,6 +121,7 @@ public class TopicPublishInfo {
             return null;
         }
 
+        // 轮询方式获取
         int index = Math.abs(sendQueue.incrementAndGet() % messageQueueList.size());
         return messageQueueList.get(index);
     }

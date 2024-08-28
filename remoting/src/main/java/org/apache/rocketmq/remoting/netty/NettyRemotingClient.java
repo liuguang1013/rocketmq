@@ -120,6 +120,9 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
     private final HashedWheelTimer timer = new HashedWheelTimer(r -> new Thread(r, "ClientHouseKeepingService"));
 
     private final AtomicReference<List<String>> namesrvAddrList = new AtomicReference<>();
+    /**
+     *
+     */
     private final ConcurrentMap<String, Boolean> availableNamesrvAddrMap = new ConcurrentHashMap<>();
     /**
      * 正在连接的namesrv地址
@@ -1003,6 +1006,7 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
         }
 
         for (final String namesrvAddr : nameServerList) {
+            // 创建 长连接
             scanExecutor.execute(new Runnable() {
                 @Override
                 public void run() {

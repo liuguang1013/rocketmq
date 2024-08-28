@@ -36,6 +36,9 @@ public class TransactionMQProducer extends DefaultMQProducer {
     public TransactionMQProducer() {
     }
 
+    /**
+     *  rocketMq-spring 通过 RocketMQAutoConfiguration 默认创建的生产者
+     */
     public TransactionMQProducer(final String producerGroup) {
         super(producerGroup);
     }
@@ -68,6 +71,7 @@ public class TransactionMQProducer extends DefaultMQProducer {
 
     @Override
     public void start() throws MQClientException {
+        // 初始化 check 线程池
         this.defaultMQProducerImpl.initTransactionEnv();
         super.start();
     }

@@ -60,13 +60,15 @@ public class TopicQueueMappingDetail extends TopicQueueMappingInfo {
         if (mappingDetail.hostedQueues == null || mappingDetail.hostedQueues.isEmpty()) {
             return new ConcurrentHashMap<>();
         }
-        ConcurrentMap<Integer, Integer> tmpIdMap = new ConcurrentHashMap<>();
+
+        ConcurrentMap<Integer/*globalId*/, Integer/*QueueId*/> tmpIdMap = new ConcurrentHashMap<>();
         for (Map.Entry<Integer, List<LogicQueueMappingItem>> entry: mappingDetail.hostedQueues.entrySet()) {
             Integer globalId =  entry.getKey();
             List<LogicQueueMappingItem> items = entry.getValue();
-            if (level == LEVEL_0
-                    && items.size() >= 1) {
+            if (level == LEVEL_0 && items.size() >= 1) {
+
                 LogicQueueMappingItem curr = items.get(items.size() - 1);
+
                 if (mappingDetail.bname.equals(curr.getBname())) {
                     tmpIdMap.put(globalId, curr.getQueueId());
                 }
@@ -89,6 +91,7 @@ public class TopicQueueMappingDetail extends TopicQueueMappingInfo {
 
     public static TopicQueueMappingInfo cloneAsMappingInfo(TopicQueueMappingDetail mappingDetail) {
         TopicQueueMappingInfo topicQueueMappingInfo = new TopicQueueMappingInfo(mappingDetail.topic, mappingDetail.totalQueues, mappingDetail.bname, mappingDetail.epoch);
+        // <Integer/*globalId*/, Integer/*QueueId*/>
         topicQueueMappingInfo.currIdMap = TopicQueueMappingDetail.buildIdMap(mappingDetail, LEVEL_0);
         return topicQueueMappingInfo;
     }

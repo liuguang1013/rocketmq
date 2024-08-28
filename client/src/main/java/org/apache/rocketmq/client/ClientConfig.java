@@ -273,6 +273,8 @@ public class ClientConfig {
 
     /**
      * Domain name mode access way does not support the delimiter(;), and only one domain name can be set.
+     * rocketmq-Spring 中 RocketMQAutoConfiguration 创建 DefaultMQProducer 时
+     * 调用该方法，将 RocketMQProperties 的 namesrvAddr 属性设置到该属性
      *
      * @param namesrvAddr name server address
      */

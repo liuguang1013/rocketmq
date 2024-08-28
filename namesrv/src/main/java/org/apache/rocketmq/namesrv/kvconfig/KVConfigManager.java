@@ -35,7 +35,7 @@ public class KVConfigManager {
 
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     /**
-     *
+     * todo： 这些信息的作用是啥？
      */
     private final HashMap<String/* Namespace */, HashMap<String/* Key */, String/* Value */>> configTable =
         new HashMap<>();
@@ -62,6 +62,9 @@ public class KVConfigManager {
         }
     }
 
+    /**
+     * 缓存 namespace 的 kv 信息
+     */
     public void putKVConfig(final String namespace, final String key, final String value) {
         try {
             this.lock.writeLock().lockInterruptibly();

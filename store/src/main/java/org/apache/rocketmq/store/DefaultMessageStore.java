@@ -519,8 +519,9 @@ public class DefaultMessageStore implements MessageStore {
             this.haService.start();
         }
 
-
+        // 将 进程 id 保存到 user.home/store/abort 文件中
         this.createTempFile();
+        // 添加一些清除文件的定时任务
         this.addScheduleTask();
         this.perfs.start();
         this.shutdown = false;
@@ -1967,7 +1968,7 @@ public class DefaultMessageStore implements MessageStore {
     }
 
     /**
-     * @throws IOException
+     * 将 进程 id 保存到 user.home/store/abort 文件中
      */
     private void createTempFile() throws IOException {
         String fileName = StorePathConfigHelper.getAbortFile(this.messageStoreConfig.getStorePathRootDir());
@@ -1980,6 +1981,9 @@ public class DefaultMessageStore implements MessageStore {
 
     private void addScheduleTask() {
 
+        /**
+         * 删除过期文件
+         */
         this.scheduledExecutorService.scheduleAtFixedRate(new AbstractBrokerRunnable(this.getBrokerIdentity()) {
             @Override
             public void run0() {
@@ -2429,6 +2433,7 @@ public class DefaultMessageStore implements MessageStore {
         }
     }
 
+
     class CleanCommitLogService {
 
         private final static int MAX_MANUAL_DELETE_FILE_TIMES = 20;
@@ -2448,6 +2453,7 @@ public class DefaultMessageStore implements MessageStore {
         double getDiskSpaceWarningLevelRatio() {
             double finalDiskSpaceWarningLevelRatio;
             if ("".equals(diskSpaceWarningLevelRatio)) {
+                // 默认 90/ 100.0
                 finalDiskSpaceWarningLevelRatio = DefaultMessageStore.this.getMessageStoreConfig().getDiskSpaceWarningLevelRatio() / 100.0;
             } else {
                 finalDiskSpaceWarningLevelRatio = Double.parseDouble(diskSpaceWarningLevelRatio);
@@ -2488,7 +2494,9 @@ public class DefaultMessageStore implements MessageStore {
 
         public void run() {
             try {
+
                 this.deleteExpiredFiles();
+
                 this.reDeleteHangedFile();
             } catch (Throwable e) {
                 DefaultMessageStore.LOGGER.warn(this.getServiceName() + " service has exception. ", e);
@@ -2497,13 +2505,20 @@ public class DefaultMessageStore implements MessageStore {
 
         private void deleteExpiredFiles() {
             int deleteCount = 0;
+            // CommitLog 文件保留时间：72
             long fileReservedTime = DefaultMessageStore.this.getMessageStoreConfig().getFileReservedTime();
+            //  CommitLog 删除时间间隔 100
             int deletePhysicFilesInterval = DefaultMessageStore.this.getMessageStoreConfig().getDeleteCommitLogFilesInterval();
+            // 强制销毁 MappedFile 时间间隔 1000 * 120
             int destroyMappedFileIntervalForcibly = DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
+            // 批量删除文件最大值：10
             int deleteFileBatchMax = DefaultMessageStore.this.getMessageStoreConfig().getDeleteFileBatchMax();
 
+            // 每日 4点 是删除时间
             boolean isTimeUp = this.isTimeToDelete();
+            // 存储空间使用率是否超过阈值
             boolean isUsageExceedsThreshold = this.isSpaceToDelete();
+
             boolean isManualDelete = this.manualDeleteFileSeveralTimes > 0;
 
             if (isTimeUp || isUsageExceedsThreshold || isManualDelete) {
@@ -2522,6 +2537,7 @@ public class DefaultMessageStore implements MessageStore {
                     cleanAtOnce,
                     deleteFileBatchMax);
 
+                // 72 小时
                 fileReservedTime *= 60 * 60 * 1000;
 
                 deleteCount = DefaultMessageStore.this.commitLog.deleteExpiredFile(fileReservedTime, deletePhysicFilesInterval,
@@ -2545,8 +2561,9 @@ public class DefaultMessageStore implements MessageStore {
             long currentTimestamp = System.currentTimeMillis();
             if ((currentTimestamp - this.lastRedeleteTimestamp) > interval) {
                 this.lastRedeleteTimestamp = currentTimestamp;
-                int destroyMappedFileIntervalForcibly =
-                    DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
+
+                int destroyMappedFileIntervalForcibly = DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
+
                 if (DefaultMessageStore.this.commitLog.retryDeleteFirstFile(destroyMappedFileIntervalForcibly)) {
                 }
             }
@@ -2557,6 +2574,7 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         protected boolean isTimeToDelete() {
+            // 04 点 删除
             String when = DefaultMessageStore.this.getMessageStoreConfig().getDeleteWhen();
             if (UtilAll.isItTimeToDo(when)) {
                 DefaultMessageStore.LOGGER.info("it's time to reclaim disk space, " + when);
@@ -2566,25 +2584,33 @@ public class DefaultMessageStore implements MessageStore {
             return false;
         }
 
+        /**
+         * 分别对 commitLog、ConsumeQueue、ReplicasPerDiskPartition 空间进行判断
+         * @return
+         */
         private boolean isSpaceToDelete() {
             cleanImmediately = false;
 
+            // user.home/store/commitlog
             String commitLogStorePath = DefaultMessageStore.this.getMessageStoreConfig().getStorePathCommitLog();
             String[] storePaths = commitLogStorePath.trim().split(MixAll.MULTI_PATH_SPLITTER);
             Set<String> fullStorePath = new HashSet<>();
             double minPhysicRatio = 100;
             String minStorePath = null;
             for (String storePathPhysic : storePaths) {
+                // 获取磁盘分区空间使用百分比
                 double physicRatio = UtilAll.getDiskPartitionSpaceUsedPercent(storePathPhysic);
                 if (minPhysicRatio > physicRatio) {
                     minPhysicRatio = physicRatio;
                     minStorePath = storePathPhysic;
                 }
+                // 0.85
                 if (physicRatio > getDiskSpaceCleanForciblyRatio()) {
                     fullStorePath.add(storePathPhysic);
                 }
             }
             DefaultMessageStore.this.commitLog.setFullStorePaths(fullStorePath);
+            // 超过磁盘空间预警线 0.9
             if (minPhysicRatio > getDiskSpaceWarningLevelRatio()) {
                 boolean diskFull = DefaultMessageStore.this.runningFlags.getAndMakeDiskFull();
                 if (diskFull) {
@@ -2626,7 +2652,9 @@ public class DefaultMessageStore implements MessageStore {
                 }
             }
 
+            // 75
             double ratio = DefaultMessageStore.this.getMessageStoreConfig().getDiskMaxUsedSpaceRatio() / 100.0;
+            // 1
             int replicasPerPartition = DefaultMessageStore.this.getMessageStoreConfig().getReplicasPerDiskPartition();
             // Only one commitLog in node
             if (replicasPerPartition <= 1) {
@@ -2727,6 +2755,7 @@ public class DefaultMessageStore implements MessageStore {
         protected void deleteExpiredFiles() {
             int deleteLogicsFilesInterval = DefaultMessageStore.this.getMessageStoreConfig().getDeleteConsumeQueueFilesInterval();
 
+            //  最小偏移量
             long minOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             if (minOffset > this.lastPhysicalMinOffset) {
                 this.lastPhysicalMinOffset = minOffset;

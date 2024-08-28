@@ -639,6 +639,7 @@ public class CompactionLog {
             long maxQueueOffsetInFile = getCQ().getMaxMsgOffsetFromFile(mf.getFile().getName());
             // 大于检查点，检查点文件
             // 保存在 user.home/store/compaction/position-checkpoint 文件中，创建 CompactionPositionMgr 对象就进行了加载
+            // 保存在 positionMgr 中， key：topic_queueId value:在队列中最大偏移量
             if (maxQueueOffsetInFile > positionMgr.getOffset(topic, queueId)) {
                 newFiles.add(mf);
             }
@@ -667,6 +668,7 @@ public class CompactionLog {
         positionMgr.setOffset(topic, queueId, offsetMap.lastOffset);
         // 持久化
         positionMgr.persist();
+        // 清除临时文件
         compacting.clean(false, false);
         log.info("this compaction elapsed {} milliseconds",
             TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime));
@@ -689,6 +691,15 @@ public class CompactionLog {
         state.compareAndSet(State.COMPACTING, State.NORMAL);
     }
 
+    /**
+     *  将 某 topic 下、某 queueId 的、
+     *  大于 user.home/store/compaction/position-checkpoint 持久化的队列偏移量的 消息
+     *  缓存到 OffsetMap
+     * OffsetMap 偏移量map
+     * key ： 消息中的属性  keys
+     * value：队列下keys 属性最后存入的消息 的QueueOffset
+     *
+     */
     protected OffsetMap getOffsetMap(List<MappedFile> mappedFileList) throws NoSuchAlgorithmException, DigestException {
         // 100 M / 压缩线程数（6与服务器核数最小值）
         OffsetMap offsetMap = new OffsetMap(offsetMapMemorySize);
@@ -738,6 +749,9 @@ public class CompactionLog {
     }
 
     /**
+     * todo：所谓的压缩，如何起到作用？offsetMap 中缓存的是有 keys 属性消息的最大偏移量，此处遍历消息，都不大于啊。
+     *
+     *
      * @param mappedFileList   /compactionLog 文件夹下的文件
      * @param offsetMap     偏移量大于position-checkpoint 的文件 封装的 map，对相同keys 的消息，保留最后一次 偏移量
      * @throws DigestException
@@ -761,7 +775,7 @@ public class CompactionLog {
                         // file end
                         break;
                     } else {
-                        //
+                        // 判断是否保留消息： 通过对比 消息的和 消息偏移量缓存的 偏移量，来判断是够保留消息
                         checkAndPutMessage(smb, msgExt, offsetMap, compacting);
                     }
                 } finally {

@@ -49,6 +49,7 @@ public class RegisterBrokerBody extends RemotingSerializable {
 
     public byte[] encode(boolean compress) {
 
+        // 使用 json 编码
         if (!compress) {
             return super.encode();
         }

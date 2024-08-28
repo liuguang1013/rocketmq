@@ -201,8 +201,9 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      */
     public DefaultMQProducer(final String producerGroup) {
         this.producerGroup = producerGroup;
-        defaultMQProducerImpl = new DefaultMQProducerImpl(this, null);
 
+        defaultMQProducerImpl = new DefaultMQProducerImpl(this, null);
+        // 用于自动批处理消息的实例
         produceAccumulator = MQClientManager.getInstance().getOrCreateProduceAccumulator(this);
     }
 
@@ -356,14 +357,13 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Start this producer instance. </p>
      * 开启生产者
-     * <strong> Much internal initializing procedures are carried out to make this instance prepared, thus, it's a must
-     * to invoke this method before sending or querying messages. </strong> </p>
+     * <strong>selectBloodSugarOne </strong> </p>
      *
      * @throws MQClientException if there is any unexpected error.
      */
     @Override
     public void start() throws MQClientException {
-        // 设置包装后的生产者组名
+        // 设置包装后的生产者组名   Namespace%producerGroup
         this.setProducerGroup(withNamespace(this.producerGroup));
         // 生产者实现类开始
         this.defaultMQProducerImpl.start();
@@ -456,18 +456,12 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     /**
      * Same to {@link #send(Message)} with send timeout specified in addition.
      *
-     * @param msg     Message to send.
-     * @param timeout send timeout.
-     * @return {@link SendResult} instance to inform senders details of the deliverable, say Message ID of the message,
-     * {@link SendStatus} indicating broker storage/replication status, message queue sent to, etc.
-     * @throws MQClientException    if there is any client error.
-     * @throws RemotingException    if there is any network-tier error.
-     * @throws MQBrokerException    if there is any error with broker.
-     * @throws InterruptedException if the sending thread is interrupted.
+     * rocketMqTemplate.send(D destination, Message<?> message) 方法最终调用到这
+     *
      */
     @Override
-    public SendResult send(Message msg,
-        long timeout) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+    public SendResult send(Message msg, long timeout) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+       // 对 topic 添加 Namespace 前缀，在 yml 配置的 rocketmq.producer.namespace 不为空就会有
         msg.setTopic(withNamespace(msg.getTopic()));
         return this.defaultMQProducerImpl.send(msg, timeout);
     }
@@ -1088,9 +1082,11 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
         return this.defaultMQProducerImpl.send(batch(msgs));
     }
 
+
     @Override
-    public SendResult send(Collection<Message> msgs,
-        long timeout) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+    public SendResult send(Collection<Message> msgs, long timeout)
+            throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+
         return this.defaultMQProducerImpl.send(batch(msgs), timeout);
     }
 

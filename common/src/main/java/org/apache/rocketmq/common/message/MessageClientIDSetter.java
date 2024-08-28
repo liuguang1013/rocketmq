@@ -25,6 +25,11 @@ import org.apache.rocketmq.common.UtilAll;
 public class MessageClientIDSetter {
     
     private static final int LEN;
+    /**
+     * 每个客户端的消息的 前缀都是固定的
+     * ip + pid + this.hashCode()
+     *
+     */
     private static final char[] FIX_STRING;
     private static final AtomicInteger COUNTER;
     private static long startTime;
@@ -42,6 +47,7 @@ public class MessageClientIDSetter {
         tempBuffer.put(ip);
         tempBuffer.putShort((short) UtilAll.getPid());
         tempBuffer.putInt(MessageClientIDSetter.class.getClassLoader().hashCode());
+        //
         FIX_STRING = UtilAll.bytes2string(tempBuffer.array()).toCharArray();
         setStartTime(System.currentTimeMillis());
         COUNTER = new AtomicInteger(0);
@@ -55,8 +61,10 @@ public class MessageClientIDSetter {
         cal.set(Calendar.MINUTE, 0);
         cal.set(Calendar.SECOND, 0);
         cal.set(Calendar.MILLISECOND, 0);
+        // 本月开始时间
         startTime = cal.getTimeInMillis();
         cal.add(Calendar.MONTH, 1);
+        // 下月开始时间
         nextStartTime = cal.getTimeInMillis();
     }
 
@@ -123,15 +131,20 @@ public class MessageClientIDSetter {
             // may cause by NTP
             diff = 0;
         }
+        // 20
         int pos = FIX_STRING.length;
+        // 8 个 char
         UtilAll.writeInt(sb, pos, diff);
         pos += 8;
+        // 4 个char
         UtilAll.writeShort(sb, pos, COUNTER.getAndIncrement());
+
         return new String(sb);
     }
 
     public static void setUniqID(final Message msg) {
         if (msg.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX) == null) {
+            // 共 32 字符
             msg.putProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX, createUniqID());
         }
     }

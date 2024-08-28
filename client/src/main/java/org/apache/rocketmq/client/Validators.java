@@ -63,24 +63,26 @@ public class Validators {
         if (null == msg) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL, "the message is null");
         }
-        // topic
+        // 验证 topic 长度、格式
         Validators.checkTopic(msg.getTopic());
+        // 特定的 topic 不能使用：详见 TopicValidator#NOT_ALLOWED_SEND_TOPIC_SET
         Validators.isNotAllowedSendTopic(msg.getTopic());
 
         // body
         if (null == msg.getBody()) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL, "the message body is null");
         }
-
+        // 消息体 字节数组长度为 0
         if (0 == msg.getBody().length) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL, "the message body length is zero");
         }
-
+        // 消息体 最大 4M
         if (msg.getBody().length > defaultMQProducer.getMaxMessageSize()) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL,
                 "the message body size over max value, MAX: " + defaultMQProducer.getMaxMessageSize());
         }
 
+        // todo：此处校验什么？
         String lmqPath = msg.getUserProperty(MessageConst.PROPERTY_INNER_MULTI_DISPATCH);
         if (StringUtils.contains(lmqPath, File.separator)) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL,
@@ -92,12 +94,12 @@ public class Validators {
         if (UtilAll.isBlank(topic)) {
             throw new MQClientException("The specified topic is blank", null);
         }
-
+        // 长度 > 127
         if (topic.length() > TOPIC_MAX_LENGTH) {
             throw new MQClientException(
                 String.format("The specified topic is longer than topic max length %d.", TOPIC_MAX_LENGTH), null);
         }
-
+        // topic 合法
         if (isTopicOrGroupIllegal(topic)) {
             throw new MQClientException(String.format(
                     "The specified topic[%s] contains illegal characters, allowing only %s", topic,

@@ -30,15 +30,42 @@ import java.util.concurrent.ConcurrentMap;
 import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 import org.apache.rocketmq.remoting.protocol.statictopic.TopicQueueMappingInfo;
 
+/**
+ * 某 topic 的路由信息
+ * RouteInfoManager#pickupTopicRouteData 方法组拼 TopicRouteData
+ */
 public class TopicRouteData extends RemotingSerializable {
+
     private String orderTopicConf;
+    /**
+     * 多个 brokerName 的 读/写队列、权限信息
+     */
     private List<QueueData> queueDatas;
+    /**
+     * 缓存多个集群下的 多个broker的 ipAddress 信息
+     *
+     * 对于默认的所有topic 生产者在 nameSrv 获取到 TopicRouteData 信息后
+     * 会对 读写队列数（默认是 16） 和生产者的配置值（默认是 4），取较小值
+     *
+     */
     private List<BrokerData> brokerDatas;
+
+    /**
+     * todo：
+     * brokerController#doRegisterBrokerAll 启动，注册信息到 nameSrv 中，
+     * 默认是 false
+     */
     private HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
+
     //It could be null or empty
     /**
+     * todo：
      * key：broker 名
      * value：topic和队列映射信息：总队列数、topic、数据是否脏 等数据
+     *
+     * StaticTopic 的信息，通过
+     *  客户端在 nameSrv 接收到 某 topic 的 TopicRouteData 后，当 topicQueueMappingByBroker 不为空
+     *  会更根据 TopicQueueMappingInfo 中的 scope 分组
      */
     private Map<String/*brokerName*/, TopicQueueMappingInfo> topicQueueMappingByBroker;
 

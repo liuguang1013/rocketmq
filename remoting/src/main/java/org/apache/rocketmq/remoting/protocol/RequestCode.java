@@ -119,9 +119,22 @@ public class RequestCode {
 
     public static final int DELETE_KV_CONFIG = 102;
 
+    /**
+     * broker 启动 brokerController#start()#registerBrokerAll#doRegisterBrokerAll
+     * 最终 通过 brokerOuterAPI.registerBrokerAll 发送 REGISTER_BROKER 请求
+     *
+     * nameSrv 的 DefaultRequestProcessor 处理请求，
+     * 最终进入到 RouteInfoManager#registerBroker 完成 broker 信息的缓存
+     */
     public static final int REGISTER_BROKER = 103;
 
     public static final int UNREGISTER_BROKER = 104;
+    /**
+     * broker 启动 MQClientInstance#startScheduledTask()
+     * broker 启动 DefaultMQProducerImpl#initTopicRoute()
+     * 发送消息的时候查找 topic 对映的 TopicPublishInfo ，找不到也会调用
+     *
+     */
     public static final int GET_ROUTEINFO_BY_TOPIC = 105;
 
     public static final int GET_BROKER_CLUSTER_INFO = 106;
@@ -196,6 +209,9 @@ public class RequestCode {
      * 向messageStore.setSendMessageBackHook(sendMessageBackHook);
      *
      * 遍历消息列表：给某个 broker 发送消息
+     *
+     * 1、发送同步简单消息，
+     * MQClientAPIImpl#sendMessage：生产者发送消息
      */
     public static final int SEND_MESSAGE_V2 = 310;
 

@@ -138,6 +138,7 @@ public class ProduceAccumulator {
 
         private void doWork() throws Exception {
             Collection<MessageAccumulation> values = asyncSendBatchs.values();
+            // 5ms
             final int sleepTime = Math.max(1, holdMs / 2);
             for (MessageAccumulation v : values) {
                 if (v.readyToSend()) {

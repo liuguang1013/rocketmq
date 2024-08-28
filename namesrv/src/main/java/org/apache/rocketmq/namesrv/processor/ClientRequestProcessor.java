@@ -61,11 +61,15 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
     public RemotingCommand getRouteInfoByTopic(ChannelHandlerContext ctx, RemotingCommand request) throws RemotingCommandException {
 
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
+        // 解析出 请求头： topic
         final GetRouteInfoRequestHeader requestHeader =
                 (GetRouteInfoRequestHeader) request.decodeCommandCustomHeader(GetRouteInfoRequestHeader.class);
 
+        // nameSrv 启动必须大于 45 秒
+        // todo：此处在等待什么初始化完成？
         boolean namesrvReady = needCheckNamesrvReady.get() && System.currentTimeMillis() - startupTimeMillis >= TimeUnit.SECONDS.toMillis(namesrvController.getNamesrvConfig().getWaitSecondsForService());
 
+        // 默认配置不需要等待
         if (namesrvController.getNamesrvConfig().isNeedWaitForService() && !namesrvReady) {
             log.warn("name server not ready. request code {} ", request.getCode());
             response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -73,6 +77,7 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
             return response;
         }
 
+        // 从 RouteInfoManager 中获取 topic 的路由信息
         TopicRouteData topicRouteData = this.namesrvController.getRouteInfoManager().pickupTopicRouteData(requestHeader.getTopic());
 
         if (topicRouteData != null) {
@@ -81,6 +86,7 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
                 needCheckNamesrvReady.set(false);
             }
 
+            // 默认 false
             if (this.namesrvController.getNamesrvConfig().isOrderMessageEnable()) {
                 String orderTopicConf =
                     this.namesrvController.getKvConfigManager().getKVConfig(NamesrvUtil.NAMESPACE_ORDER_TOPIC_CONFIG,
@@ -89,7 +95,9 @@ public class ClientRequestProcessor implements NettyRequestProcessor {
             }
 
             byte[] content;
+            // 默认创建的 GetRouteInfoRequestHeader 没有设置 acceptStandardJsonOnly 属性
             Boolean standardJsonOnly = Optional.ofNullable(requestHeader.getAcceptStandardJsonOnly()).orElse(false);
+            // todo：版本兼容？
             if (request.getVersion() >= MQVersion.Version.V4_9_4.ordinal() || standardJsonOnly) {
                 content = topicRouteData.encode(SerializerFeature.BrowserCompatible,
                     SerializerFeature.QuoteFieldNames, SerializerFeature.SkipTransientField,

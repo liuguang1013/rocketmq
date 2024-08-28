@@ -26,6 +26,7 @@ public class CompressorFactory {
         COMPRESSORS = new EnumMap<>(CompressionType.class);
         COMPRESSORS.put(CompressionType.LZ4, new Lz4Compressor());
         COMPRESSORS.put(CompressionType.ZSTD, new ZstdCompressor());
+        // 默认：ZLIB
         COMPRESSORS.put(CompressionType.ZLIB, new ZlibCompressor());
     }
 

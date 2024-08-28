@@ -146,6 +146,7 @@ import static org.apache.rocketmq.remoting.protocol.ResponseCode.CONTROLLER_MAST
 
 /**
  * netty 的客户端，用户访问其他 broker
+ * RequestCode.REGISTER_BROKER ：访问 nameSrv，注册 broker 信息
  */
 public class BrokerOuterAPI {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
@@ -469,34 +470,25 @@ public class BrokerOuterAPI {
      * Considering compression brings much CPU overhead to name server, stream API will not support compression and
      * compression feature is deprecated.
      *
-     * @param clusterName
-     * @param brokerAddr
-     * @param brokerName
-     * @param brokerId
-     * @param haServerAddr
-     * @param topicConfigWrapper
-     * @param filterServerList
-     * @param oneway
-     * @param timeoutMills
-     * @param compressed         default false
-     * @return
+     * 向所有的 NameSrv 注册 broker 信息
      */
     public List<RegisterBrokerResult> registerBrokerAll(
-        final String clusterName,
-        final String brokerAddr,
+        final String clusterName,// 默认：DefaultCluster
+        final String brokerAddr, // ip：port
         final String brokerName,
-        final long brokerId,
-        final String haServerAddr,
+        final long brokerId, // 主/从节点标识
+        final String haServerAddr,// 本机ip：10912
         final TopicConfigSerializeWrapper topicConfigWrapper,
-        final List<String> filterServerList,
-        final boolean oneway,
-        final int timeoutMills,
-        final boolean enableActingMaster,
-        final boolean compressed,
-        final Long heartbeatTimeoutMillis,
+        final List<String> filterServerList,// 默认空列表  Lists.newArrayList()
+        final boolean oneway, // broker start 方法传入 false，多次调用
+        final int timeoutMills,// 默认 24 s
+        final boolean enableActingMaster,//默认 false
+        final boolean compressed,//默认 false
+        final Long heartbeatTimeoutMillis,// 默认 false
         final BrokerIdentity brokerIdentity) {
 
         final List<RegisterBrokerResult> registerBrokerResultList = new CopyOnWriteArrayList<>();
+        // 获取 NameSrv 地址
         List<String> nameServerAddressList = this.remotingClient.getAvailableNameSrvList();
         if (nameServerAddressList != null && nameServerAddressList.size() > 0) {
 
@@ -508,14 +500,18 @@ public class BrokerOuterAPI {
             requestHeader.setHaServerAddr(haServerAddr);
             requestHeader.setEnableActingMaster(enableActingMaster);
             requestHeader.setCompressed(false);
+            // 默认 null
             if (heartbeatTimeoutMillis != null) {
                 requestHeader.setHeartbeatTimeoutMillis(heartbeatTimeoutMillis);
             }
 
             RegisterBrokerBody requestBody = new RegisterBrokerBody();
             requestBody.setTopicConfigSerializeWrapper(TopicConfigAndMappingSerializeWrapper.from(topicConfigWrapper));
+            // 空列表
             requestBody.setFilterServerList(filterServerList);
+            // 默认使用 json
             final byte[] body = requestBody.encode(compressed);
+            // 进行 冗余校验
             final int bodyCrc32 = UtilAll.crc32(body);
             requestHeader.setBodyCrc32(bodyCrc32);
             final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
@@ -558,6 +554,7 @@ public class BrokerOuterAPI {
         final byte[] body
     ) throws RemotingCommandException, MQBrokerException, RemotingConnectException, RemotingSendRequestException, RemotingTimeoutException,
         InterruptedException {
+
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.REGISTER_BROKER, requestHeader);
         request.setBody(body);
 
@@ -640,11 +637,10 @@ public class BrokerOuterAPI {
     /**
      * Register the topic route info of single topic to all name server nodes.
      * This method is used to replace incremental broker registration feature.
+     * 注册 topic 到所有的 NameSrv 中
      */
-    public void registerSingleTopicAll(
-        final String brokerName,
-        final TopicConfig topicConfig,
-        final int timeoutMills) {
+    public void registerSingleTopicAll(final String brokerName, final TopicConfig topicConfig, final int timeoutMills) {
+
         String topic = topicConfig.getTopicName();
         RegisterTopicRequestHeader requestHeader = new RegisterTopicRequestHeader();
         requestHeader.setTopic(topic);
@@ -660,8 +656,10 @@ public class BrokerOuterAPI {
         queueData.setWriteQueueNums(topicConfig.getWriteQueueNums());
         queueData.setTopicSysFlag(topicConfig.getTopicSysFlag());
         queueDatas.add(queueData);
+
         final byte[] topicRouteBody = topicRouteData.encode();
 
+        // 通过栅栏控制，将 topic 同步到所有 nameSrv
         List<String> nameServerAddressList = this.remotingClient.getNameServerAddressList();
         final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
         for (final String namesrvAddr : nameServerAddressList) {
@@ -671,6 +669,7 @@ public class BrokerOuterAPI {
             try {
                 brokerOuterExecutor.execute(() -> {
                     try {
+                        // 同步调用
                         RemotingCommand response = BrokerOuterAPI.this.remotingClient.invokeSync(namesrvAddr, request, timeoutMills);
                         assert response != null;
                         LOGGER.info("Register single topic {} to broker {} with response code {}", topic, brokerName, response.getCode());
@@ -1147,7 +1146,7 @@ public class BrokerOuterAPI {
         boolean allowTopicNotExist) throws MQBrokerException, InterruptedException, RemotingTimeoutException, RemotingSendRequestException, RemotingConnectException {
         GetRouteInfoRequestHeader requestHeader = new GetRouteInfoRequestHeader();
         requestHeader.setTopic(topic);
-
+        //
         RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.GET_ROUTEINFO_BY_TOPIC, requestHeader);
 
         RemotingCommand response = this.remotingClient.invokeSync(null, request, timeoutMillis);

@@ -116,6 +116,10 @@ public class MQClientInstance {
     private final MQAdminImpl mQAdminImpl;
     private final ConcurrentMap<String/* Topic */, TopicRouteData> topicRouteTable = new ConcurrentHashMap<>();
     private final ConcurrentMap<String/* Topic */, ConcurrentMap<MessageQueue, String/*brokerName*/>> topicEndPointsTable = new ConcurrentHashMap<>();
+    /**
+     * 使用场景
+     * 从 Namesrv 获取 TopicRouteInfo
+     */
     private final Lock lockNamesrv = new ReentrantLock();
     private final Lock lockHeartbeat = new ReentrantLock();
 
@@ -237,6 +241,10 @@ public class MQClientInstance {
             MQVersion.getVersionDesc(MQVersion.CURRENT_VERSION), RemotingCommand.getSerializeTypeConfigInThisServer());
     }
 
+    /**
+     * 将 TopicRouteData 对象封装成 TopicPublishInfo
+     * TopicPublishInfo：主要是构建 MessageQueue 对象，设置是否是 有序消息
+     */
     public static TopicPublishInfo topicRouteData2TopicPublishInfo(final String topic, final TopicRouteData route) {
         TopicPublishInfo info = new TopicPublishInfo();
         // TO DO should check the usage of raw route, it is better to remove such field
@@ -268,18 +276,23 @@ public class MQClientInstance {
 
             // 设置订阅topic 状态为 ： false
             info.setOrderTopic(false);
+            // 对 TopicRouteData.TopicQueueMappingInfo 数据进行处理，
+            // 最后封装成 MessageQueue 和 scope 的映射
             ConcurrentMap<MessageQueue, String> mqEndPoints = topicRouteData2EndpointsForStaticTopic(topic, route);
 
             info.getMessageQueueList().addAll(mqEndPoints.keySet());
             info.getMessageQueueList().sort((mq1, mq2) -> MixAll.compareInteger(mq1.getQueueId(), mq2.getQueueId()));
         } else {
             List<QueueData> qds = route.getQueueDatas();
-            // 根据brokerName排序
+            // 根据 brokerName 排序
             Collections.sort(qds);
+
+            // 对每个可写的、存在主节点的、 brokerName
             for (QueueData qd : qds) {
                 // 判断是够 可写
                 if (PermName.isWriteable(qd.getPerm())) {
                     BrokerData brokerData = null;
+                    //
                     for (BrokerData bd : route.getBrokerDatas()) {
                         if (bd.getBrokerName().equals(qd.getBrokerName())) {
                             brokerData = bd;
@@ -291,6 +304,7 @@ public class MQClientInstance {
                         continue;
                     }
 
+                    // 存在主节点
                     if (!brokerData.getBrokerAddrs().containsKey(MixAll.MASTER_ID)) {
                         continue;
                     }
@@ -337,7 +351,8 @@ public class MQClientInstance {
                 case CREATE_JUST:
                     this.serviceState = ServiceState.START_FAILED;
                     // If not specified,looking address from name server
-                    // 如果未指定，则从名称服务器查找地址
+                    // 如果未指定，则从名称服务器查找地址；
+                    // 正常是在 application.yml 配置的
                     if (null == this.clientConfig.getNamesrvAddr()) {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
@@ -833,18 +848,25 @@ public class MQClientInstance {
                      *  DefaultMQProducer.start（）方法启动过程中，initTopicRoute() ，也会进入该方法，先获取订阅的topic。未获取到或会再次获取默认的topic
                      */
                     if (isDefault && defaultMQProducer != null) {
+                        // 获取默认 TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC 的路由信息
                         topicRouteData = this.mQClientAPIImpl.getDefaultTopicRouteInfoFromNameServer(clientConfig.getMqClientApiTimeout());
                         if (topicRouteData != null) {
                             for (QueueData data : topicRouteData.getQueueDatas()) {
+                                // 默认 4 ，在 NameSrv 需要和本地的配置取最小值
                                 int queueNums = Math.min(defaultMQProducer.getDefaultTopicQueueNums(), data.getReadQueueNums());
                                 data.setReadQueueNums(queueNums);
                                 data.setWriteQueueNums(queueNums);
                             }
                         }
                     } else {
+                        // 只获取 某 topic 的路由信息，当发送消息的时候，在 topicPublishInfoTable 找不到 topic 的 TopicPublishInfo 时候调用
                         // topic的路由信息：包含队列信息、broker信息、
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, clientConfig.getMqClientApiTimeout());
                     }
+
+                    /**
+                     * 从 nameSrv 获取 topic 信息后，更新本地缓存 topicRouteTable
+                     */
                     if (topicRouteData != null) {
                         // 获取老路由信息
                         TopicRouteData old = this.topicRouteTable.get(topic);
@@ -865,7 +887,7 @@ public class MQClientInstance {
 
                             // Update endpoint map
                             {
-                                // todo：没看太明白
+                                // 对 TopicRouteData.TopicQueueMappingInfo 数据进行处理，最后封装成 MessageQueue 和 scope 的映射
                                 ConcurrentMap<MessageQueue, String> mqEndPoints = topicRouteData2EndpointsForStaticTopic(topic, topicRouteData);
                                 if (!mqEndPoints.isEmpty()) {
                                     topicEndPointsTable.put(topic, mqEndPoints);
@@ -873,8 +895,9 @@ public class MQClientInstance {
                             }
 
                             // Update Pub info
-                            // 更新 topic 的发布信息
+                            // 更新各个生产者的 topic 的发布信息
                             {
+                                // 构建 MessageQueue 封装到 TopicPublishInfo
                                 TopicPublishInfo publishInfo = topicRouteData2TopicPublishInfo(topic, topicRouteData);
                                 publishInfo.setHaveTopicRouterInfo(true);
                                 for (Entry<String, MQProducerInner> entry : this.producerTable.entrySet()) {
@@ -977,14 +1000,21 @@ public class MQClientInstance {
         return false;
     }
 
+    /**
+     * 判断客户端所有的 生产者的 topicPublishInfoTable 缓存 是否存在 topic 的路由信息
+     * 判断客户端所有的 消费者的 订阅的 topic 是否需要更新
+     * @param topic
+     * @return
+     */
     private boolean isNeedUpdateTopicRouteInfo(final String topic) {
         boolean result = false;
         Iterator<Entry<String, MQProducerInner>> producerIterator = this.producerTable.entrySet().iterator();
+        // 遍历 客户端 生产者列表
         while (producerIterator.hasNext() && !result) {
             Entry<String, MQProducerInner> entry = producerIterator.next();
             MQProducerInner impl = entry.getValue();
             if (impl != null) {
-                // 判断是否存在 缓存、消息队列消息
+                // 判断  DefaultMQProducerImpl#topicPublishInfoTable 缓存是否存在 缓存、消息队列消息
                 result = impl.isPublishTopicNeedUpdate(topic);
             }
         }
@@ -993,6 +1023,7 @@ public class MQClientInstance {
             return true;
         }
 
+        // 遍历消费者
         Iterator<Entry<String, MQConsumerInner>> consumerIterator = this.consumerTable.entrySet().iterator();
         while (consumerIterator.hasNext() && !result) {
             Entry<String, MQConsumerInner> entry = consumerIterator.next();

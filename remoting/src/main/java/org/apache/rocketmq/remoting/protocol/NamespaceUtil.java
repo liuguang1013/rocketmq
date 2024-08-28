@@ -81,6 +81,13 @@ public class NamespaceUtil {
         return resourceWithNamespace;
     }
 
+    /**
+     * 添加 namespace 前缀；
+     * 对 RetryTopic、DLQTopic 再额外添加前缀
+     * @param namespace
+     * @param resourceWithOutNamespace
+     * @return
+     */
     public static String wrapNamespace(String namespace, String resourceWithOutNamespace) {
         if (StringUtils.isEmpty(namespace) || StringUtils.isEmpty(resourceWithOutNamespace)) {
             return resourceWithOutNamespace;

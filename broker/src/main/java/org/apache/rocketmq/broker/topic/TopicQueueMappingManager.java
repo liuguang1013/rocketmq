@@ -51,6 +51,9 @@ public class TopicQueueMappingManager extends ConfigManager {
     private final DataVersion dataVersion = new DataVersion();
     private transient BrokerController brokerController;
 
+    /**
+     *
+     */
     private final ConcurrentMap<String, TopicQueueMappingDetail> topicQueueMappingTable = new ConcurrentHashMap<>();
 
 
@@ -194,7 +197,9 @@ public class TopicQueueMappingManager extends ConfigManager {
                 && Boolean.FALSE.equals(requestHeader.getLo())) {
             return new TopicQueueMappingContext(requestHeader.getTopic(), null, null, null, null);
         }
+        // 获取 topic
         String topic = requestHeader.getTopic();
+        // 获取 QueueId ，这是在 client 在 topicPublishInfo 中，通过策略筛选的
         Integer globalId = null;
         if (requestHeader instanceof  TopicQueueRequestHeader) {
             globalId = ((TopicQueueRequestHeader) requestHeader).getQueueId();
@@ -203,7 +208,7 @@ public class TopicQueueMappingManager extends ConfigManager {
         TopicQueueMappingDetail mappingDetail = getTopicQueueMapping(topic);
         if (mappingDetail == null) {
             //it is not static topic
-            // todo：不是一个 static topic 有怎么样？
+            // todo：不是一个 static topic 有怎么样？   static topic 会有对映的 endpoint
             return new TopicQueueMappingContext(topic, null, null, null, null);
         }
         // 判断 brokerName 相同,不同抛出异常
