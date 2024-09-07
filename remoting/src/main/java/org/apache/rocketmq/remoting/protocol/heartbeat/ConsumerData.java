@@ -25,11 +25,29 @@ import java.util.Set;
 import org.apache.rocketmq.common.consumer.ConsumeFromWhere;
 
 public class ConsumerData {
+    /**
+     * 消费者组名
+     */
     private String groupName;
+    /**
+     * 消费类型： pull、push、pop
+     */
     private ConsumeType consumeType;
+    /**
+     * 消息类型：集群、广播，默认是集群
+     */
     private MessageModel messageModel;
+    /**
+     * 开始消费的位置，默认是最后一个
+     */
     private ConsumeFromWhere consumeFromWhere;
+    /**
+     * 订阅的数据：对于一个 MQConsumer 来说，一般只有一个 topic 和 消费者组的重试topic
+     */
     private Set<SubscriptionData> subscriptionDataSet = new HashSet<>();
+    /**
+     * 是否以消费组为单位，默认false
+     */
     private boolean unitMode;
 
     public String getGroupName() {

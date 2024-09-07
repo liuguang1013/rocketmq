@@ -39,11 +39,12 @@ public class ConsumerGroupInfo {
     /**
      * 在 pullMessageProcessor 中处理请求，当请求中存在订阅标识时，向缓存中添加数据
      */
-    private final ConcurrentMap<String/* Topic */, SubscriptionData> subscriptionTable =
-        new ConcurrentHashMap<>();
+    private final ConcurrentMap<String/* Topic */, SubscriptionData> subscriptionTable = new ConcurrentHashMap<>();
 
-    private final ConcurrentMap<Channel, ClientChannelInfo> channelInfoTable =
-        new ConcurrentHashMap<>(16);
+    /**
+     * 缓存 消费者组下，多个客户端的 channel 信息
+     */
+    private final ConcurrentMap<Channel, ClientChannelInfo> channelInfoTable = new ConcurrentHashMap<>(16);
 
     private volatile ConsumeType consumeType;
     private volatile MessageModel messageModel;
@@ -102,6 +103,7 @@ public class ConsumerGroupInfo {
         while (it.hasNext()) {
             Entry<Channel, ClientChannelInfo> entry = it.next();
             ClientChannelInfo clientChannelInfo = entry.getValue();
+            // 获取 客户端id
             result.add(clientChannelInfo.getClientId());
         }
 
@@ -129,16 +131,14 @@ public class ConsumerGroupInfo {
     }
 
     /**
-     * Update {@link #channelInfoTable} in {@link ConsumerGroupInfo}
+     * 新增/更新 消费者组信息中的客户端信息
      *
-     * @param infoNew Channel info of new client.
-     * @param consumeType consume type of new client.
-     * @param messageModel message consuming model (CLUSTERING/BROADCASTING) of new client.
-     * @param consumeFromWhere indicate the position when the client consume message firstly.
-     * @return the result that if new connector is connected or not.
+     * 新的客户端 channel 直接存入缓存，
+     * 已经存在的，ClientId 不同就替换
      */
     public boolean updateChannel(final ClientChannelInfo infoNew, ConsumeType consumeType,
         MessageModel messageModel, ConsumeFromWhere consumeFromWhere) {
+
         boolean updated = false;
         this.consumeType = consumeType;
         this.messageModel = messageModel;
@@ -146,6 +146,7 @@ public class ConsumerGroupInfo {
 
         ClientChannelInfo infoOld = this.channelInfoTable.get(infoNew.getChannel());
         if (null == infoOld) {
+            // 缓存中不存在 客户端，存入缓存
             ClientChannelInfo prev = this.channelInfoTable.put(infoNew.getChannel(), infoNew);
             if (null == prev) {
                 log.info("new consumer connected, group: {} {} {} channel: {}", this.groupName, consumeType,
@@ -171,10 +172,8 @@ public class ConsumerGroupInfo {
     }
 
     /**
-     * Update subscription.
-     *
-     * @param subList set of {@link SubscriptionData}
-     * @return the boolean indicates the subscription has changed or not.
+     * 更新消费者组的 订阅的 topic 信息
+     * 清除缓存中，不再新 订阅信息中的 topic
      */
     public boolean updateSubscription(final Set<SubscriptionData> subList) {
         boolean updated = false;
@@ -213,9 +212,9 @@ public class ConsumerGroupInfo {
                 log.warn("subscription changed, group: {} remove topic {} {}",
                     this.groupName,
                     oldTopic,
-                    next.getValue().toString()
-                );
+                    next.getValue().toString());
 
+                // todo： 此处为啥要删除？？其他客户端添加的 topic 为啥要删除
                 it.remove();
                 updated = true;
             }

@@ -49,6 +49,7 @@ public class MQClientManager {
     }
     public MQClientInstance getOrCreateMQClientInstance(final ClientConfig clientConfig, RPCHook rpcHook) {
         // ClientIP@instanceName@unitName@0
+        // clientId 中 instanceName 包含 nano time 肯定不一样
         String clientId = clientConfig.buildMQClientId();
         MQClientInstance instance = this.factoryTable.get(clientId);
         if (null == instance) {

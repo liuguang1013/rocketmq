@@ -32,6 +32,9 @@ public enum ConsumerGroupEvent {
     REGISTER,
     /**
      * The client of this consumer is new registered.
+     *
+     * 1、消费者的客户端注册，向broker 发送心跳，并且在 ConsumerManager 中未找到消费者组信息的缓存，
+     *  创建 ConsumerGroupInfo ，并创建该事件，调用监听者
      */
     CLIENT_REGISTER,
     /**

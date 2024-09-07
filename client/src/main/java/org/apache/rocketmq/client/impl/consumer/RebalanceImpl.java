@@ -52,10 +52,18 @@ public abstract class RebalanceImpl {
     protected final ConcurrentMap<MessageQueue, ProcessQueue> processQueueTable = new ConcurrentHashMap<>(64);
     protected final ConcurrentMap<MessageQueue, PopProcessQueue> popProcessQueueTable = new ConcurrentHashMap<>(64);
 
-    protected final ConcurrentMap<String/* topic */, Set<MessageQueue>> topicSubscribeInfoTable =
-        new ConcurrentHashMap<>();
-    protected final ConcurrentMap<String /* topic */, SubscriptionData> subscriptionInner =
-        new ConcurrentHashMap<>();
+    /**
+     * updateTopicRouteInfoFromNameServer 获取从 NameSrv 获取 topicRouteData 后，
+     * 会将 TopicRouteData 可读的队列数量，封装成 MessageQueue 对象，最终放入缓存
+     */
+    protected final ConcurrentMap<String/* topic */, Set<MessageQueue>> topicSubscribeInfoTable = new ConcurrentHashMap<>();
+
+    /**
+     * 在 消费者启动的时候，会将订阅信息复制进来 copySubscription
+     * 存放 topic 本身订阅信息，
+     * 对于集群消息类型来说，还会构建 ConsumerGroup 的重试消息
+     */
+    protected final ConcurrentMap<String /* topic */, SubscriptionData> subscriptionInner = new ConcurrentHashMap<>();
     protected String consumerGroup;
     protected MessageModel messageModel;
     protected AllocateMessageQueueStrategy allocateMessageQueueStrategy;
@@ -234,19 +242,27 @@ public abstract class RebalanceImpl {
         return true;
     }
 
+    /**
+     * 消费者启动的时候，mQClientFactory#start 方法中会开启 rebalanceService 定时任务
+     * 最终进入该方法
+     */
     public boolean doRebalance(final boolean isOrder) {
         boolean balanced = true;
         Map<String, SubscriptionData> subTable = this.getSubscriptionInner();
         if (subTable != null) {
+            // 遍历 订阅的 topic 的订阅信息
             for (final Map.Entry<String, SubscriptionData> entry : subTable.entrySet()) {
                 final String topic = entry.getKey();
                 try {
+                    // 对于 push 消费者：判断是否为 广播、顺序消息 并且 尝试队列分配
                     if (!clientRebalance(topic) && tryQueryAssignment(topic)) {
+                        // todo： 待看
                         boolean result = this.getRebalanceResultFromBroker(topic, isOrder);
                         if (!result) {
                             balanced = false;
                         }
                     } else {
+                        //
                         boolean result = this.rebalanceByTopic(topic, isOrder);
                         if (!result) {
                             balanced = false;
@@ -290,6 +306,7 @@ public abstract class RebalanceImpl {
                 }
             }
         }
+
         if (retryTimes >= TIMEOUT_CHECK_TIMES) {
             // if never success before and timeout exceed TIMEOUT_CHECK_TIMES, force client rebalance
             topicClientRebalance.put(topic, topic);
@@ -305,6 +322,7 @@ public abstract class RebalanceImpl {
     private boolean rebalanceByTopic(final String topic, final boolean isOrder) {
         boolean balanced = true;
         switch (messageModel) {
+            // todo：待看
             case BROADCASTING: {
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
                 if (mqSet != null) {
@@ -322,8 +340,11 @@ public abstract class RebalanceImpl {
                 break;
             }
             case CLUSTERING: {
+                // 获取 topic 的对映队列消息
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
+                // 获取消费者 id 列表
                 List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
+
                 if (null == mqSet) {
                     if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                         this.messageQueueChanged(topic, Collections.<MessageQueue>emptySet(), Collections.<MessageQueue>emptySet());

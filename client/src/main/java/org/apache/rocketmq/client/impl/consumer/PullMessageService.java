@@ -133,6 +133,7 @@ public class PullMessageService extends ServiceThread {
         while (!this.isStopped()) {
             try {
                 // 阻塞的从消息队列中获取消息请求
+                // todo:什么时候 创建第一个请求
                 MessageRequest messageRequest = this.messageRequestQueue.take();
                 // todo：弹出模式 与 拉取模式的区别
                 if (messageRequest.getMessageRequestMode() == MessageRequestMode.POP) {

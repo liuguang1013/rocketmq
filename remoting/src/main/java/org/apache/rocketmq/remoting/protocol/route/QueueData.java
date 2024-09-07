@@ -44,6 +44,9 @@ public class QueueData implements Comparable<QueueData> {
      * topicConfig.getPerm()
      * 但是 BrokerController#registerBrokerAll 方法，获取所有 topic 的配置后，
      *  如果broker 是不可读或写，会将 所有 topic 的配置也设置为不可读或写
+     *
+     *  写权限：对映生产者的消息写入
+     *  读权限：对映消费者的消息消费
      */
     private int perm;
 

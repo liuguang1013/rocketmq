@@ -59,7 +59,7 @@ public class TopicRouteData extends RemotingSerializable {
 
     //It could be null or empty
     /**
-     * todo：
+     * todo： 所谓的静态消息，是指固定在某个端点吗？请求都发送到固定服务端
      * key：broker 名
      * value：topic和队列映射信息：总队列数、topic、数据是否脏 等数据
      *

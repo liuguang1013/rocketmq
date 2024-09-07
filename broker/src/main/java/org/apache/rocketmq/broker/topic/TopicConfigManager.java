@@ -385,12 +385,16 @@ public class TopicConfigManager extends ConfigManager {
         return createTopicInSendMessageBackMethod(topic, clientDefaultTopicQueueNums, perm, false, topicSysFlag);
     }
 
+    /**
+     * 1、在消费者启动，向 broker 发送心跳，broker 接收请求创建 消费者组的重试 topic
+     */
     public TopicConfig createTopicInSendMessageBackMethod(
         final String topic,
         final int clientDefaultTopicQueueNums,
         final int perm,
         final boolean isOrder,
         final int topicSysFlag) {
+
         TopicConfig topicConfig = getTopicConfig(topic);
         if (topicConfig != null) {
             if (isOrder != topicConfig.isOrder()) {
@@ -418,10 +422,12 @@ public class TopicConfigManager extends ConfigManager {
                     topicConfig.setOrder(isOrder);
 
                     log.info("create new topic {}", topicConfig);
+                    // 缓存 topic 配置信息
                     putTopicConfig(topicConfig);
                     createNew = true;
                     long stateMachineVersion = brokerController.getMessageStore() != null ? brokerController.getMessageStore().getStateMachineVersion() : 0;
                     dataVersion.nextVersion(stateMachineVersion);
+                    // 持久化
                     this.persist();
                 } finally {
                     this.topicConfigTableLock.unlock();
@@ -432,6 +438,7 @@ public class TopicConfigManager extends ConfigManager {
         }
 
         if (createNew) {
+            // 创建新的 topic 后，会将新的 topic 信息，发送所有的 nameSrv
             registerBrokerData(topicConfig);
         }
 

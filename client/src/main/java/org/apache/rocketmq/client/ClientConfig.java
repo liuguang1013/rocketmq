@@ -108,11 +108,12 @@ public class ClientConfig {
     private boolean enableHeartbeatChannelEventListener = true;
 
     /**
-     *
+     * 生产者 消费者都会调用 该方法，在同一台机器、同一进程中是一致的
      * @return ClientIP@instanceName@unitName@0
      */
     public String buildMQClientId() {
         StringBuilder sb = new StringBuilder();
+        // 本机ip
         sb.append(this.getClientIP());
 
         sb.append("@");
@@ -147,6 +148,9 @@ public class ClientConfig {
         this.instanceName = instanceName;
     }
 
+    /**
+     * 设置实例名： Pid#系统纳秒
+     */
     public void changeInstanceNameToPID() {
         if (this.instanceName.equals("DEFAULT")) {
             this.instanceName = UtilAll.getPid() + "#" + System.nanoTime();

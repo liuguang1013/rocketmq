@@ -38,16 +38,26 @@ import org.apache.rocketmq.remoting.protocol.heartbeat.MessageModel;
 import org.apache.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
+/**
+ * broker 中 消费者管理器
+ *
+ * 缓存  ConsumerGroupInfo 信息：消费组的 消费位置、订阅的 topic 信息
+ */
 public class ConsumerManager {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
-    private final ConcurrentMap<String, ConsumerGroupInfo> consumerTable =
-        new ConcurrentHashMap<>(1024);
+
+    /**
+     * 消费者组信息
+     * 1、消费者在启动的时候，回向所有的 broker 发送心跳，心跳中会携带 消费者组信息，并添加到 缓存
+     */
+    private final ConcurrentMap<String/* consumerGroup */, ConsumerGroupInfo> consumerTable = new ConcurrentHashMap<>(1024);
     /**
      * 消费者补充信息缓存
+     * 在 consumerTable 中获取不到，有可能尝试在该缓存中获取
      * key： group 消费者组名
      * value： 消费者组信息
      */
-    private final ConcurrentMap<String, ConsumerGroupInfo> consumerCompensationTable = new ConcurrentHashMap<>(1024);
+    private final ConcurrentMap<String/* consumerGroup */, ConsumerGroupInfo> consumerCompensationTable = new ConcurrentHashMap<>(1024);
 
     private final List<ConsumerIdsChangeListener> consumerIdsChangeListenerList = new CopyOnWriteArrayList<>();
     protected final BrokerStatsManager brokerStatsManager;
@@ -117,6 +127,7 @@ public class ConsumerManager {
 
     public ConsumerGroupInfo getConsumerGroupInfo(String group, boolean fromCompensationTable) {
         ConsumerGroupInfo consumerGroupInfo = consumerTable.get(group);
+        // 补偿 缓存中获取 消费者组信息
         if (consumerGroupInfo == null && fromCompensationTable) {
             consumerGroupInfo = consumerCompensationTable.get(group);
         }
@@ -176,9 +187,14 @@ public class ConsumerManager {
         consumerGroupInfo.getSubscriptionTable().put(topic, subscriptionData);
     }
 
+    /**
+     * 1、消费者启动时候，携带消费者的订阅信息，向所有 broker 发送心跳，并注册消费者组信息
+     *
+     */
     public boolean registerConsumer(final String group, final ClientChannelInfo clientChannelInfo,
         ConsumeType consumeType, MessageModel messageModel, ConsumeFromWhere consumeFromWhere,
         final Set<SubscriptionData> subList, boolean isNotifyConsumerIdsChangedEnable) {
+
         return registerConsumer(group, clientChannelInfo, consumeType, messageModel, consumeFromWhere, subList,
             isNotifyConsumerIdsChangedEnable, true);
     }
@@ -186,26 +202,31 @@ public class ConsumerManager {
     public boolean registerConsumer(final String group, final ClientChannelInfo clientChannelInfo,
         ConsumeType consumeType, MessageModel messageModel, ConsumeFromWhere consumeFromWhere,
         final Set<SubscriptionData> subList, boolean isNotifyConsumerIdsChangedEnable, boolean updateSubscription) {
+
         long start = System.currentTimeMillis();
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
         if (null == consumerGroupInfo) {
             callConsumerIdsChangeListener(ConsumerGroupEvent.CLIENT_REGISTER, group, clientChannelInfo,
                 subList.stream().map(SubscriptionData::getTopic).collect(Collectors.toSet()));
+            // 创建并缓存 消费组信息
             ConsumerGroupInfo tmp = new ConsumerGroupInfo(group, consumeType, messageModel, consumeFromWhere);
             ConsumerGroupInfo prev = this.consumerTable.putIfAbsent(group, tmp);
             consumerGroupInfo = prev != null ? prev : tmp;
         }
 
-        boolean r1 =
-            consumerGroupInfo.updateChannel(clientChannelInfo, consumeType, messageModel,
-                consumeFromWhere);
+        // 新增/更新  broker 与 消费者客户端的 channel 信息，新增返回 true
+        boolean r1 = consumerGroupInfo.updateChannel(clientChannelInfo, consumeType, messageModel, consumeFromWhere);
+
         boolean r2 = false;
         if (updateSubscription) {
+            //  更新消费者组的 订阅的 topic 信息，清除缓存中，不再新 订阅信息中的 topic
+            //  删除返回 true
             r2 = consumerGroupInfo.updateSubscription(subList);
         }
 
         if (r1 || r2) {
             if (isNotifyConsumerIdsChangedEnable) {
+                // 调用  DefaultConsumerIdsChangeListener
                 callConsumerIdsChangeListener(ConsumerGroupEvent.CHANGE, group, consumerGroupInfo.getAllChannel());
             }
         }

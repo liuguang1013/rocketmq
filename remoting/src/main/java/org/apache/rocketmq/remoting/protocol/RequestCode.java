@@ -52,6 +52,10 @@ public class RequestCode {
 
     public static final int VIEW_MESSAGE_BY_ID = 33;
 
+    /**
+     * 通过心跳 完成 生产/消费者组的信息 到 CustomerManager 注册
+     *
+     */
     public static final int HEART_BEAT = 34;
 
     public static final int UNREGISTER_CLIENT = 35;
@@ -59,16 +63,26 @@ public class RequestCode {
     public static final int CONSUMER_SEND_MSG_BACK = 36;
 
     public static final int END_TRANSACTION = 37;
+    /**
+     * 消费者启动的时候， RebalanceImpl 获取消费者列表，发送同步请求
+     */
     public static final int GET_CONSUMER_LIST_BY_GROUP = 38;
 
     public static final int CHECK_TRANSACTION_STATE = 39;
 
     /**
-     * broker 启动时，
+     * 1、broker 启动时，
      * new BrokerController 创建对象中，
      * new DefaultConsumerIdsChangeListener 创建对象时，
      * 定时任务 15 s 执行一次，遍历缓存 consumerChannelMap，
      * 通过 Broker2Client，实际是 NettyRemotingServer 给消费者组下的每个消费者发送该请求，只发送一次
+     *
+     * 2、消费者启动，向broker 发送心跳，携带消费者组信息，
+     * 会向 ConsumerManager 中 registerConsumer注册消费者组信息，
+     * 当新增/更新客户端channel 缓存  或者 更新 topic 信息的时候，发送 ConsumerGroupEvent.CHANGE 事件
+     * DefaultConsumerIdsChangeListener 接收到事件，向所有的客户端发送 该请求
+     *
+     *
      */
     public static final int NOTIFY_CONSUMER_IDS_CHANGED = 40;
 

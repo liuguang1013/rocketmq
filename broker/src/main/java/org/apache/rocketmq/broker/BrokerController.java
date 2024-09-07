@@ -180,6 +180,9 @@ public class BrokerController {
     protected final MessageStoreConfig messageStoreConfig;
     protected final ConsumerOffsetManager consumerOffsetManager;
     protected final BroadcastOffsetManager broadcastOffsetManager;
+    /**
+     * 消费者管理器
+     */
     protected final ConsumerManager consumerManager;
     protected final ConsumerFilterManager consumerFilterManager;
     protected final ConsumerOrderInfoManager consumerOrderInfoManager;
@@ -2008,7 +2011,7 @@ public class BrokerController {
             return;
         }
         /**
-         * 向其他 NameSrv 注册 broker 信息
+         * 向所有 NameSrv 注册 broker 信息
          */
         List<RegisterBrokerResult> registerBrokerResultList = this.brokerOuterAPI.registerBrokerAll(
             //默认：DefaultCluster

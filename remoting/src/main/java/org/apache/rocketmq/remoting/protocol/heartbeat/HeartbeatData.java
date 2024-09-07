@@ -26,8 +26,18 @@ import com.alibaba.fastjson.JSON;
 import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 
 public class HeartbeatData extends RemotingSerializable {
+    /**
+     * ClientIP@instanceName@unitName@0
+     */
     private String clientID;
+    /**
+     * 服务中多个
+     * 多个生产者数据：groupName
+     */
     private Set<ProducerData> producerDataSet = new HashSet<>();
+    /**
+     * 多个消费者数据：
+     */
     private Set<ConsumerData> consumerDataSet = new HashSet<>();
     private int heartbeatFingerprint = 0;
     private boolean isWithoutSub = false;

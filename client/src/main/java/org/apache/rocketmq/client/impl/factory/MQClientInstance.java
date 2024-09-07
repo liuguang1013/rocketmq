@@ -92,6 +92,10 @@ public class MQClientInstance {
     private final static long LOCK_TIMEOUT_MILLIS = 3000;
     private final static Logger log = LoggerFactory.getLogger(MQClientInstance.class);
     private final ClientConfig clientConfig;
+    /**
+     * ClientConfig#buildMQClientId 中构建
+     * ClientIP@instanceName@unitName@0
+     */
     private final String clientId;
     private final long bootTimestamp = System.currentTimeMillis();
 
@@ -104,8 +108,11 @@ public class MQClientInstance {
     /**
      * The container of the consumer in the current client. The key is the name of consumerGroup.
      * 当前客户机中消费者的容器。关键字是consumerGroup的名称。
+     *
+     * 消费者启动的时候，会在 start调用 registerConsumer 方法中，进行 consumerGroup 的注册
+     * 在客户端服务中，一个消费者组只能有一个 MQConsumerInner 实例，多个会抛出异常
      */
-    private final ConcurrentMap<String, MQConsumerInner> consumerTable = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String/* consumerGroup */, MQConsumerInner> consumerTable = new ConcurrentHashMap<>();
 
     /**
      * The container of the adminExt in the current client. The key is the name of adminExtGroup.
@@ -254,7 +261,7 @@ public class MQClientInstance {
          * 在 TopicRouteData 消息队列信息：
          * OrderTopic：true，在 orderTopicConf 中最先获取
          * OrderTopic：false，其次在 topicQueueMappingByBroker 中获取
-         * OrderTopic：false，还获取不到，直接在queueDatas 中获取
+         * OrderTopic：false，还获取不到，直接在 queueDatas 中获取
          */
         if (route.getOrderTopicConf() != null && route.getOrderTopicConf().length() > 0) {
             // 将所有brokerName下的消息队列，封装成MessageQueue 添加到TopicPublishInfo 中
@@ -322,11 +329,15 @@ public class MQClientInstance {
         return info;
     }
 
+    /**
+     * 将 TopicRouteData 可读的队列数量，封装成 MessageQueue 对象
+     */
     public static Set<MessageQueue> topicRouteData2TopicSubscribeInfo(final String topic, final TopicRouteData route) {
         Set<MessageQueue> mqList = new HashSet<>();
         // 订阅信息
         if (route.getTopicQueueMappingByBroker() != null
             && !route.getTopicQueueMappingByBroker().isEmpty()) {
+            // todo：静态 topic
             ConcurrentMap<MessageQueue, String> mqEndPoints = topicRouteData2EndpointsForStaticTopic(topic, route);
             return mqEndPoints.keySet();
         }
@@ -357,14 +368,33 @@ public class MQClientInstance {
                         this.mQClientAPIImpl.fetchNameServerAddr();
                     }
                     // Start request-response channel
-                    // 开启 netty 客户端连接服务端
+                    /**
+                     *  创建 netty 客户端，并未连接服务端，后续首次发送请求才会建立连接
+                     *  开启 NettyEventExecutor ，通过阻塞队列完成各个节点时间通知 ChannelEventListener
+                     *  开启扫描响应过期的定时任务
+                      */
                     this.mQClientAPIImpl.start();
                     // Start various schedule tasks
-                    // 启动各种计划任务
+                    /**
+                     * 启动各种计划任务
+                     * 1、在 NameServer 为空情况下，定时拉取地址
+                     * 2、从 NameServer 拉取 topic 路由信息，实际就是broker地址
+                     * 3、清除下线的broker、向所有Broker发送心跳。
+                     * 4、持久化所有消费者消费的数据
+                     * 5、调整线程池大小
+                     */
                     this.startScheduledTask();
                     // Start pull service
+                    /**
+                     *  开启拉取消息服务
+                     *  不断从阻塞队列中获取请求消息：pop 或者 pull 类型
+                     *
+                     */
                     this.pullMessageService.start();
                     // Start rebalance service
+                    /**
+                     *
+                     */
                     this.rebalanceService.start();
                     // Start push service
                     // todo：此处为什么又启动一次？
@@ -382,6 +412,12 @@ public class MQClientInstance {
 
     /**
      * 所用的定时任务共同使用同一把锁
+     * 定时任务：
+     *  1、在 NameServer 为空情况下，定时拉取地址
+     *  2、从 NameServer 拉取 topic 路由信息，实际就是broker地址
+     *  3、清除下线的broker、向所有Broker发送心跳
+     *  4、持久化所有消费者消费的数据
+     *  5、调整线程池大小
      */
     private void startScheduledTask() {
         // 一般不为空
@@ -597,6 +633,7 @@ public class MQClientInstance {
     public boolean sendHeartbeatToAllBrokerWithLock() {
         if (this.lockHeartbeat.tryLock()) {
             try {
+                // 默认false
                 if (clientConfig.isUseHeartbeatV2()) {
                     return this.sendHeartbeatToAllBrokerV2(false);
                 } else {
@@ -716,6 +753,7 @@ public class MQClientInstance {
     }
 
     private boolean sendHeartbeatToAllBroker() {
+        // 构建心跳信息：封装实例中，生产/消费者组信息
         final HeartbeatData heartbeatData = this.prepareHeartbeatData(false);
         final boolean producerEmpty = heartbeatData.getProducerDataSet().isEmpty();
         final boolean consumerEmpty = heartbeatData.getConsumerDataSet().isEmpty();
@@ -739,6 +777,8 @@ public class MQClientInstance {
                 if (addr == null) {
                     continue;
                 }
+                // 消费者为空下，只给主节点发心跳
+                // 消费者不为空，给主/从节点都发心跳
                 if (consumerEmpty && MixAll.MASTER_ID != id) {
                     continue;
                 }
@@ -897,7 +937,7 @@ public class MQClientInstance {
                             // Update Pub info
                             // 更新各个生产者的 topic 的发布信息
                             {
-                                // 构建 MessageQueue 封装到 TopicPublishInfo
+                                // 将 TopicRouteData ，构建 MessageQueue ，最终封装到 TopicPublishInfo
                                 TopicPublishInfo publishInfo = topicRouteData2TopicPublishInfo(topic, topicRouteData);
                                 publishInfo.setHaveTopicRouterInfo(true);
                                 for (Entry<String, MQProducerInner> entry : this.producerTable.entrySet()) {
@@ -911,12 +951,13 @@ public class MQClientInstance {
 
                             // Update sub info
                             // 更新订阅信息
-                            // todo： 待看
                             if (!consumerTable.isEmpty()) {
+                                // 将 TopicRouteData 可读的队列数量，封装成 MessageQueue 对象
                                 Set<MessageQueue> subscribeInfo = topicRouteData2TopicSubscribeInfo(topic, topicRouteData);
                                 for (Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
                                     MQConsumerInner impl = entry.getValue();
                                     if (impl != null) {
+                                        // 更新 topic 的订阅新
                                         impl.updateTopicSubscribeInfo(topic, subscribeInfo);
                                     }
                                 }
@@ -949,22 +990,29 @@ public class MQClientInstance {
         return false;
     }
 
+    /**
+     * 构建 HeartbeatData ： clientID、ConsumerData、ProducerData
+     * 实际是对实例中，生产/消费者组信息的封装
+     */
     private HeartbeatData prepareHeartbeatData(boolean isWithoutSub) {
         HeartbeatData heartbeatData = new HeartbeatData();
 
-        // clientID
+        // clientID：  ClientIP@instanceName@unitName@0
         heartbeatData.setClientID(this.clientId);
 
-        // Consumer
-        for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
+        // Consumer：
+        for (Map.Entry<String/* groupName */, MQConsumerInner> entry : this.consumerTable.entrySet()) {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
+                // 构建消费者数据
                 ConsumerData consumerData = new ConsumerData();
                 consumerData.setGroupName(impl.groupName());
                 consumerData.setConsumeType(impl.consumeType());
                 consumerData.setMessageModel(impl.messageModel());
                 consumerData.setConsumeFromWhere(impl.consumeFromWhere());
+                // 获取 subscriptionInner中的 subscriptionInner 缓存信息添加：包含不同 topic 的订阅信息
                 consumerData.getSubscriptionDataSet().addAll(impl.subscriptions());
+                // 是否是以消费组为单位
                 consumerData.setUnitMode(impl.isUnitMode());
                 if (!isWithoutSub) {
                     consumerData.getSubscriptionDataSet().addAll(impl.subscriptions());
@@ -974,7 +1022,7 @@ public class MQClientInstance {
         }
 
         // Producer
-        for (Map.Entry<String/* group */, MQProducerInner> entry : this.producerTable.entrySet()) {
+        for (Map.Entry<String/* groupName */, MQProducerInner> entry : this.producerTable.entrySet()) {
             MQProducerInner impl = entry.getValue();
             if (impl != null) {
                 ProducerData producerData = new ProducerData();
@@ -1172,7 +1220,7 @@ public class MQClientInstance {
             if (impl != null) {
                 try {
                     // 消费者组的消费者重新平衡
-                    // todo：待看
+                    // todo：待看。 为消费者分配broker
                     if (!impl.tryRebalance()) {
                         balanced = false;
                     }
@@ -1290,14 +1338,17 @@ public class MQClientInstance {
     }
 
     public List<String> findConsumerIdList(final String topic, final String group) {
+        // 在 topicRouteTable 随机挑选 broker ，并优先返回主节点的 addr 地址
         String brokerAddr = this.findBrokerAddrByTopic(topic);
         if (null == brokerAddr) {
+            // 尝试从 nameSrv 获取 topicRoute 信息
             this.updateTopicRouteInfoFromNameServer(topic);
             brokerAddr = this.findBrokerAddrByTopic(topic);
         }
 
         if (null != brokerAddr) {
             try {
+                // 在 broker 中，获取消费者id列表
                 return this.mQClientAPIImpl.getConsumerIdListByGroup(brokerAddr, group, clientConfig.getMqClientApiTimeout());
             } catch (Exception e) {
                 log.warn("getConsumerIdListByGroup exception, " + brokerAddr + " " + group, e);
@@ -1324,6 +1375,9 @@ public class MQClientInstance {
         return null;
     }
 
+    /**
+     * 随机挑选 broker ，并优先返回主节点的 addr 地址
+     */
     public String findBrokerAddrByTopic(final String topic) {
         TopicRouteData topicRouteData = this.topicRouteTable.get(topic);
         if (topicRouteData != null) {

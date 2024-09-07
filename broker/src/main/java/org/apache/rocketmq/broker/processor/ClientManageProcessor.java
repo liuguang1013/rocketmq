@@ -75,9 +75,15 @@ public class ClientManageProcessor implements NettyRequestProcessor {
         return false;
     }
 
+    /**
+     * broker 接收客户端的心跳：
+     * 向ConsumerManager 中注册消费者组信息信息
+     *
+     */
     public RemotingCommand heartBeat(ChannelHandlerContext ctx, RemotingCommand request) {
         RemotingCommand response = RemotingCommand.createResponseCommand(null);
         HeartbeatData heartbeatData = HeartbeatData.decode(request.getBody(), HeartbeatData.class);
+        // 封装 ClientChannelInfo
         ClientChannelInfo clientChannelInfo = new ClientChannelInfo(
             ctx.channel(),
             heartbeatData.getClientID(),
@@ -85,17 +91,23 @@ public class ClientManageProcessor implements NettyRequestProcessor {
             request.getVersion()
         );
         int heartbeatFingerprint = heartbeatData.getHeartbeatFingerprint();
+
         if (heartbeatFingerprint != 0) {
+            // 携带指纹，是 v2 版本心跳
             return heartBeatV2(ctx, heartbeatData, clientChannelInfo, response);
         }
+        // 遍历消费者组信息：一个消费者组中包含
         for (ConsumerData consumerData : heartbeatData.getConsumerDataSet()) {
             //Reject the PullConsumer
+            // 默认 false
             if (brokerController.getBrokerConfig().isRejectPullConsumerEnable()) {
                 if (ConsumeType.CONSUME_ACTIVELY == consumerData.getConsumeType()) {
                     continue;
                 }
             }
+            // 缓存 消费者组、心跳指纹
             consumerGroupHeartbeatTable.put(consumerData.getGroupName(), heartbeatFingerprint);
+            // 订阅数据中是否有 顺序消息
             boolean hasOrderTopicSub = false;
 
             for (final SubscriptionData subscriptionData : consumerData.getSubscriptionDataSet()) {
@@ -104,24 +116,28 @@ public class ClientManageProcessor implements NettyRequestProcessor {
                     break;
                 }
             }
-
+            // 查找消费者组的 配置信息
             SubscriptionGroupConfig subscriptionGroupConfig = this.brokerController.getSubscriptionGroupManager()
-                .findSubscriptionGroupConfig(consumerData.getGroupName());
+                    .findSubscriptionGroupConfig(consumerData.getGroupName());
+
             boolean isNotifyConsumerIdsChangedEnable = true;
 
             if (null == subscriptionGroupConfig) {
                 continue;
             }
-
+            // 默认通知 ConsumerIds 改变
             isNotifyConsumerIdsChangedEnable = subscriptionGroupConfig.isNotifyConsumerIdsChangedEnable();
             int topicSysFlag = 0;
             if (consumerData.isUnitMode()) {
                 topicSysFlag = TopicSysFlag.buildSysFlag(false, true);
             }
+            // 新topic：消费者组前添加 %RETRY% 前缀
             String newTopic = MixAll.getRetryTopic(consumerData.getGroupName());
+            // 如果不存在就创建 topic，并向所有的nameSrv 中发送信息
             this.brokerController.getTopicConfigManager().createTopicInSendMessageBackMethod(newTopic, subscriptionGroupConfig.getRetryQueueNums(),
                 PermName.PERM_WRITE | PermName.PERM_READ, hasOrderTopicSub, topicSysFlag);
 
+            // 注册消费者
             boolean changed = this.brokerController.getConsumerManager().registerConsumer(
                 consumerData.getGroupName(),
                 clientChannelInfo,

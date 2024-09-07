@@ -142,6 +142,9 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Subscription relationship
+     * 订阅信息，对于 @RocketMQMessageListener 注解创建的消费者说
+     * DefaultRocketMQListenerContainer#afterPropertiesSet初始化犯法中 initRocketMQPushConsumer 会调用 subscribe 方法
+     * 最终 subscription 缓存中信息会 构建成 SubscriptionData 传入 RebalanceImpl 中
      */
     private Map<String /* topic */, String /* sub expression */> subscription = new HashMap<>();
 
@@ -177,12 +180,15 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Concurrently max span offset.it has no effect on sequential consumption
+     * 并发最大跨度偏移量。它对顺序消耗没有影响
      */
     private int consumeConcurrentlyMaxSpan = 2000;
 
     /**
      * Flow control threshold on queue level, each message queue will cache at most 1000 messages by default,
      * Consider the {@code pullBatchSize}, the instantaneous value may exceed the limit
+     *
+     * 队列级别的流量控制阈值，每个消息队列默认最多缓存1000条消息，考虑{@code pullBatchSize}，瞬时值可能超过限制
      */
     private int pullThresholdForQueue = 1000;
 
@@ -195,20 +201,28 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Limit the cached message size on queue level, each message queue will cache at most 100 MiB messages by default,
      * Consider the {@code pullBatchSize}, the instantaneous value may exceed the limit
+     * 在队列级别限制缓存的消息大小，每个消息队列默认最多缓存100 MiB消息，考虑{@code pullBatchSize}，瞬时值可能会超过限制
      *
      * <p>
      * The size(MB) of a message only measured by message body, so it's not accurate
+     * 消息的大小(MB)仅由消息体衡量，因此不准确
      */
     private int pullThresholdSizeForQueue = 100;
 
     /**
      * Flow control threshold on topic level, default value is -1(Unlimited)
+     *
+     * topic 级别的流量控制阈值，默认值为-1(无限制)
      * <p>
      * The value of {@code pullThresholdForQueue} will be overwritten and calculated based on
      * {@code pullThresholdForTopic} if it isn't unlimited
      * <p>
+     *     如果不是无限的，{@code pullThresholdForQueue}的值将被覆盖并基于{@code pullThresholdForTopic}计算
+     *
      * For example, if the value of pullThresholdForTopic is 1000 and 10 message queues are assigned to this consumer,
      * then pullThresholdForQueue will be set to 100
+     *
+     * 例如，如果pullThresholdForTopic的值为1000，并且为该消费者分配了10个消息队列，那么pullThresholdForQueue将被设置为100
      */
     private int pullThresholdForTopic = -1;
 
@@ -248,6 +262,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Whether the unit of subscription group
+     * 是否为订阅组的单位
      */
     private boolean unitMode = false;
 
@@ -335,11 +350,20 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * Constructor specifying consumer group, enabled msg trace flag and customized trace topic name.
      *
+     * RocketMQAutoConfiguration 中会 import 导入
+     *
+     * RocketMQListenerConfiguration 有 @Configuration 注解，spring 容器会自动加载，将 RocketMQMessageListenerBeanPostProcessor 加载到容器
+     * RocketMQMessageListenerBeanPostProcessor 实现 BeanPostProcessor
+     * 。。。
+     * 最终扫描 RocketMQMessageListener 注解的类，通过 DefaultRocketMQListenerContainer 对其包装
+     * DefaultRocketMQListenerContainer init 方法中
+     *
      * @param consumerGroup Consumer group.
      * @param enableMsgTrace Switch flag instance for message trace.
      * @param customizedTraceTopic The name value of message trace topic.If you don't config,you can use the default trace topic name.
      */
     public DefaultMQPushConsumer(final String consumerGroup, boolean enableMsgTrace, final String customizedTraceTopic) {
+        // 创建 平均分配消息队列的策略
         this(consumerGroup, null, new AllocateMessageQueueAveragely(), enableMsgTrace, customizedTraceTopic);
     }
 
@@ -370,7 +394,10 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
         AllocateMessageQueueStrategy allocateMessageQueueStrategy, boolean enableMsgTrace, final String customizedTraceTopic) {
         this.consumerGroup = consumerGroup;
         this.allocateMessageQueueStrategy = allocateMessageQueueStrategy;
+        // 实现类
         defaultMQPushConsumerImpl = new DefaultMQPushConsumerImpl(this, rpcHook);
+
+        // 消息轨迹开关
         if (enableMsgTrace) {
             try {
                 AsyncTraceDispatcher dispatcher = new AsyncTraceDispatcher(consumerGroup, TraceDispatcher.Type.CONSUME, customizedTraceTopic, rpcHook);
@@ -754,12 +781,18 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     /**
      * This method gets internal infrastructure readily to serve. Instances must call this method after configuration.
      *
+     * RocketMQMessageListenerContainerRegistrar 中创建 DefaultRocketMQListenerContainer 完成后，
+     * 等待 DefaultRocketMQListenerContainer 完成初始化，直接调用 start 方法
+     *
      * @throws MQClientException if there is any client error.
      */
     @Override
     public void start() throws MQClientException {
+        // 存在 Namespace ，包装 消费者组
         setConsumerGroup(NamespaceUtil.wrapNamespace(this.getNamespace(), this.consumerGroup));
+        // 启动 消费者
         this.defaultMQPushConsumerImpl.start();
+
         if (null != traceDispatcher) {
             try {
                 traceDispatcher.start(this.getNamesrvAddr(), this.getAccessChannel());

@@ -31,6 +31,9 @@ import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 import org.apache.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
 
+/**
+ * 消费者组id 改变监听器
+ */
 public class DefaultConsumerIdsChangeListener implements ConsumerIdsChangeListener {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private final BrokerController brokerController;
@@ -71,7 +74,9 @@ public class DefaultConsumerIdsChangeListener implements ConsumerIdsChangeListen
                 List<Channel> channels = (List<Channel>) args[0];
                 if (channels != null && brokerController.getBrokerConfig().isNotifyConsumerIdsChangedEnable()) {
                     if (this.brokerController.getBrokerConfig().isRealTimeNotifyConsumerChange()) {
+                         // 向 客户端发送 客户端id 改变
                         for (Channel chl : channels) {
+
                             this.brokerController.getBroker2Client().notifyConsumerIdsChanged(chl, group);
                         }
                     } else {

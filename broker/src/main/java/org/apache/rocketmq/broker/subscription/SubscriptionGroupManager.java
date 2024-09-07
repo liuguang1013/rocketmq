@@ -39,14 +39,20 @@ import org.apache.rocketmq.remoting.protocol.DataVersion;
 import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 import org.apache.rocketmq.remoting.protocol.subscription.SubscriptionGroupConfig;
 
+/**
+ * 消费者 订阅组信息
+ */
 public class SubscriptionGroupManager extends ConfigManager {
     protected static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
 
-    protected ConcurrentMap<String/* groupName*/, SubscriptionGroupConfig> subscriptionGroupTable =
-        new ConcurrentHashMap<>(1024);
+    /**
+     * 消费者组名、消费者组的配置信息
+     * 1、在消费者创建时。向各个broker 发送心跳，会获取订阅组配置信息，获取不到会创建
+     * 2、broker 接收到消息，向消费者发送消息
+     */
+    protected ConcurrentMap<String/* groupName*/, SubscriptionGroupConfig> subscriptionGroupTable = new ConcurrentHashMap<>(1024);
 
-    private ConcurrentMap<String, ConcurrentMap<String, Integer>> forbiddenTable =
-        new ConcurrentHashMap<>(4);
+    private ConcurrentMap<String, ConcurrentMap<String, Integer>> forbiddenTable = new ConcurrentHashMap<>(4);
 
     private final DataVersion dataVersion = new DataVersion();
     protected transient BrokerController brokerController;
@@ -254,6 +260,9 @@ public class SubscriptionGroupManager extends ConfigManager {
         }
     }
 
+    /**
+     * 查找消费者组 的配置信息
+     */
     public SubscriptionGroupConfig findSubscriptionGroupConfig(final String group) {
         SubscriptionGroupConfig subscriptionGroupConfig = getSubscriptionGroupConfig(group);
         if (null == subscriptionGroupConfig) {

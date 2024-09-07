@@ -26,6 +26,8 @@ public class FilterAPI {
 
     /**
      * 构建 tag 类型的订阅数据： 设置 Topic、订阅tag
+     *
+     * 1、defaultMQPushConsumerImpl 的 start 方法复制 defaultMQPushConsumer 信息到 rebalanceImpl 中
      */
     public static SubscriptionData buildSubscriptionData(String topic, String subString) throws Exception {
 

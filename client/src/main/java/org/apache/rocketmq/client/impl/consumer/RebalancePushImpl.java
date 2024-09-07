@@ -137,7 +137,10 @@ public class RebalancePushImpl extends RebalanceImpl {
     @Override
     public boolean clientRebalance(String topic) {
         // POPTODO order pop consume not implement yet
-        return defaultMQPushConsumerImpl.getDefaultMQPushConsumer().isClientRebalance() || defaultMQPushConsumerImpl.isConsumeOrderly() || MessageModel.BROADCASTING.equals(messageModel);
+        // 广播类型 并且是顺序消费 的  topic
+        return defaultMQPushConsumerImpl.getDefaultMQPushConsumer().isClientRebalance()
+                || defaultMQPushConsumerImpl.isConsumeOrderly()
+                || MessageModel.BROADCASTING.equals(messageModel);
     }
 
     public boolean removeUnnecessaryPopMessageQueue(final MessageQueue mq, final PopProcessQueue pq) {

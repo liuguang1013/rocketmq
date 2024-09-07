@@ -29,6 +29,9 @@ public class SubscriptionData implements Comparable<SubscriptionData> {
     public final static String SUB_ALL = "*";
     private boolean classFilterMode = false;
     private String topic;
+    /**
+     * 订阅信息，通过 || 分隔，最终存入 tagsSet 中，并将 hashCode 存入 codeSet
+     */
     private String subString;
     private Set<String> tagsSet = new HashSet<>();
     private Set<Integer> codeSet = new HashSet<>();
