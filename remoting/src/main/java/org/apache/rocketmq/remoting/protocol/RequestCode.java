@@ -45,6 +45,11 @@ public class RequestCode {
 
     public static final int GET_BROKER_RUNTIME_INFO = 28;
     public static final int SEARCH_OFFSET_BY_TIMESTAMP = 29;
+    /**
+     * 获取broker 主节点获取最大偏移量
+     * 1、当消费者启动 RebalanceService 服务，消息是集群模式下，分配完 MessageQueue 后，更新 processQueueTable中
+     * 添加新的 ProcessQueue 到缓存，构建 pullRequest 时，获取开始拉取位置：先从本地持久化文件获取，再从nameSrv
+     */
     public static final int GET_MAX_OFFSET = 30;
     public static final int GET_MIN_OFFSET = 31;
 
@@ -60,6 +65,9 @@ public class RequestCode {
 
     public static final int UNREGISTER_CLIENT = 35;
 
+    /**
+     * ConsumeMessageConcurrentlyService 检查到消费者端，消息过期，将消息发回broker
+     */
     public static final int CONSUMER_SEND_MSG_BACK = 36;
 
     public static final int END_TRANSACTION = 37;

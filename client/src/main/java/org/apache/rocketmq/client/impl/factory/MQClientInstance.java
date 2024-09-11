@@ -369,7 +369,7 @@ public class MQClientInstance {
                     }
                     // Start request-response channel
                     /**
-                     *  创建 netty 客户端，并未连接服务端，后续首次发送请求才会建立连接
+                     *  创建 netty 客户端 Bootstrap，并未连接服务端，后续首次发送请求才会建立连接
                      *  开启 NettyEventExecutor ，通过阻塞队列完成各个节点时间通知 ChannelEventListener
                      *  开启扫描响应过期的定时任务
                       */
@@ -378,10 +378,10 @@ public class MQClientInstance {
                     /**
                      * 启动各种计划任务
                      * 1、在 NameServer 为空情况下，定时拉取地址
-                     * 2、从 NameServer 拉取 topic 路由信息，实际就是broker地址
+                     * 2、从 NameServer 拉取 topicRouteData信息，更新发布/订阅信息
                      * 3、清除下线的broker、向所有Broker发送心跳。
                      * 4、持久化所有消费者消费的数据
-                     * 5、调整线程池大小
+                     * 5、调整线程池大小：针对 DefaultMQPushConsumerImpl
                      */
                     this.startScheduledTask();
                     // Start pull service
@@ -393,6 +393,7 @@ public class MQClientInstance {
                     this.pullMessageService.start();
                     // Start rebalance service
                     /**
+                     * 开启重新平衡服务
                      *
                      */
                     this.rebalanceService.start();
@@ -469,6 +470,10 @@ public class MQClientInstance {
         }, 1, 1, TimeUnit.MINUTES);
     }
 
+    /**
+     * ClientConfig#buildMQClientId 中构建
+     * ClientIP@instanceName@unitName@0
+     */
     public String getClientId() {
         return clientId;
     }
@@ -957,7 +962,7 @@ public class MQClientInstance {
                                 for (Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
                                     MQConsumerInner impl = entry.getValue();
                                     if (impl != null) {
-                                        // 更新 topic 的订阅新
+                                        // 更新 topic 的订阅信息：想rebalanceImpl 的 topicSubscribeInfoTable 缓存中添加数据
                                         impl.updateTopicSubscribeInfo(topic, subscribeInfo);
                                     }
                                 }
@@ -1010,7 +1015,7 @@ public class MQClientInstance {
                 consumerData.setConsumeType(impl.consumeType());
                 consumerData.setMessageModel(impl.messageModel());
                 consumerData.setConsumeFromWhere(impl.consumeFromWhere());
-                // 获取 subscriptionInner中的 subscriptionInner 缓存信息添加：包含不同 topic 的订阅信息
+                // 获取 rebalanceImpl 中的 subscriptionInner 缓存信息添加：包含不同 topic 的订阅信息
                 consumerData.getSubscriptionDataSet().addAll(impl.subscriptions());
                 // 是否是以消费组为单位
                 consumerData.setUnitMode(impl.isUnitMode());
@@ -1215,7 +1220,7 @@ public class MQClientInstance {
 
     public boolean doRebalance() {
         boolean balanced = true;
-        for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
+        for (Map.Entry<String/* consumerGroup */, MQConsumerInner> entry : this.consumerTable.entrySet()) {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
                 try {
@@ -1292,8 +1297,8 @@ public class MQClientInstance {
     public FindBrokerResult findBrokerAddressInSubscribe(
         final String brokerName,
         final long brokerId,
-        final boolean onlyThisBroker
-    ) {
+        final boolean onlyThisBroker) {
+
         if (brokerName == null) {
             return null;
         }
@@ -1385,6 +1390,7 @@ public class MQClientInstance {
             if (!brokers.isEmpty()) {
                 int index = random.nextInt(brokers.size());
                 BrokerData bd = brokers.get(index % brokers.size());
+                // 优先返回主节点的 addr 地址，不存在主节点，随机返回从节点
                 return bd.selectBrokerAddr();
             }
         }

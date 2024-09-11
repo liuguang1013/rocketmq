@@ -753,6 +753,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     @Deprecated
     public void sendMessageBack(MessageExt msg, int delayLevel, final String brokerName)
             throws RemotingException, MQBrokerException, InterruptedException, MQClientException {
+
         sendMessageBack(msg, delayLevel, brokerName, null);
     }
 
@@ -762,6 +763,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     }
 
 
+    /**
+     * ConsumeMessageConcurrentlyService 定时任务中检查消息过期，将消息发回，
+     * 传入参数：brokerName、mq 为null
+     */
     private void sendMessageBack(MessageExt msg, int delayLevel, final String brokerName, final MessageQueue mq)
         throws RemotingException, MQBrokerException, InterruptedException, MQClientException {
         boolean needRetry = true;
@@ -771,8 +776,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 needRetry = false;
                 sendMessageBackAsNormalMessage(msg);
             } else {
+                // 获取 broker 地址
                 String brokerAddr = (null != brokerName) ? this.mQClientFactory.findBrokerAddressInPublish(brokerName)
                     : RemotingHelper.parseSocketAddressAddr(msg.getStoreHost());
+                //
                 this.mQClientFactory.getMQClientAPIImpl().consumerSendMessageBack(brokerAddr, brokerName, msg,
                     this.defaultMQPushConsumer.getConsumerGroup(), delayLevel, 5000, getMaxReconsumeTimes());
             }
@@ -930,10 +937,12 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 log.info("the consumer [{}] start beginning. messageModel={}, isUnitMode={}", this.defaultMQPushConsumer.getConsumerGroup(),
                     this.defaultMQPushConsumer.getMessageModel(), this.defaultMQPushConsumer.isUnitMode());
                 this.serviceState = ServiceState.START_FAILED;
-                //  检查消费者组名、消息模式、消费位置起始点、ConsumeTimestamp、分配消息队列策略、 及拉取消息相关的流控值
+                //  参数检查： 检查消费者组名、消息模式、消费位置起始点、ConsumeTimestamp、分配消息队列策略、 及拉取消息相关的流控值
                 this.checkConfig();
-                // 复制 defaultMQPushConsumer 中的订阅信息 到  defaultMQPushConsumerImpl 中，
-                // 复制数据：subscriptionData、MessageListener、构建 消费者组的 重试 topic，并进行缓存
+                // 订阅信息复制：
+                // 封装 topic、tags信息到 subscriptionData，保存到 rebalanceImpl 的缓存中
+                // defaultMQPushConsumer 中的 MessageListener 设置到  defaultMQPushConsumerImpl 中
+                // 构建 消费者组的 重试 topic，封装subscriptionData，保存到 rebalanceImpl 的缓存中
                 this.copySubscription();
                 // instanceName 设置实例名： Pid#系统纳秒
                 if (this.defaultMQPushConsumer.getMessageModel() == MessageModel.CLUSTERING) {
@@ -1000,13 +1009,14 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                  * 开启 清理过期消息 ：
                  *  遍历 RebalanceImpl 中 ProcessQueueTable 的缓存，
                  *  最终逻辑在 ProcessQueue#cleanExpiredMsg 中执行
+                 *  todo： SendMessageProcessor 处理请求
                  */
                 this.consumeMessageService.start();
                 // POPTODO
                 // 什么也不做
                 this.consumeMessagePopService.start();
 
-                // 向 consumerTable 中 注册 DefaultMQPushConsumer 消费者
+                // 向 MQClientInstance.consumerTable 中 注册 DefaultMQPushConsumer 消费者
                 // 在后续 mqClientFactory.doRebalance 使用
                 boolean registerOK = mQClientFactory.registerConsumer(this.defaultMQPushConsumer.getConsumerGroup(), this);
                 if (!registerOK) {
@@ -1255,8 +1265,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     }
 
     /**
-     * 复制 defaultMQPushConsumer 中的订阅信息 到  defaultMQPushConsumerImpl 中，
-     * 复制数据subscriptionData、MessageListener、构建 消费者组的 重试 topic，并进行缓存
+     * 封装 topic、tags信息到 subscriptionData，保存到 rebalanceImpl 的缓存中
+     * defaultMQPushConsumer 中的 MessageListener 设置到  defaultMQPushConsumerImpl 中
+     * 构建 消费者组的 重试 topic，保存到 rebalanceImpl 的缓存中
      */
     private void copySubscription() throws MQClientException {
         try {

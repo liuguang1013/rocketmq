@@ -51,6 +51,9 @@ public class RebalancePushImpl extends RebalanceImpl {
         this.defaultMQPushConsumerImpl = defaultMQPushConsumerImpl;
     }
 
+    /**
+     * 更新消费端 SubscriptionData 版本、调整消费端拉取阈值参数、向所有 broker 发送心跳、调用messageQueueListener
+     */
     @Override
     public void messageQueueChanged(String topic, Set<MessageQueue> mqAll, Set<MessageQueue> mqDivided) {
         /*
@@ -62,6 +65,7 @@ public class RebalancePushImpl extends RebalanceImpl {
         log.info("{} Rebalance changed, also update version: {}, {}", topic, subscriptionData.getSubVersion(), newVersion);
         subscriptionData.setSubVersion(newVersion);
 
+        // 根据 消息队列的数量 设置参数：
         int currentQueueCount = this.processQueueTable.size();
         if (currentQueueCount != 0) {
             int pullThresholdForTopic = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdForTopic();
@@ -82,8 +86,10 @@ public class RebalancePushImpl extends RebalanceImpl {
         }
 
         // notify broker
+        // 向 所有 broker 发送心跳，发送生产/消费者组信息
         this.getmQClientFactory().sendHeartbeatToAllBrokerWithLockV2(true);
 
+        // 调用消息队列监听器
         MessageQueueListener messageQueueListener = defaultMQPushConsumerImpl.getMessageQueueListener();
         if (null != messageQueueListener) {
             messageQueueListener.messageQueueChanged(topic, mqAll, mqDivided);
@@ -92,15 +98,19 @@ public class RebalancePushImpl extends RebalanceImpl {
 
     @Override
     public boolean removeUnnecessaryMessageQueue(final MessageQueue mq, final ProcessQueue pq) {
+        // 集群消费模式，并且是顺序消息
         if (this.defaultMQPushConsumerImpl.isConsumeOrderly()
             && MessageModel.CLUSTERING.equals(this.defaultMQPushConsumerImpl.messageModel())) {
 
             // commit offset immediately
+            // 持久化 topic 的消费位置
             this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);
 
             // remove order message queue: unlock & remove
+            // 尝试移除顺序消息队列： todo：待看
             return tryRemoveOrderMessageQueue(mq, pq);
         } else {
+            // 持久化 topic 的消费位置
             this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);
             this.defaultMQPushConsumerImpl.getOffsetStore().removeOffset(mq);
             return true;
@@ -113,10 +123,13 @@ public class RebalancePushImpl extends RebalanceImpl {
             boolean forceUnlock = pq.isDropped() && System.currentTimeMillis() > pq.getLastLockTimestamp() + UNLOCK_DELAY_TIME_MILLS;
             if (forceUnlock || pq.getConsumeLock().writeLock().tryLock(500, TimeUnit.MILLISECONDS)) {
                 try {
+                    // 持久化 topic 的消费位置
                     RebalancePushImpl.this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);
+                    // 清除缓存
                     RebalancePushImpl.this.defaultMQPushConsumerImpl.getOffsetStore().removeOffset(mq);
 
                     pq.setLocked(false);
+                    //
                     RebalancePushImpl.this.unlock(mq, true);
                     return true;
                 } finally {
@@ -169,9 +182,16 @@ public class RebalancePushImpl extends RebalanceImpl {
         return result;
     }
 
+    /**
+     * 获取 topic queueId 的消费偏移量（消息个数）：先从本地文件获取，再在 broker 主节点获取
+     * @param mq
+     * @return
+     * @throws MQClientException
+     */
     @Override
     public long computePullFromWhereWithException(MessageQueue mq) throws MQClientException {
         long result = -1;
+        // 默认是 CONSUME_FROM_LAST_OFFSET
         final ConsumeFromWhere consumeFromWhere = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getConsumeFromWhere();
         final OffsetStore offsetStore = this.defaultMQPushConsumerImpl.getOffsetStore();
         switch (consumeFromWhere) {
@@ -179,6 +199,7 @@ public class RebalancePushImpl extends RebalanceImpl {
             case CONSUME_FROM_MIN_OFFSET:
             case CONSUME_FROM_MAX_OFFSET:
             case CONSUME_FROM_LAST_OFFSET: {
+                // 从持久化文件中获取 消息队列的偏移量，查询不到返回 -1
                 long lastOffset = offsetStore.readOffset(mq, ReadOffsetType.READ_FROM_STORE);
                 if (lastOffset >= 0) {
                     result = lastOffset;
@@ -189,6 +210,7 @@ public class RebalancePushImpl extends RebalanceImpl {
                         result = 0L;
                     } else {
                         try {
+                            // 从 broker 主节点获取最大偏移量(消息个数)
                             result = this.mQClientFactory.getMQAdminImpl().maxOffset(mq);
                         } catch (MQClientException e) {
                             log.warn("Compute consume offset from last offset exception, mq={}, exception={}", mq, e);

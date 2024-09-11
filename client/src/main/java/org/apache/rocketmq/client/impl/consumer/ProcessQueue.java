@@ -56,6 +56,9 @@ public class ProcessQueue {
     private volatile boolean dropped = false;
     private volatile long lastPullTimestamp = System.currentTimeMillis();
     private volatile long lastConsumeTimestamp = System.currentTimeMillis();
+    /**
+     * todo： 锁定状态有啥用？
+     */
     private volatile boolean locked = false;
     private volatile long lastLockTimestamp = System.currentTimeMillis();
     private volatile boolean consuming = false;
@@ -78,9 +81,11 @@ public class ProcessQueue {
         }
 
         int loop = Math.min(msgTreeMap.size(), 16);
+        // 最大检查 16个消息
         for (int i = 0; i < loop; i++) {
             MessageExt msg = null;
             try {
+                // 获取读锁：查看 消息map 中第一个消息是否过期
                 this.treeMapLock.readLock().lockInterruptibly();
                 try {
                     if (!msgTreeMap.isEmpty()) {
@@ -101,8 +106,9 @@ public class ProcessQueue {
             }
 
             try {
-
+                //
                 pushConsumer.sendMessageBack(msg, 3);
+
                 log.info("send expire msg back. topic={}, msgId={}, storeHost={}, queueId={}, queueOffset={}", msg.getTopic(), msg.getMsgId(), msg.getStoreHost(), msg.getQueueId(), msg.getQueueOffset());
                 try {
                     this.treeMapLock.writeLock().lockInterruptibly();

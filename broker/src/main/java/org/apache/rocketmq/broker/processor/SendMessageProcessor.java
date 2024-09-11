@@ -89,7 +89,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         SendMessageContext sendMessageContext;
         switch (request.getCode()) {
             case RequestCode.CONSUMER_SEND_MSG_BACK:
-                //
+                //  ConsumeMessageConcurrentlyService 检查到消费者端，消息过期，将消息发回broker
                 return this.consumerSendMsgBack(ctx, request);
 
             default:

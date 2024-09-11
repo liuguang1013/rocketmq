@@ -58,6 +58,9 @@ import org.apache.rocketmq.remoting.protocol.header.QueryMessageResponseHeader;
 import org.apache.rocketmq.remoting.protocol.route.BrokerData;
 import org.apache.rocketmq.remoting.protocol.route.TopicRouteData;
 
+/**
+ * 1、查询 broker 主节点的 最大偏移量
+ */
 public class MQAdminImpl {
 
     private static final Logger log = LoggerFactory.getLogger(MQAdminImpl.class);
@@ -208,15 +211,22 @@ public class MQAdminImpl {
         throw new MQClientException("The broker[" + mq.getBrokerName() + "] not exist", null);
     }
 
+    /**
+     *  broker 主节点获取最大偏移量(消息个数)
+     *  mappedFileQueue.getMaxOffset() / CQ_STORE_UNIT_SIZE
+     */
     public long maxOffset(MessageQueue mq) throws MQClientException {
+        // 根据 brokerName 查找主节点的 addr 地址
         String brokerAddr = this.mQClientFactory.findBrokerAddressInPublish(this.mQClientFactory.getBrokerNameFromMessageQueue(mq));
         if (null == brokerAddr) {
+            // 尝试从 nameSrv 获取
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
             brokerAddr = this.mQClientFactory.findBrokerAddressInPublish(this.mQClientFactory.getBrokerNameFromMessageQueue(mq));
         }
 
         if (brokerAddr != null) {
             try {
+                //  mappedFileQueue.getMaxOffset() / CQ_STORE_UNIT_SIZE
                 return this.mQClientFactory.getMQClientAPIImpl().getMaxOffset(brokerAddr, mq, timeoutMillis);
             } catch (Exception e) {
                 throw new MQClientException("Invoke Broker[" + brokerAddr + "] exception", e);

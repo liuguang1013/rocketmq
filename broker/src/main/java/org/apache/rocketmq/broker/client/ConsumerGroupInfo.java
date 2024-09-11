@@ -38,6 +38,8 @@ public class ConsumerGroupInfo {
     private final String groupName;
     /**
      * 在 pullMessageProcessor 中处理请求，当请求中存在订阅标识时，向缓存中添加数据
+     *
+     * 一个消费者组下每个消费端订阅的 topic 是一致的
      */
     private final ConcurrentMap<String/* Topic */, SubscriptionData> subscriptionTable = new ConcurrentHashMap<>();
 

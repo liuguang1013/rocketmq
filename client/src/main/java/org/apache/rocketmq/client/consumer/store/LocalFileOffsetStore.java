@@ -47,8 +47,8 @@ public class LocalFileOffsetStore implements OffsetStore {
     private final MQClientInstance mQClientFactory;
     private final String groupName;
     private final String storePath;
-    private ConcurrentMap<MessageQueue, ControllableOffset> offsetTable =
-        new ConcurrentHashMap<>();
+
+    private ConcurrentMap<MessageQueue, ControllableOffset> offsetTable = new ConcurrentHashMap<>();
 
     public LocalFileOffsetStore(MQClientInstance mQClientFactory, String groupName) {
         this.mQClientFactory = mQClientFactory;
@@ -114,6 +114,8 @@ public class LocalFileOffsetStore implements OffsetStore {
                         return -1;
                     }
                 }
+
+                // 从持久化文件中获取 消息队列的偏移量
                 case READ_FROM_STORE: {
                     OffsetSerializeWrapper offsetSerializeWrapper;
                     try {
@@ -121,9 +123,11 @@ public class LocalFileOffsetStore implements OffsetStore {
                     } catch (MQClientException e) {
                         return -1;
                     }
+                    // 获取 消息队列的偏移量
                     if (offsetSerializeWrapper != null && offsetSerializeWrapper.getOffsetTable() != null) {
                         AtomicLong offset = offsetSerializeWrapper.getOffsetTable().get(mq);
                         if (offset != null) {
+                            // 更新 offsetTable 缓存中的偏移量
                             this.updateOffset(mq, offset.get(), false);
                             return offset.get();
                         }
@@ -228,6 +232,9 @@ public class LocalFileOffsetStore implements OffsetStore {
         return cloneOffsetTable;
     }
 
+    /**
+     * 在持久化文件中，获取偏移量信息
+     */
     private OffsetSerializeWrapper readLocalOffset() throws MQClientException {
         String content = null;
         try {

@@ -35,11 +35,15 @@ public class AllocateMessageQueueAveragely extends AbstractAllocateMessageQueueS
             return result;
         }
 
+        // 1
         int index = cidAll.indexOf(currentCID);
+        // 7/4 = 3
         int mod = mqAll.size() % cidAll.size();
+        // 每个客户端平均的队列数量
         int averageSize =
-            mqAll.size() <= cidAll.size() ? 1 : (mod > 0 && index < mod ? mqAll.size() / cidAll.size()
-                + 1 : mqAll.size() / cidAll.size());
+                mqAll.size() <= cidAll.size() ?
+                1 : (mod > 0 && index < mod ? mqAll.size() / cidAll.size() + 1 : mqAll.size() / cidAll.size());
+
         int startIndex = (mod > 0 && index < mod) ? index * averageSize : index * averageSize + mod;
         int range = Math.min(averageSize, mqAll.size() - startIndex);
         for (int i = 0; i < range; i++) {
@@ -47,6 +51,13 @@ public class AllocateMessageQueueAveragely extends AbstractAllocateMessageQueueS
         }
         return result;
     }
+
+    /**
+     * index     averageSize   startIndex    range
+     * 0         2                  0          7       （0 1）
+     * 1         2                  2          5       （2 3）
+     * 2         2
+     */
 
     @Override
     public String getName() {

@@ -245,8 +245,10 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
                 return this.setCommitLogReadaheadMode(ctx, request);
             case RequestCode.SEARCH_OFFSET_BY_TIMESTAMP:
                 return this.searchOffsetByTimestamp(ctx, request);
+
             case RequestCode.GET_MAX_OFFSET:
                 return this.getMaxOffset(ctx, request);
+
             case RequestCode.GET_MIN_OFFSET:
                 return this.getMinOffset(ctx, request);
             case RequestCode.GET_EARLIEST_MSG_STORETIME:
@@ -1145,6 +1147,7 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
             return rewriteResult;
         }
 
+        // 获取消费队列 某topic 中 QueueId 的最大偏移量： mappedFileQueue.getMaxOffset() / CQ_STORE_UNIT_SIZE;
         long offset = this.brokerController.getMessageStore().getMaxOffsetInQueue(requestHeader.getTopic(), requestHeader.getQueueId());
 
         responseHeader.setOffset(offset);
