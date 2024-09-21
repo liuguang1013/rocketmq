@@ -262,6 +262,7 @@ public class SubscriptionGroupManager extends ConfigManager {
 
     /**
      * 查找消费者组 的配置信息
+     * 当不存在，并且是默认自动创建消费者组情况下，增加 subscriptionGroupTable 缓存，并 subscriptionGroup.json  持久化
      */
     public SubscriptionGroupConfig findSubscriptionGroupConfig(final String group) {
         SubscriptionGroupConfig subscriptionGroupConfig = getSubscriptionGroupConfig(group);

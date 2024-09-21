@@ -54,6 +54,8 @@ public class TopicRouteData extends RemotingSerializable {
      * todo：
      * brokerController#doRegisterBrokerAll 启动，注册信息到 nameSrv 中，
      * 默认是 false
+     *
+     * 该缓存，在拉取消息的时候，根据 brokerAddr 随机获取 Filter Server
      */
     private HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 

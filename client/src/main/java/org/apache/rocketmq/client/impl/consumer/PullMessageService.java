@@ -56,6 +56,10 @@ public class PullMessageService extends ServiceThread {
         }
     }
 
+    /**
+     *
+     * @param pullRequest
+     */
     public void executePullRequestImmediately(final PullRequest pullRequest) {
         try {
             this.messageRequestQueue.put(pullRequest);
@@ -106,6 +110,7 @@ public class PullMessageService extends ServiceThread {
     }
 
     private void pullMessage(final PullRequest pullRequest) {
+        // 在 consumerTable 获取消费者组的
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(pullRequest.getConsumerGroup());
         if (consumer != null) {
             DefaultMQPushConsumerImpl impl = (DefaultMQPushConsumerImpl) consumer;
@@ -133,12 +138,17 @@ public class PullMessageService extends ServiceThread {
         while (!this.isStopped()) {
             try {
                 // 阻塞的从消息队列中获取消息请求
-                // todo:什么时候 创建第一个请求
+                // 创建第一个请求时机：
+                //  rebalanceService 启动后，会通过 AllocateMessageQueueStrategy 分配消息队列，
+                //  当消费者启动分配到队列时，会为每个消息队列，新增的 processQueueTable 缓存，添加 PullRequest 请求
+                //  消费者分配 4个消费队列，都是新增，就会创建 4个 PullRequest 请求
+
                 MessageRequest messageRequest = this.messageRequestQueue.take();
                 // todo：弹出模式 与 拉取模式的区别
                 if (messageRequest.getMessageRequestMode() == MessageRequestMode.POP) {
                     this.popMessage((PopRequest) messageRequest);
                 } else {
+
                     this.pullMessage((PullRequest) messageRequest);
                 }
             } catch (InterruptedException ignored) {

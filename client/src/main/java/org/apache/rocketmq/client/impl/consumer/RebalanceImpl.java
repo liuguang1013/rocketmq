@@ -381,7 +381,11 @@ public abstract class RebalanceImpl {
             }
             // 集群类型消息
             case CLUSTERING: {
-                // 获取 topic 的对映队列消息
+                // 获取 topic 的对映队列消息：
+                // 在多 brokerName ，每个broker 都有从节点的情况下，
+                // 同一 brokerName 下的主从节点的读写队列都是一致的
+                // 不同 brokerName 下读写队列数可能不一致
+                // 此处获取的消息队列是，不同brokerName 下的队列的集合
                 Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
                 // 向随机挑选 broker的主节点，获取消费者 id 列表
                 List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
@@ -561,6 +565,7 @@ public abstract class RebalanceImpl {
             MessageQueue mq = next.getKey();
             ProcessQueue pq = next.getValue();
 
+            // 设置为丢弃状态的 ProcessQueue ，后面在 pullMessage 中不会处理 PullRequest
             if (mq.getTopic().equals(topic)) {
                 // processQueueTable 中 MessageQueue  是否 在根据 策略筛选出队列中
                 if (!mqSet.contains(mq)) {
@@ -606,7 +611,7 @@ public abstract class RebalanceImpl {
                 // 创建 ProcessQueue 原始对象
                 ProcessQueue pq = createProcessQueue(topic);
                 pq.setLocked(true);
-                // 获取拉取的位置
+                // 获取拉取的位置，获取的是 消费队列 最后一个消息
                 long nextOffset = this.computePullFromWhere(mq);
                 if (nextOffset >= 0) {
                     ProcessQueue pre = this.processQueueTable.putIfAbsent(mq, pq);

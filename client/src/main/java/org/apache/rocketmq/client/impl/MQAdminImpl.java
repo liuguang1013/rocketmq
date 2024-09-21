@@ -216,7 +216,7 @@ public class MQAdminImpl {
      *  mappedFileQueue.getMaxOffset() / CQ_STORE_UNIT_SIZE
      */
     public long maxOffset(MessageQueue mq) throws MQClientException {
-        // 根据 brokerName 查找主节点的 addr 地址
+        // 在发布者中，根据 brokerName 查找主节点的 addr 地址
         String brokerAddr = this.mQClientFactory.findBrokerAddressInPublish(this.mQClientFactory.getBrokerNameFromMessageQueue(mq));
         if (null == brokerAddr) {
             // 尝试从 nameSrv 获取

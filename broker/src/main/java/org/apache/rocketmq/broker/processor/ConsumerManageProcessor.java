@@ -59,10 +59,15 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
         switch (request.getCode()) {
+            //  获取某 topic 的所有 clientId 列表信息
             case RequestCode.GET_CONSUMER_LIST_BY_GROUP:
                 return this.getConsumerListByGroup(ctx, request);
+
+
             case RequestCode.UPDATE_CONSUMER_OFFSET:
                 return this.updateConsumerOffset(ctx, request);
+
+            // 获取 某 topic 下，某 consumerGroup，在 某 brokerName 的 queueId 中的消费偏移量
             case RequestCode.QUERY_CONSUMER_OFFSET:
                 return this.queryConsumerOffset(ctx, request);
             default:
@@ -91,6 +96,7 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
         ConsumerGroupInfo consumerGroupInfo =
             this.brokerController.getConsumerManager().getConsumerGroupInfo(
                 requestHeader.getConsumerGroup());
+
         if (consumerGroupInfo != null) {
             // 获取 topic 的所有 clientId 列表信息
             List<String> clientIds = consumerGroupInfo.getAllClientId();
@@ -303,6 +309,7 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
 
     private RemotingCommand queryConsumerOffset(ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
+
         final RemotingCommand response =
             RemotingCommand.createResponseCommand(QueryConsumerOffsetResponseHeader.class);
         final QueryConsumerOffsetResponseHeader responseHeader =
@@ -317,6 +324,7 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
             return rewriteResult;
         }
 
+        // 查询 偏移量： 优先从 ConsumerOffsetManager 的 resetOffsetTable 获取，再从 offsetTable 获取
         long offset =
             this.brokerController.getConsumerOffsetManager().queryOffset(
                 requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId());
@@ -326,19 +334,25 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
             response.setCode(ResponseCode.SUCCESS);
             response.setRemark(null);
         } else {
+            // 获取 topic 、QueueId 的最小偏移量
             long minOffset =
                 this.brokerController.getMessageStore().getMinOffsetInQueue(requestHeader.getTopic(),
                     requestHeader.getQueueId());
+            // 默认是 null
             if (requestHeader.getSetZeroIfNotFound() != null && Boolean.FALSE.equals(requestHeader.getSetZeroIfNotFound())) {
                 response.setCode(ResponseCode.QUERY_NOT_FOUND);
                 response.setRemark("Not found, do not set to zero, maybe this group boot first");
-            } else if (minOffset <= 0
-                && this.brokerController.getMessageStore().checkInMemByConsumeOffset(
-                requestHeader.getTopic(), requestHeader.getQueueId(), 0, 1)) {
+            }
+            else if (minOffset <= 0
+                && this.brokerController.getMessageStore()
+                    .checkInMemByConsumeOffset(requestHeader.getTopic()
+                            , requestHeader.getQueueId(), 0, 1)) {
+
                 responseHeader.setOffset(0L);
                 response.setCode(ResponseCode.SUCCESS);
                 response.setRemark(null);
-            } else {
+            }
+            else {
                 response.setCode(ResponseCode.QUERY_NOT_FOUND);
                 response.setRemark("Not found, V3_0_6_SNAPSHOT maybe this group consumer boot first");
             }

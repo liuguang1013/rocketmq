@@ -94,6 +94,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                         final int mappedFileSize, final MessageStore messageStore) {
 
         this.storePath = storePath;
+        // 默认大小  30W * 20字节
         this.mappedFileSize = mappedFileSize;
         this.messageStore = messageStore;
 
@@ -1070,10 +1071,16 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
             if (!hasNext()) {
                 return null;
             }
+
             long queueOffset = (sbr.getStartOffset() + sbr.getByteBuffer().position() - relativePos) / CQ_STORE_UNIT_SIZE;
-            CqUnit cqUnit = new CqUnit(queueOffset,
+            CqUnit cqUnit = new CqUnit(
+                    // 消息开始在消息队列中的排第几个
+                    queueOffset,
+                // 获取 8 字节：在 commitLog 中的偏移量
                 sbr.getByteBuffer().getLong(),
+                // 获取 4 字节： 消息的大小
                 sbr.getByteBuffer().getInt(),
+                // 获取 8 字节： tags 的 hashCode
                 sbr.getByteBuffer().getLong());
 
             // 补充 消息的额外信息：TagsCode 信息保存在ConsumeQueueExt 中

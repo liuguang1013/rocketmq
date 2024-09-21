@@ -74,6 +74,12 @@ public class DefaultPullMessageResultHandler implements PullMessageResultHandler
         this.brokerController = brokerController;
     }
 
+    /**
+     * 补充响应头中的数据： code、suggestWhichBrokerId、nextBeginOffset、minOffset、maxOffset等信息
+     * 执行钩子函数
+     * 缓存 nextOffset 下次开始拉取的偏移量 到 ConsumerOffsetManager 的 pullOffsetTable、offsetTable 中
+     * 增加统计数据
+     */
     @Override
     public RemotingCommand handle(final GetMessageResult getMessageResult,
         final RemotingCommand request,
@@ -118,7 +124,7 @@ public class DefaultPullMessageResultHandler implements PullMessageResultHandler
         processor.updateBroadcastPulledOffset(requestHeader.getTopic(), requestHeader.getConsumerGroup(),
             requestHeader.getQueueId(), requestHeader, channel, response, getMessageResult.getNextBeginOffset());
 
-        // 缓存 nextOffset、requestHeader.getCommitOffset
+        // 缓存 nextOffset 下次开始拉取的偏移量 到 ConsumerOffsetManager 的 pullOffsetTable、offsetTable 中
         processor.tryCommitOffset(brokerAllowSuspend, requestHeader, getMessageResult.getNextBeginOffset(), clientAddress);
 
         switch (response.getCode()) {

@@ -93,6 +93,7 @@ public class RouteInfoManager {
      *  nameSrv 在接收 RequestCode.REGISTER_BROKER 请求后，
      *  调用 registerBroker 方法，向缓存添加数据
      *  注册一个 broker 会添加 一个 BrokerLiveInfo 数据
+     *  BrokerLiveInfo： 保存 channel 信息
      */
     private final Map<BrokerAddrInfo/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
     /**

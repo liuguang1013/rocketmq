@@ -191,7 +191,7 @@ public class RebalancePushImpl extends RebalanceImpl {
     @Override
     public long computePullFromWhereWithException(MessageQueue mq) throws MQClientException {
         long result = -1;
-        // 默认是 CONSUME_FROM_LAST_OFFSET
+        // 默认是 ConsumeFromWhere.CONSUME_FROM_LAST_OFFSET
         final ConsumeFromWhere consumeFromWhere = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getConsumeFromWhere();
         final OffsetStore offsetStore = this.defaultMQPushConsumerImpl.getOffsetStore();
         switch (consumeFromWhere) {
@@ -199,7 +199,12 @@ public class RebalancePushImpl extends RebalanceImpl {
             case CONSUME_FROM_MIN_OFFSET:
             case CONSUME_FROM_MAX_OFFSET:
             case CONSUME_FROM_LAST_OFFSET: {
-                // 从持久化文件中获取 消息队列的偏移量，查询不到返回 -1
+
+                /**
+                 * 优先获取 已经记录的消息队列的 最大偏移量
+                 * 获取不到后，再去获取消费队列的最大偏移量
+                 */
+                // 从持久化文件/broker主节点 中获取 消息队列的偏移量，查询不到返回 -1
                 long lastOffset = offsetStore.readOffset(mq, ReadOffsetType.READ_FROM_STORE);
                 if (lastOffset >= 0) {
                     result = lastOffset;

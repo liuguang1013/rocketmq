@@ -43,8 +43,18 @@ public class ProcessQueue {
     private final static long PULL_MAX_IDLE_TIME = Long.parseLong(System.getProperty("rocketmq.client.pull.pullMaxIdleTime", "120000"));
     private final Logger log = LoggerFactory.getLogger(ProcessQueue.class);
     private final ReadWriteLock treeMapLock = new ReentrantReadWriteLock();
+
+    /**
+     *
+     */
     private final TreeMap<Long, MessageExt> msgTreeMap = new TreeMap<>();
+    /**
+     * 缓存 队列中 所有消息的数量
+     */
     private final AtomicLong msgCount = new AtomicLong();
+    /**
+     * 缓存 队列中 所有消息的大小
+     */
     private final AtomicLong msgSize = new AtomicLong();
     private final ReadWriteLock consumeLock = new ReentrantReadWriteLock();
     /**
@@ -52,6 +62,9 @@ public class ProcessQueue {
      */
     private final TreeMap<Long, MessageExt> consumingMsgOrderlyTreeMap = new TreeMap<>();
     private final AtomicLong tryUnlockTimes = new AtomicLong(0);
+    /**
+     * 消息在消费队列中 最大偏移量（个数）
+     */
     private volatile long queueOffsetMax = 0L;
     private volatile boolean dropped = false;
     private volatile long lastPullTimestamp = System.currentTimeMillis();
@@ -61,7 +74,15 @@ public class ProcessQueue {
      */
     private volatile boolean locked = false;
     private volatile long lastLockTimestamp = System.currentTimeMillis();
+    /**
+     * 标识是否正在消费
+     * 当从 broker 拉取到新消息后，不是消费状态，变更为消费状态
+     *
+     */
     private volatile boolean consuming = false;
+    /**
+     * 消息在消息队列中跨度
+     */
     private volatile long msgAccCnt = 0;
 
     public boolean isLockExpired() {
@@ -106,7 +127,7 @@ public class ProcessQueue {
             }
 
             try {
-                //
+                // todo：待看 消息发回后如何处理
                 pushConsumer.sendMessageBack(msg, 3);
 
                 log.info("send expire msg back. topic={}, msgId={}, storeHost={}, queueId={}, queueOffset={}", msg.getTopic(), msg.getMsgId(), msg.getStoreHost(), msg.getQueueId(), msg.getQueueOffset());
@@ -132,6 +153,11 @@ public class ProcessQueue {
         }
     }
 
+    /**
+     * 在 broker 拉取到消息，并且过滤后，
+     * 加写锁，向 ProcessQueue 中添加消息，增加统计数据：总消息数、总消息大小
+     *
+     */
     public boolean putMessage(final List<MessageExt> msgs) {
         boolean dispatchToConsume = false;
         try {
@@ -143,9 +169,11 @@ public class ProcessQueue {
                     if (null == old) {
                         validMsgCnt++;
                         this.queueOffsetMax = msg.getQueueOffset();
+                        // 增加消息大小
                         msgSize.addAndGet(msg.getBody().length);
                     }
                 }
+                // 增加消息 数量
                 msgCount.addAndGet(validMsgCnt);
 
                 if (!msgTreeMap.isEmpty() && !this.consuming) {
@@ -173,6 +201,9 @@ public class ProcessQueue {
         return dispatchToConsume;
     }
 
+    /**
+     * 队列中的消息，在 commit log 中的跨度
+     */
     public long getMaxSpan() {
         try {
             this.treeMapLock.readLock().lockInterruptibly();

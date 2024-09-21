@@ -394,7 +394,7 @@ public class MQClientInstance {
                     // Start rebalance service
                     /**
                      * 开启重新平衡服务
-                     *
+                     * 最终会进入 RebalanceImpl.doRebalance 方法中
                      */
                     this.rebalanceService.start();
                     // Start push service
@@ -480,9 +480,10 @@ public class MQClientInstance {
 
     public void updateTopicRouteInfoFromNameServer() {
         Set<String> topicList = new HashSet<>();
-        // todo：生产消费者的topic 信息什么时候添加的
+
         // Consumer
         // 获取消费者订阅的 topic list
+        // todo：生产消费者的topic 信息什么时候添加的？DefaultMQPushConsumerImpl#copySubscription() 时候添加
         {
             for (Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
                 MQConsumerInner impl = entry.getValue();
@@ -957,7 +958,7 @@ public class MQClientInstance {
                             // Update sub info
                             // 更新订阅信息
                             if (!consumerTable.isEmpty()) {
-                                // 将 TopicRouteData 可读的队列数量，封装成 MessageQueue 对象
+                                // 将 TopicRouteData 中 QueueData 可读的队列数量，封装成 MessageQueue 对象
                                 Set<MessageQueue> subscribeInfo = topicRouteData2TopicSubscribeInfo(topic, topicRouteData);
                                 for (Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
                                     MQConsumerInner impl = entry.getValue();
@@ -1225,7 +1226,6 @@ public class MQClientInstance {
             if (impl != null) {
                 try {
                     // 消费者组的消费者重新平衡
-                    // todo：待看。 为消费者分配broker
                     if (!impl.tryRebalance()) {
                         balanced = false;
                     }

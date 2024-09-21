@@ -21,10 +21,25 @@ public class RequestCode {
 
     public static final int SEND_MESSAGE = 10;
 
+    /**
+     * 消费端拉取消息
+     * DefaultMQPushConsumer 消费者启动，开启 PullMessageService 任务，会在堵塞队列 获取 PullRequest 请求
+     * 拉取消息前，信息校验，通过 pullAPIWrapper#pullKernelImpl 发送该请求到 broker
+     *
+     * broker 的 PullMessageProcessor 处理请求
+     *
+     */
     public static final int PULL_MESSAGE = 11;
 
     public static final int QUERY_MESSAGE = 12;
     public static final int QUERY_BROKER_OFFSET = 13;
+    /**
+     * 在主节点获取
+     * 查询 某 topic 下，某 consumerGroup，在 某 brokerName 的 queueId 中的消费偏移量
+     *  1、当消费者启动 RebalanceService 服务，消息是集群模式下，分配完 MessageQueue 后，更新 processQueueTable中
+     *  添加新的 ProcessQueue 到缓存，构建 pullRequest 时，ConsumeFromWhere.CONSUME_FROM_LAST_OFFSET
+     *  获取开始拉取位置：（对于 LocalOffsetStore 先从本地持久化文件获取），再 broker 主节点 获取
+     */
     public static final int QUERY_CONSUMER_OFFSET = 14;
     public static final int UPDATE_CONSUMER_OFFSET = 15;
     public static final int UPDATE_AND_CREATE_TOPIC = 17;
@@ -48,7 +63,10 @@ public class RequestCode {
     /**
      * 获取broker 主节点获取最大偏移量
      * 1、当消费者启动 RebalanceService 服务，消息是集群模式下，分配完 MessageQueue 后，更新 processQueueTable中
-     * 添加新的 ProcessQueue 到缓存，构建 pullRequest 时，获取开始拉取位置：先从本地持久化文件获取，再从nameSrv
+     * 添加新的 ProcessQueue 到缓存，构建 pullRequest 时，ConsumeFromWhere.CONSUME_FROM_LAST_OFFSET
+     * 获取开始拉取位置：（对于 LocalOffsetStore 先从本地持久化文件获取），再 broker 主节点 调用QUERY_CONSUMER_OFFSET 请求失败
+     * 最后再发送 该请求
+     *
      */
     public static final int GET_MAX_OFFSET = 30;
     public static final int GET_MIN_OFFSET = 31;
@@ -60,13 +78,16 @@ public class RequestCode {
     /**
      * 通过心跳 完成 生产/消费者组的信息 到 CustomerManager 注册
      *
+     * 消费/生成者 启动会向 broker 发送心跳，会携带 生产/消费者组信息到broker
+     * broker 中 ClientManageProcessor 处理请求
      */
     public static final int HEART_BEAT = 34;
 
     public static final int UNREGISTER_CLIENT = 35;
 
     /**
-     * ConsumeMessageConcurrentlyService 检查到消费者端，消息过期，将消息发回broker
+     * 1、ConsumeMessageConcurrentlyService 检查到消费者端，消息过期，将消息发回broker
+     * 2、消费消息失败后，将消息发回broker
      */
     public static final int CONSUMER_SEND_MSG_BACK = 36;
 
@@ -156,6 +177,8 @@ public class RequestCode {
      * broker 启动 DefaultMQProducerImpl#initTopicRoute()
      * 发送消息的时候查找 topic 对映的 TopicPublishInfo ，找不到也会调用
      *
+     * nameSrv 的 ClientRequestProcessor 处理请求，
+     * 最终进入到 RouteInfoManager#pickupTopicRouteData
      */
     public static final int GET_ROUTEINFO_BY_TOPIC = 105;
 

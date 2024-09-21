@@ -341,6 +341,9 @@ public class ConsumeQueueStore extends AbstractConsumeQueueStore {
         return maxPhysicOffset;
     }
 
+    /**
+     * minLogicOffset / CQ_STORE_UNIT_SIZE
+     */
     @Override
     public long getMinOffsetInQueue(String topic, int queueId) {
         ConsumeQueueInterface logic = findOrCreateConsumeQueue(topic, queueId);

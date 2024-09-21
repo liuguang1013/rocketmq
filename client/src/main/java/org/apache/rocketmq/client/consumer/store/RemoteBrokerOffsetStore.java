@@ -96,7 +96,9 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
                 }
                 case READ_FROM_STORE: {
                     try {
+                        //在构建请求的时候，会从remote 获取偏移量，并缓存到内存
                         long brokerOffset = this.fetchConsumeOffsetFromBroker(mq);
+                        //
                         this.updateOffset(mq, brokerOffset, false);
                         return brokerOffset;
                     }
@@ -232,8 +234,13 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
         }
     }
 
+    /**
+     * 查询 某 topic 下，某 consumerGroup，在 某 brokerName 的 queueId 中的消费偏移量
+     * 在 broker 主节点获取，优先从 ConsumerOffsetManager 的 resetOffsetTable 获取，再从 offsetTable 获取
+     */
     private long fetchConsumeOffsetFromBroker(MessageQueue mq) throws RemotingException, MQBrokerException,
         InterruptedException, MQClientException {
+        // 只获取 brokerName 的主节点地址
         FindBrokerResult findBrokerResult = this.mQClientFactory.findBrokerAddressInSubscribe(this.mQClientFactory.getBrokerNameFromMessageQueue(mq), MixAll.MASTER_ID, true);
         if (null == findBrokerResult) {
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
@@ -246,7 +253,7 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
             requestHeader.setConsumerGroup(this.groupName);
             requestHeader.setQueueId(mq.getQueueId());
             requestHeader.setBrokerName(mq.getBrokerName());
-
+            // 获取 topic 、groupName、QueueId、BrokerName 中的消费偏移量
             return this.mQClientFactory.getMQClientAPIImpl().queryConsumerOffset(
                 findBrokerResult.getBrokerAddr(), requestHeader, 1000 * 5);
         } else {

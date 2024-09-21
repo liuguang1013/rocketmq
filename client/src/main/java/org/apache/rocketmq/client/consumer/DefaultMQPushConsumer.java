@@ -150,6 +150,8 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Message listener
+     * 是对 @RocketMQMessageListener 注解修饰的 RocketMQListener 的包装
+     * MessageListenerOrderly 或者 DefaultMessageListenerConcurrently
      */
     private MessageListener messageListener;
 

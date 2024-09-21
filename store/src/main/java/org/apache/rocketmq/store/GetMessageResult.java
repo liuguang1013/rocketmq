@@ -24,14 +24,16 @@ import java.util.List;
 public class GetMessageResult {
 
     /**
-     * 保存在commit log 中获取的消息的字节数组
+     * 保存在commit log 中获取的多个消息的字节数组
      */
     private final List<SelectMappedBufferResult> messageMapedList;
     /**
-     * 保存在commit log 中获取的消息的字节数组
+     * 保存在commit log 中获取的多个消息的字节数组
      */
     private final List<ByteBuffer> messageBufferList;
-
+    /**
+     * 多个消息在消息队列中排第几
+     */
     private final List<Long> messageQueueOffset;
 
     private GetMessageStatus status;

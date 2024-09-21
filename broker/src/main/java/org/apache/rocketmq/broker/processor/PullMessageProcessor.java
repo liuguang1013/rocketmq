@@ -309,16 +309,20 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
     /**
      * 处理拉取消息的请求：各种校验
-     *     构建响应对象
-     *     检查 broker 状态
-     *     检查请求类型，是否支持 LITE_PULL_MESSAGE 请求
-     *     获取/创建消费者所属组的配置信息，并持久化
-     *     获取 topic配置信息，判断可读
-     *     补充消费者缓存信息、
-     *     订阅信息缓存
-     *     创建 messageFilter
+     *     构建响应对象头 PullMessageResponseHeader
+     *     检查 broker 状态 Readable 可读
+     *     对 LITE_PULL_MESSAGE 请求类型检查，broker 是否支持
+     *     获取消费者所属组的配置信息：不存在就创建 subscriptionGroupConfig 并缓存到 SubscriptionGroupManager，持久化
+     *     获取 TopicConfig 配置信息，判断可读
+     *     检查 queueId 在 broker 中存在
+     *     缓存新增/更新消费者信息：consumeType、messageModel；topic 的订阅信息
+     *     构建消息过滤器 messageFilter
+     *     数据流控
+     *     开启 resetOffset，替换获取消息的开始位置，并结束处理，返回响应
      *
-     * 最终在messageStore中获取一个或/多个封装到 GetMessageResult 中，通过 netty channel 发送到客户端
+     * 最终在messageStore中获取一个或/多个封装到 GetMessageResult 中
+     *     pullMessageResultHandler 处理 GetMessageResult：补充响应体数据、缓存 nextOffset 到 pullOffsetTable、offsetTable 中
+     *     通过 netty channel 发送到客户端
      *
      *
      * @param channel  客户端 netty channel
@@ -415,7 +419,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
-        // 补充消费者信息：向 consumerManager.consumerCompensationTable 缓存的value ConsumerGroupInfo中补充 消费类型、消息类型；key：ConsumerGroup，
+        // 补充消费者信息：向 consumerManager.consumerCompensationTable 缓存的value ConsumerGroupInfo 中补充 消费类型、消息类型；key：ConsumerGroup，
         ConsumerManager consumerManager = brokerController.getConsumerManager();
         switch (RequestSource.parseInteger(requestHeader.getRequestSource())) {
             case PROXY_FOR_BROADCAST:
@@ -434,7 +438,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
 
         SubscriptionData subscriptionData = null;
         ConsumerFilterData consumerFilterData = null;
-        // 判断是否有 订阅标识
+        // 判断是否有 订阅标识：是否存在过滤 tag 信息
         final boolean hasSubscriptionFlag = PullSysFlag.hasSubscriptionFlag(requestHeader.getSysFlag());
         if (hasSubscriptionFlag) {
             // 向缓存中添加数据
@@ -534,7 +538,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             return response;
         }
 
-        // 构建消息过滤器
+        // 构建消息过滤器 messageFilter
         MessageFilter messageFilter;
         // 默认 false，不支持重试时候 过滤
         if (this.brokerController.getBrokerConfig().isFilterSupportRetry()) {
@@ -545,6 +549,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 this.brokerController.getConsumerFilterManager());
         }
 
+        // todo：数据流控
         final MessageStore messageStore = brokerController.getMessageStore();
         if (this.brokerController.getMessageStore() instanceof DefaultMessageStore) {
             DefaultMessageStore defaultMessageStore = (DefaultMessageStore)this.brokerController.getMessageStore();
@@ -574,12 +579,14 @@ public class PullMessageProcessor implements NettyRequestProcessor {
             }
         }
 
-        // 默认 true
+
+        // 默认 true，获取 resetOffset 重置的偏移量 ，替换获取消息的开始偏移量
         final boolean useResetOffsetFeature = brokerController.getBrokerConfig().isUseServerSideResetOffset();
         String topic = requestHeader.getTopic();
         String group = requestHeader.getConsumerGroup();
         int queueId = requestHeader.getQueueId();
         // 移除 resetOffsetTable 缓存中数据, resetOffsetTable 中的数据是接收请求才会缓存的
+        // todo：resetOffset 什么时候添加的
         Long resetOffset = brokerController.getConsumerOffsetManager().queryThenEraseResetOffset(topic, group, queueId);
 
         GetMessageResult getMessageResult = null;
@@ -603,7 +610,8 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 SubscriptionData finalSubscriptionData = subscriptionData;
                 RemotingCommand finalResponse = response;
                 // 真正的获取消息：将一个或/多个封装到 GetMessageResult 中
-                messageStore.getMessageAsync(group, topic, queueId, requestHeader.getQueueOffset(), requestHeader.getMaxMsgNums(), messageFilter)
+                messageStore.getMessageAsync(group, topic, queueId, requestHeader.getQueueOffset()
+                                , requestHeader.getMaxMsgNums(), messageFilter)
 
                         .thenApply(result -> {
                             if (null == result) {
@@ -731,7 +739,9 @@ public class PullMessageProcessor implements NettyRequestProcessor {
                 break;
         }
 
-        if (this.brokerController.getBrokerConfig().isSlaveReadEnable() && !this.brokerController.getBrokerConfig().isInBrokerContainer()) {
+        // 默认 false
+        if (this.brokerController.getBrokerConfig().isSlaveReadEnable()
+                && !this.brokerController.getBrokerConfig().isInBrokerContainer()) {
             // consume too slow ,redirect to another machine
             // 消耗太慢，重定向到另一台机器
             if (getMessageResult.isSuggestPullingFromSlave()) {
@@ -843,7 +853,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
     protected void tryCommitOffset(boolean brokerAllowSuspend, PullMessageRequestHeader requestHeader,
         long nextOffset, String clientAddress) {
 
-        // 缓存 nextOffset 偏移量到  ConsumerOffsetManager.pullOffsetTable.offsetTable
+        // 缓存 nextOffset 偏移量到  ConsumerOffsetManager.pullOffsetTable
         this.brokerController.getConsumerOffsetManager()
                 .commitPullOffset(clientAddress, requestHeader.getConsumerGroup(),
                                     requestHeader.getTopic(), requestHeader.getQueueId(), nextOffset);
@@ -851,7 +861,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         boolean storeOffsetEnable = brokerAllowSuspend;
         final boolean hasCommitOffsetFlag = PullSysFlag.hasCommitOffsetFlag(requestHeader.getSysFlag());
         storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
-        // 缓存 requestHeader.getCommitOffset 偏移量 到 ConsumerOffsetManager.
+        // 缓存 nextOffset 偏移量 到 ConsumerOffsetManager.offsetTable
         if (storeOffsetEnable) {
             this.brokerController.getConsumerOffsetManager()
                     .commitOffset(clientAddress, requestHeader.getConsumerGroup(), requestHeader.getTopic(),

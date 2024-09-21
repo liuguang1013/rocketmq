@@ -57,8 +57,12 @@ public class PullAPIWrapper {
     private final MQClientInstance mQClientFactory;
     private final String consumerGroup;
     private final boolean unitMode;
-    private ConcurrentMap<MessageQueue, AtomicLong/* brokerId */> pullFromWhichNodeTable =
-        new ConcurrentHashMap<>(32);
+    /**
+     * 消息队列、拉取消息的节点缓存
+     * 在broker 获取消息成功后，添加 缓存
+     * 在发送 拉取请求 pullKernelImpl 中会先查询缓存
+     */
+    private ConcurrentMap<MessageQueue, AtomicLong/* brokerId */> pullFromWhichNodeTable = new ConcurrentHashMap<>(32);
     private volatile boolean connectBrokerByUser = false;
     private volatile long defaultBrokerId = MixAll.MASTER_ID;
     private Random random = new Random(System.nanoTime());
@@ -70,13 +74,23 @@ public class PullAPIWrapper {
         this.unitMode = unitMode;
     }
 
+    /**
+     * 更新 pullFromWhichNodeTable 缓存：保存 MessageQueue 、brokerId 的关系，方便下次发送请求获取
+     * 将 字节数组消息转换成 MessageExt 对象
+     * 过滤消息：通过与 subscriptionData 中的 tag对比
+     * 再次过滤消息：执行钩子函数
+     * 补充消息中的一些属性： 最大/小偏移量、brokerName、事务id、queueId
+     */
     public PullResult processPullResult(final MessageQueue mq, final PullResult pullResult,
         final SubscriptionData subscriptionData) {
         PullResultExt pullResultExt = (PullResultExt) pullResult;
 
+        // 更新 pullFromWhichNodeTable 缓存
         this.updatePullFromWhichNode(mq, pullResultExt.getSuggestWhichBrokerId());
+
         if (PullStatus.FOUND == pullResult.getPullStatus()) {
             ByteBuffer byteBuffer = ByteBuffer.wrap(pullResultExt.getMessageBinary());
+            // 消息转换成 MessageExt 对象
             List<MessageExt> msgList = MessageDecoder.decodesBatch(
                 byteBuffer,
                 this.mQClientFactory.getClientConfig().isDecodeReadBody(),
@@ -109,6 +123,7 @@ public class PullAPIWrapper {
                 }
             }
 
+            // 过滤消息，必须是 topic 订阅数据 tag
             List<MessageExt> msgListFilterAgain = msgList;
             if (!subscriptionData.getTagsSet().isEmpty() && !subscriptionData.isClassFilterMode()) {
                 msgListFilterAgain = new ArrayList<>(msgList.size());
@@ -121,6 +136,7 @@ public class PullAPIWrapper {
                 }
             }
 
+            // 执行钩子函数
             if (this.hasHook()) {
                 FilterMessageContext filterMessageContext = new FilterMessageContext();
                 filterMessageContext.setUnitMode(unitMode);
@@ -130,9 +146,11 @@ public class PullAPIWrapper {
 
             for (MessageExt msg : msgListFilterAgain) {
                 String traFlag = msg.getProperty(MessageConst.PROPERTY_TRANSACTION_PREPARED);
+                // 事务消息设置事务id
                 if (Boolean.parseBoolean(traFlag)) {
                     msg.setTransactionId(msg.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX));
                 }
+                // 向消息属性中添加 最大/小偏移量
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_MIN_OFFSET,
                     Long.toString(pullResult.getMinOffset()));
                 MessageAccessor.putProperty(msg, MessageConst.PROPERTY_MAX_OFFSET,
@@ -192,10 +210,15 @@ public class PullAPIWrapper {
         final CommunicationMode communicationMode,
         final PullCallback pullCallback
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+
+        // 查找 broker，默认从 队列的 brokerName 下的主节点拉取消息
         FindBrokerResult findBrokerResult =
             this.mQClientFactory.findBrokerAddressInSubscribe(this.mQClientFactory.getBrokerNameFromMessageQueue(mq),
+                // 重新计算 从那个节点拉取消息
                 this.recalculatePullFromWhichNode(mq), false);
+
         if (null == findBrokerResult) {
+            // 更新 topic 订阅信息
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
             findBrokerResult =
                 this.mQClientFactory.findBrokerAddressInSubscribe(this.mQClientFactory.getBrokerNameFromMessageQueue(mq),
@@ -212,9 +235,11 @@ public class PullAPIWrapper {
                         + findBrokerResult.getBrokerVersion() + "] does not upgrade to support for filter message by " + expressionType, null);
                 }
             }
+
             int sysFlagInner = sysFlag;
 
             if (findBrokerResult.isSlave()) {
+                // 从节点，清除提交偏移量标识
                 sysFlagInner = PullSysFlag.clearCommitOffsetFlag(sysFlagInner);
             }
 
@@ -222,22 +247,23 @@ public class PullAPIWrapper {
             requestHeader.setConsumerGroup(this.consumerGroup);
             requestHeader.setTopic(mq.getTopic());
             requestHeader.setQueueId(mq.getQueueId());
-            requestHeader.setQueueOffset(offset);
-            requestHeader.setMaxMsgNums(maxNums);
-            requestHeader.setSysFlag(sysFlagInner);
-            requestHeader.setCommitOffset(commitOffset);
+            requestHeader.setQueueOffset(offset);// 队列的偏移量
+            requestHeader.setMaxMsgNums(maxNums);// 32
+            requestHeader.setSysFlag(sysFlagInner);// commitOffset、suspend、subscription、class filter
+            requestHeader.setCommitOffset(commitOffset);// 提交偏移量：消费者端已经消费的偏移量
             requestHeader.setSuspendTimeoutMillis(brokerSuspendMaxTimeMillis);
-            requestHeader.setSubscription(subExpression);
+            requestHeader.setSubscription(subExpression);// tag信息
             requestHeader.setSubVersion(subVersion);
-            requestHeader.setMaxMsgBytes(maxSizeInBytes);
-            requestHeader.setExpressionType(expressionType);
-            requestHeader.setBrokerName(mq.getBrokerName());
+            requestHeader.setMaxMsgBytes(maxSizeInBytes);// 256 * 1024
+            requestHeader.setExpressionType(expressionType);// tag
+            requestHeader.setBrokerName(mq.getBrokerName());// brokerName
 
             String brokerAddr = findBrokerResult.getBrokerAddr();
             if (PullSysFlag.hasClassFilterFlag(sysFlagInner)) {
                 brokerAddr = computePullFromWhichFilterServer(mq.getTopic(), brokerAddr);
             }
 
+            // 拉取消息
             PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
                 brokerAddr,
                 requestHeader,
@@ -281,11 +307,15 @@ public class PullAPIWrapper {
         );
     }
 
+    /**
+     * 默认 主节点 拉取消息
+     */
     public long recalculatePullFromWhichNode(final MessageQueue mq) {
+        // 默认 false
         if (this.isConnectBrokerByUser()) {
             return this.defaultBrokerId;
         }
-
+        // 在成功接收到消息后，会对 MessageQueue、broker节点 addr 进行缓存
         AtomicLong suggest = this.pullFromWhichNodeTable.get(mq);
         if (suggest != null) {
             return suggest.get();

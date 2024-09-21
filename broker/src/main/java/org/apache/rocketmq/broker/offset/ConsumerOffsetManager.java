@@ -49,8 +49,14 @@ public class ConsumerOffsetManager extends ConfigManager {
      * broker 中处理 pullMessage 请求，还未发送到消费者之前,更新 topic 的 queue 的偏移量
      * 开启brokerAllowSuspend && 请求头中有 hasCommitOffsetFlag
      */
-    protected ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> offsetTable = new ConcurrentHashMap<>(512);
+    protected ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer/* queueId */, Long>> offsetTable = new ConcurrentHashMap<>(512);
 
+    /**
+     * 在消费端 获取 ConsumeFromWhere.CONSUME_FROM_LAST_OFFSET 时，RemoteBrokerOffsetStore 发送 QUERY_CONSUMER_OFFSET 请求
+     * 默认会先从 该缓存获取
+     *
+     * 缓存来源 ： todo： 应该是 消费端发送重置请求，才会缓存
+     */
     private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> resetOffsetTable = new ConcurrentHashMap<>(512);
 
     /**
@@ -244,7 +250,7 @@ public class ConsumerOffsetManager extends ConfigManager {
     public long queryOffset(final String group, final String topic, final int queueId) {
         // topic@group
         String key = topic + TOPIC_GROUP_SEPARATOR + group;
-
+        // 默认 true ，使用服务侧重置偏移量
         if (this.brokerController.getBrokerConfig().isUseServerSideResetOffset()) {
             Map<Integer, Long> reset = resetOffsetTable.get(key);
             if (null != reset && reset.containsKey(queueId)) {
@@ -396,6 +402,9 @@ public class ConsumerOffsetManager extends ConfigManager {
         }
     }
 
+    /**
+     * 分配重置偏移量
+     */
     public void assignResetOffset(String topic, String group, int queueId, long offset) {
         if (Strings.isNullOrEmpty(topic) || Strings.isNullOrEmpty(group) || queueId < 0 || offset < 0) {
             LOG.warn("Illegal arguments when assigning reset offset. Topic={}, group={}, queueId={}, offset={}",

@@ -839,6 +839,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         final PullCallback pullCallback
     ) throws RemotingException, MQBrokerException, InterruptedException {
         RemotingCommand request;
+
         if (PullSysFlag.hasLitePullFlag(requestHeader.getSysFlag())) {
             request = RemotingCommand.createRequestCommand(RequestCode.LITE_PULL_MESSAGE, requestHeader);
         } else {
@@ -1045,6 +1046,7 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
             @Override
             public void operationSucceed(RemotingCommand response) {
                 try {
+                    // 将 PULL_MESSAGE 响应，封装成 PullResultExt 对象
                     PullResult pullResult = MQClientAPIImpl.this.processPullResponse(response, addr);
                     pullCallback.onSuccess(pullResult);
                 } catch (Exception e) {
@@ -1069,6 +1071,10 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
         return this.processPullResponse(response, addr);
     }
 
+    /**
+     * 将 PULL_MESSAGE 响应，封装成 PullResultExt 对象
+     * 这些 code 的对映关系在 composeResponseHeader 中处理
+     */
     private PullResult processPullResponse(
         final RemotingCommand response,
         final String addr) throws MQBrokerException, RemotingCommandException {

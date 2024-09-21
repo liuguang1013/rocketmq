@@ -900,12 +900,12 @@ public class DefaultMessageStore implements MessageStore {
 
     /**
      * 方法的参数都是 客户端请求中的
-     * @param group         Consumer group that launches this query.
-     * @param topic         Topic to query.
-     * @param queueId       Queue ID to query.
-     * @param offset        Logical offset to start from.
-     * @param maxMsgNums    Maximum count of messages to query.
-     * @param messageFilter Message filter used to screen desired messages.
+     * @param group         消费者组名
+     * @param topic         topic
+     * @param queueId       queueId
+     * @param offset        offset：在 ConsumerOffsetManager 中缓存的偏移量，先 resetOffset，再 offsetTable
+     * @param maxMsgNums    默认 32
+     * @param messageFilter 默认 ExpressionMessageFilter
      * @return
      */
     @Override
@@ -923,6 +923,15 @@ public class DefaultMessageStore implements MessageStore {
      *  找到消费队列，默认只从一个消费队列中读取，并从请求中消息开始位置每次读取一个消息单位，使用 messageFilter进行匹配校验
      *  解析消息单位，从commit log 中获取消息封装到 SelectMappedBufferResult，使用 messageFilter进行匹配校验
      *  将消息封装到GetMessageResult中
+     *
+     *  @param group         消费者组名
+     *  @param topic         topic
+     *  @param queueId       queueId
+     *  @param offset        offset：在 ConsumerOffsetManager 中缓存的偏移量，先 resetOffset，再 offsetTable
+     *  @param maxMsgNums    默认 32
+     *  @param maxTotalMsgSize    默认 128M
+     *  @param messageFilter 默认 ExpressionMessageFilter
+     *  @return
      */
     @Override
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
@@ -943,6 +952,7 @@ public class DefaultMessageStore implements MessageStore {
         //check request topic flag
         if (Objects.equals(policy, CleanupPolicy.COMPACTION) && messageStoreConfig.isEnableCompaction()) {
             // 通过压缩存储 获取消息
+            // todo： 待看
             return compactionStore.getMessage(group, topic, queueId, offset, maxMsgNums, maxTotalMsgSize);
         } // else skip
 
@@ -1000,11 +1010,12 @@ public class DefaultMessageStore implements MessageStore {
 
                 while (getResult.getBufferTotalSize() <= 0
                     && nextBeginOffset < maxOffset
-                        // travelCqFileNumWhenGetMessage ：默认值 1，跨越消息队列数
+                        // 跨越消息队列数 travelCqFileNumWhenGetMessage ：默认值 1
                     && cqFileNum++ < this.messageStoreConfig.getTravelCqFileNumWhenGetMessage()) {
 
                     ReferredIterator<CqUnit> bufferConsumeQueue = null;
                     try {
+                        // 默认从偏移量位置开始获取 32 个消息，但是实际返回的是 开始位置 到 读指针的位置的数据
                         bufferConsumeQueue = consumeQueue.iterateFrom(nextBeginOffset, maxMsgNums);
                         // 在消费队列中未找到对映的文件
                         if (bufferConsumeQueue == null) {
@@ -1022,6 +1033,7 @@ public class DefaultMessageStore implements MessageStore {
                             CqUnit cqUnit = bufferConsumeQueue.next();
                             // 消息在 commit log 中的绝对偏移量
                             long offsetPy = cqUnit.getPos();
+                            // 消息在 commit log 中的大小
                             int sizePy = cqUnit.getSize();
 
                             // 判断 消息是否在 内存映射中
@@ -1031,11 +1043,12 @@ public class DefaultMessageStore implements MessageStore {
                             if ((cqUnit.getQueueOffset() - offset) * consumeQueue.getUnitSize() > maxFilterMessageSize) {
                                 break;
                             }
-
-                            if (this.isTheBatchFull(sizePy, cqUnit.getBatchNum(), maxMsgNums, maxPullSize, getResult.getBufferTotalSize(), getResult.getMessageCount(), isInMem)) {
+                            // 判断是否已经达到本批次需要获取的消息数
+                            if (this.isTheBatchFull(sizePy, cqUnit.getBatchNum(), maxMsgNums, maxPullSize
+                                    , getResult.getBufferTotalSize(), getResult.getMessageCount(), isInMem)) {
                                 break;
                             }
-
+                            // GetMessageResult 返回结果中已经获取的消息大小 > 默认 128M
                             if (getResult.getBufferTotalSize() >= maxPullSize) {
                                 break;
                             }
@@ -1043,7 +1056,7 @@ public class DefaultMessageStore implements MessageStore {
                             maxPhyOffsetPulling = offsetPy;
 
                             //Be careful, here should before the isTheBatchFull
-                            // 记录下个开始的位置：当前消息的位置 + 消息的数量
+                            // 记录下个开始的位置：消息开始在消息队列中的排第几个 + 消息的数量
                             nextBeginOffset = cqUnit.getQueueOffset() + cqUnit.getBatchNum();
 
                             if (nextPhyFileStartOffset != Long.MIN_VALUE) {
@@ -1061,7 +1074,7 @@ public class DefaultMessageStore implements MessageStore {
                                 }
                                 continue;
                             }
-                            // 将  commit log  中的消息封装到对象中
+                            // 将  commit log  中的一个消息封装到对象中
                             SelectMappedBufferResult selectResult = this.commitLog.getMessage(offsetPy, sizePy);
                             if (null == selectResult) {
                                 if (getResult.getBufferTotalSize() == 0) {
@@ -1177,6 +1190,9 @@ public class DefaultMessageStore implements MessageStore {
         return 0;
     }
 
+    /**
+     * minLogicOffset / CQ_STORE_UNIT_SIZE
+     */
     @Override
     public long getMinOffsetInQueue(String topic, int queueId) {
         try {
@@ -1891,6 +1907,7 @@ public class DefaultMessageStore implements MessageStore {
         long nextOffset = oldOffset;
         // 不是从节点 或者 是从节点允许消费队列偏移量检查
         if (this.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE ||
+                // 默认 false
             this.getMessageStoreConfig().isOffsetCheckInSlave()) {
             nextOffset = newOffset;
         }
@@ -1931,32 +1948,45 @@ public class DefaultMessageStore implements MessageStore {
         return (maxOffsetPy - offsetPy) > memory;
     }
 
+    /**
+     *
+     * @param sizePy        消息在 commit log 中的大小
+     * @param unitBatchNum  默认 1
+     * @param maxMsgNums    默认 32
+     * @param maxMsgSize    默认 128 M
+     * @param bufferTotal   GetMessageResult 返回结果中已经获取的消息大小
+     * @param messageTotal  GetMessageResult 返回结果中已经获取的消息数量
+     * @param isInMem       是否在内存映射中
+     * @return
+     */
     private boolean isTheBatchFull(int sizePy, int unitBatchNum, int maxMsgNums, long maxMsgSize, int bufferTotal,
         int messageTotal, boolean isInMem) {
 
         if (0 == bufferTotal || 0 == messageTotal) {
             return false;
         }
-
+        // GetMessageResult 返回消息对象中，消息数量 >  默认 32
         if (messageTotal + unitBatchNum > maxMsgNums) {
             return true;
         }
-
+        // GetMessageResult 返回消息对象中，消息大小 >  默认 128 M
         if (bufferTotal + sizePy > maxMsgSize) {
             return true;
         }
 
         if (isInMem) {
+            // 内存：GetMessageResult 返回消息对象中，消息大小  > 256 K
             if ((bufferTotal + sizePy) > this.messageStoreConfig.getMaxTransferBytesOnMessageInMemory()) {
                 return true;
             }
-
+            //  GetMessageResult 返回消息对象中，消息数量 >  默认 31
             return messageTotal > this.messageStoreConfig.getMaxTransferCountOnMessageInMemory() - 1;
         } else {
+            // 磁盘：GetMessageResult 返回消息对象中，消息大小  > 64 K
             if ((bufferTotal + sizePy) > this.messageStoreConfig.getMaxTransferBytesOnMessageInDisk()) {
                 return true;
             }
-
+            //  GetMessageResult 返回消息对象中，消息数量 >  默认 7
             return messageTotal > this.messageStoreConfig.getMaxTransferCountOnMessageInDisk() - 1;
         }
     }

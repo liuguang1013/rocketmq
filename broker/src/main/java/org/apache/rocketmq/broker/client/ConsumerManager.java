@@ -56,6 +56,9 @@ public class ConsumerManager {
      * 在 consumerTable 中获取不到，有可能尝试在该缓存中获取
      * key： group 消费者组名
      * value： 消费者组信息
+     *
+     * 缓存添加时机：
+     *  broker 接收 PULL_MESSAGE 请求，processRequest 方法会添加信息
      */
     private final ConcurrentMap<String/* consumerGroup */, ConsumerGroupInfo> consumerCompensationTable = new ConcurrentHashMap<>(1024);
 
