@@ -48,7 +48,7 @@ public class Http2ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
             if (sslHandler != null && outboundChannel.pipeline().get(HANDLER_NAME) == null) {
                 outboundChannel.pipeline().addBefore(Http2ProxyBackendHandler.HANDLER_NAME, HANDLER_NAME, sslHandler);
             }
-
+            // 向 发送channel 写入数据
             outboundChannel.writeAndFlush(msg).addListener((ChannelFutureListener) future -> {
                 if (future.isSuccess()) {
                     // was able to flush out data, start to read the next chunk
@@ -60,6 +60,9 @@ public class Http2ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
         }
     }
 
+    /**
+     * 在接收请求channel 关闭时， 同时关闭 发送channel 客户端
+     */
     @Override
     public void channelInactive(ChannelHandlerContext ctx) {
         if (outboundChannel != null) {
@@ -67,6 +70,9 @@ public class Http2ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
         }
     }
 
+    /**
+     * 当前接收 channel 异常，只关闭接收channel
+     */
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
         log.error("Http2ProxyFrontendHandler#exceptionCaught", cause);
@@ -75,6 +81,7 @@ public class Http2ProxyFrontendHandler extends ChannelInboundHandlerAdapter {
 
     /**
      * Closes the specified channel after all queued write requests are flushed.
+     * 在刷新所有排队的写请求后关闭指定的通道。
      */
     static void closeOnFlush(Channel ch) {
         if (ch.isActive()) {

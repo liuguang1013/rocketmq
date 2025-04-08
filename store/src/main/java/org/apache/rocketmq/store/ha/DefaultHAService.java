@@ -46,8 +46,16 @@ public class DefaultHAService implements HAService {
 
     protected final AtomicInteger connectionCount = new AtomicInteger(0);
 
+    /**
+     * 可以理解为与服务端连接的多个客户端
+     */
     protected final List<HAConnection> connectionList = new LinkedList<>();
 
+    /**
+     * 可以理解为服务端
+     * beginAccept方法，创建socket服务端，绑定端口，监听SelectionKey.OP_ACCEPT IO事件
+     * run方法，while无限循环，创建HAConnection连接，最终缓存到 connectionList 中
+     */
     protected AcceptSocketService acceptSocketService;
 
     protected DefaultMessageStore defaultMessageStore;
@@ -135,7 +143,8 @@ public class DefaultHAService implements HAService {
         // 通过监听 channel 的 accept 事件，封装客户端（从节点） socketChannel 到 DefaultHAConnection 中
         // 同时对从节点socketChannel 的 READ/WRITE 事件监听，封装服务，并不断获取从节点已同步偏移量和同步主节点数据到从节点
         this.acceptSocketService.start();
-        // GroupTransferService  每 10ms 执行一次，获取HA请求列表缓存遍历，不断的重试判断消息是否同步到从节点，直至消息同步从节点个数达到要求
+        // GroupTransferService  每 10ms 执行一次，获取HA请求列表缓存遍历
+        // 不断的重试判断消息是否同步到从节点，直至消息同步从节点个数达到要求
         this.groupTransferService.start();
         // 对添加到服务的请求进行状态校验：
         //主节点：遍历客户端连接，查找与请求中地址匹配的客户端，状态是否与请求中预期的状态相同，不相同判断是否超时
@@ -322,6 +331,10 @@ public class DefaultHAService implements HAService {
             this.serverSocketChannel = ServerSocketChannel.open();
             // 根据操作系统选择合适的 selector
             this.selector = NetworkUtil.openSelector();
+            // 设置地址重用：允许服务器的套接字地址（即 IP 地址和端口号）在关闭后立即被重新使用
+            // 在网络编程中，当一个服务器程序关闭时，操作系统会将该服务器所使用的本地地址（包括 IP 和端口）标记为 TIME_WAIT 状态一段时间。
+            // 这是为了确保所有未完成的数据传输能够正确地完成，并防止旧连接中的数据包意外地影响新连接。
+            // 然而，在某些情况下，比如快速重启服务或进行测试时，你可能希望立即重用相同的地址。
             this.serverSocketChannel.socket().setReuseAddress(true);
             // channel 监听 10912 端口
             this.serverSocketChannel.socket().bind(this.socketAddressListen);
@@ -369,7 +382,7 @@ public class DefaultHAService implements HAService {
                     // 如果没有通道准备好，则等待时间达到1000毫秒后也会返回。
                     // 返回值 代表准备好的通道的数量
                     this.selector.select(1000);
-                    // 获取已经准备好的通道
+                    // 获取已经准备好的通道，每个 SelectionKey 表示一个特定的通道及其关联的兴趣集
                     Set<SelectionKey> selected = this.selector.selectedKeys();
 
                     if (selected != null) {

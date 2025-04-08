@@ -38,6 +38,7 @@ public class IndexService {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     /**
      * Maximum times to attempt index file creation.
+     * 尝试创建索引文件的最大次数。
      */
     private static final int MAX_TRY_IDX_CREATE = 3;
     private final DefaultMessageStore defaultMessageStore;
@@ -56,7 +57,7 @@ public class IndexService {
         this.hashSlotNum = store.getMessageStoreConfig().getMaxHashSlotNum();
         // 500 0000 * 4
         this.indexNum = store.getMessageStoreConfig().getMaxIndexNum();
-        // user.home/store/index
+        // $user.home/store/index
         this.storePath =
             StorePathConfigHelper.getStorePathIndex(defaultMessageStore.getMessageStoreConfig().getStorePathRootDir());
     }
@@ -240,7 +241,7 @@ public class IndexService {
                 return;
             }
 
-            // 判断消息类型：事务消息-回滚 不进行索引处理，其他情况正常进行
+            //事务消息-broker-重放-(2)事务回滚消息，不构建索引，其他情况正常进行
             final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
             switch (tranType) {
                 case MessageSysFlag.TRANSACTION_NOT_TYPE:
@@ -388,7 +389,7 @@ public class IndexService {
                 this.readWriteLock.writeLock().unlock();
             }
 
-            // 创建新文件后，刷新 最后一个写满的文件
+            // 创建新文件后，刷新最后一个写满的文件
             if (indexFile != null) {
                 final IndexFile flushThisFile = prevIndexFile;
 

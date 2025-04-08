@@ -62,8 +62,7 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
             //  获取某 topic 的所有 clientId 列表信息
             case RequestCode.GET_CONSUMER_LIST_BY_GROUP:
                 return this.getConsumerListByGroup(ctx, request);
-
-
+            // 定时任务：不断的
             case RequestCode.UPDATE_CONSUMER_OFFSET:
                 return this.updateConsumerOffset(ctx, request);
 
@@ -152,15 +151,16 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
         }
     }
 
+    /**
+     * 客户端定时更新消费队列的消费偏移量
+     */
     private RemotingCommand updateConsumerOffset(ChannelHandlerContext ctx, RemotingCommand request)
         throws RemotingCommandException {
 
-        final RemotingCommand response =
-            RemotingCommand.createResponseCommand(UpdateConsumerOffsetResponseHeader.class);
+        final RemotingCommand response = RemotingCommand.createResponseCommand(UpdateConsumerOffsetResponseHeader.class);
 
         final UpdateConsumerOffsetRequestHeader requestHeader =
-            (UpdateConsumerOffsetRequestHeader)
-                request.decodeCommandCustomHeader(UpdateConsumerOffsetRequestHeader.class);
+            (UpdateConsumerOffsetRequestHeader) request.decodeCommandCustomHeader(UpdateConsumerOffsetRequestHeader.class);
 
         TopicQueueMappingContext mappingContext =
             this.brokerController.getTopicQueueMappingManager().buildTopicQueueMappingContext(requestHeader);
@@ -175,6 +175,7 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
         Integer queueId = requestHeader.getQueueId();
         Long offset = requestHeader.getCommitOffset();
 
+        //
         if (!this.brokerController.getTopicConfigManager().containsTopic(requestHeader.getTopic())) {
             response.setCode(ResponseCode.TOPIC_NOT_EXIST);
             response.setRemark("Topic " + topic + " not exist!");
@@ -194,6 +195,7 @@ public class ConsumerManageProcessor implements NettyRequestProcessor {
         }
 
         ConsumerOffsetManager consumerOffsetManager = brokerController.getConsumerOffsetManager();
+        // useServerSideResetOffset 默认 true
         if (this.brokerController.getBrokerConfig().isUseServerSideResetOffset()) {
             // Note, ignoring this update offset request
             if (consumerOffsetManager.hasOffsetReset(topic, group, queueId)) {

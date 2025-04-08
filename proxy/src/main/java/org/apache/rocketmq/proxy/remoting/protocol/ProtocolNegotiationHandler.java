@@ -22,6 +22,11 @@ import io.netty.handler.codec.ByteToMessageDecoder;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 决定使用那种协议的处理器
+ *  Http2ProtocolProxyHandler：
+ *  RemotingProtocolHandler
+ */
 public class ProtocolNegotiationHandler extends ByteToMessageDecoder {
 
     private final List<ProtocolHandler> protocolHandlerList = new ArrayList<ProtocolHandler>();
@@ -45,6 +50,7 @@ public class ProtocolNegotiationHandler extends ByteToMessageDecoder {
 
         ProtocolHandler protocolHandler = null;
         for (ProtocolHandler curProtocolHandler : protocolHandlerList) {
+            //
             if (curProtocolHandler.match(in)) {
                 protocolHandler = curProtocolHandler;
                 break;
@@ -55,7 +61,15 @@ public class ProtocolNegotiationHandler extends ByteToMessageDecoder {
             protocolHandler = fallbackProtocolHandler;
         }
 
+        /**
+         * 多种协议配置
+         * Http2ProtocolProxyHandler：创建新的 netty 客户端，连接本机 netty 服务端，进行数据转发
+         * RemotingProtocolHandler：直接在当前的 pipeline 中，添加handler
+          */
+
         protocolHandler.config(ctx, in);
+
+        // 只在首次的连接时使用，不参与后续事件的处理
         ctx.pipeline().remove(this);
     }
 }

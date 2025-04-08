@@ -141,6 +141,7 @@ public class ConsumerManagerActivity extends AbstractRemotingActivity {
         }
 
         String brokerName = new ArrayList<>(mqSet).get(0).getBrokerName();
+        // 通过 messagingProcessor 处理
         messagingProcessor.request(context, brokerName, request, Duration.ofSeconds(3).toMillis())
             .thenAccept(r -> writeResponse(ctx, context, request, r))
             .exceptionally(t -> {

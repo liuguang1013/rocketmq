@@ -17,8 +17,20 @@
 
 package org.apache.rocketmq.remoting.protocol;
 
+import io.netty.channel.ChannelHandlerContext;
+import org.apache.rocketmq.common.message.MessageExt;
+import org.apache.rocketmq.remoting.protocol.header.CheckTransactionStateRequestHeader;
+
+/**
+ * 学而不思则罔，思而不学则怠
+ * 当前的大致流程也看了，但是看这么多却又是很迷糊。
+ */
 public class RequestCode {
 
+    /**
+     * SendMessageProcessor 中接收消息
+     * @see org.apache.rocketmq.broker.processor.SendMessageProcessor#processRequest(ChannelHandlerContext, RemotingCommand)
+     */
     public static final int SEND_MESSAGE = 10;
 
     /**
@@ -27,7 +39,7 @@ public class RequestCode {
      * 拉取消息前，信息校验，通过 pullAPIWrapper#pullKernelImpl 发送该请求到 broker
      *
      * broker 的 PullMessageProcessor 处理请求
-     *
+     * @see org.apache.rocketmq.broker.processor.PullMessageProcessor#processRequest
      */
     public static final int PULL_MESSAGE = 11;
 
@@ -41,8 +53,18 @@ public class RequestCode {
      *  获取开始拉取位置：（对于 LocalOffsetStore 先从本地持久化文件获取），再 broker 主节点 获取
      */
     public static final int QUERY_CONSUMER_OFFSET = 14;
+
+    /**
+     * 消费者启动时，MQClientInstance 启动时，启动定时任务会不断向broker刷新消费队列的消费偏移量
+     * @see org.apache.rocketmq.client.impl.factory.MQClientInstance#persistAllConsumerOffset
+     *
+     * broker 侧处理方法
+     * @see org.apache.rocketmq.broker.processor.ConsumerManageProcessor#updateConsumerOffset
+     *
+     */
     public static final int UPDATE_CONSUMER_OFFSET = 15;
     public static final int UPDATE_AND_CREATE_TOPIC = 17;
+
     /**
      * broker 启动，开启定时任务，当判断为从节点的时候，从主节点获取所有 topic 信息
      * 在 netty 服务端，使用 默认的 AdminBrokerProcessor 处理请求
@@ -80,6 +102,7 @@ public class RequestCode {
      *
      * 消费/生成者 启动会向 broker 发送心跳，会携带 生产/消费者组信息到broker
      * broker 中 ClientManageProcessor 处理请求
+     * @see org.apache.rocketmq.broker.processor.ClientManageProcessor#heartBeat(ChannelHandlerContext, RemotingCommand)
      */
     public static final int HEART_BEAT = 34;
 
@@ -91,12 +114,28 @@ public class RequestCode {
      */
     public static final int CONSUMER_SEND_MSG_BACK = 36;
 
+    /**
+     * 1、broker 通过定时任务客户端发送事务状态回查请求，
+     * 生产者检查本地事务状态后，将事务状态发回Broker
+     * @see  org.apache.rocketmq.client.impl.producer.DefaultMQProducerImpl#checkTransactionState(String, MessageExt, CheckTransactionStateRequestHeader)
+     *
+     * broker 端接收处理请求
+     * @see org.apache.rocketmq.broker.processor.EndTransactionProcessor#processRequest(ChannelHandlerContext, RemotingCommand)
+     */
     public static final int END_TRANSACTION = 37;
     /**
      * 消费者启动的时候， RebalanceImpl 获取消费者列表，发送同步请求
+     *
      */
     public static final int GET_CONSUMER_LIST_BY_GROUP = 38;
 
+    /**
+     * broker 定时检查事务消息，向client 端发送回查请求
+     * @see org.apache.rocketmq.broker.transaction.queue.TransactionalMessageServiceImpl#check(long, int, AbstractTransactionalMessageCheckListener)
+     *
+     * 客户端接收请求，检查事务状态
+     * @see org.apache.rocketmq.client.impl.ClientRemotingProcessor#checkTransactionState(ChannelHandlerContext, RemotingCommand)
+     */
     public static final int CHECK_TRANSACTION_STATE = 39;
 
     /**
@@ -115,8 +154,30 @@ public class RequestCode {
      */
     public static final int NOTIFY_CONSUMER_IDS_CHANGED = 40;
 
+    /**
+     * 1、在顺序消息的消费模式下，ConsumeMessagePopOrderlyService 会有定期执行批量锁定消息对列的任务
+     * 通过 RebalanceImpl 发送请求
+     *
+     * 2、当客户端启动时，获取所属的消费队列后，认为是新增的消息队列，并且是顺序消息 会通过RebalanceImpl 对某队列进行锁定
+     * LOCK_BATCH_MQ
+     *
+     * 对于不使用 proxy 代理模式，使用 broker 的 AdminBrokerProcessor 默认处理器处理
+     * @see org.apache.rocketmq.broker.processor.AdminBrokerProcessor#lockBatchMQ(ChannelHandlerContext, RemotingCommand)
+     *
+     * 对于使用 proxy 代理模式，使用 broker 的 ConsumerManagerActivity 处理器，处理请求
+     * @see org.apache.rocketmq.proxy.remoting.activity.ConsumerManagerActivity#lockBatchMQ(ChannelHandlerContext, RemotingCommand, org.apache.rocketmq.proxy.common.ProxyContext)
+     *
+     */
     public static final int LOCK_BATCH_MQ = 41;
 
+    /**
+     * 每次重新平衡后都会检查 RebalanceImpl 中缓存的消息队列，是否包含在新分配的消息列表中，或者超时的消息队列都会添加到移除列表中
+     * 对于顺序消息，移除消息队列的时候，会向Broker发送解锁请求
+     * @see org.apache.rocketmq.client.impl.consumer.RebalancePushImpl#removeUnnecessaryMessageQueue
+     *
+     * 对于不使用 proxy 代理模式，使用 broker 的 AdminBrokerProcessor 默认处理器处理
+     * @see org.apache.rocketmq.broker.processor.AdminBrokerProcessor#unlockBatchMQ
+     */
     public static final int UNLOCK_BATCH_MQ = 42;
     /**
      * broker 启动，开启定时任务，当判断为从节点的时候，从主节点获取所有消费队列偏移量信息
@@ -178,7 +239,10 @@ public class RequestCode {
      * 发送消息的时候查找 topic 对映的 TopicPublishInfo ，找不到也会调用
      *
      * nameSrv 的 ClientRequestProcessor 处理请求，
+     * @see org.apache.rocketmq.namesrv.processor.ClientRequestProcessor
+     *
      * 最终进入到 RouteInfoManager#pickupTopicRouteData
+     * @see org.apache.rocketmq.namesrv.routeinfo.RouteInfoManager#pickupTopicRouteData(String)
      */
     public static final int GET_ROUTEINFO_BY_TOPIC = 105;
 

@@ -30,6 +30,7 @@ import org.apache.rocketmq.client.consumer.store.OffsetStore;
 import org.apache.rocketmq.client.exception.MQBrokerException;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.hook.ConsumeMessageHook;
+import org.apache.rocketmq.client.impl.consumer.ConsumeMessageConcurrentlyService;
 import org.apache.rocketmq.client.impl.consumer.DefaultMQPushConsumerImpl;
 import org.apache.rocketmq.client.trace.AsyncTraceDispatcher;
 import org.apache.rocketmq.client.trace.TraceDispatcher;
@@ -927,6 +928,11 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
         return this.defaultMQPushConsumerImpl.isConsumeOrderly();
     }
 
+    /**
+     * 此处注册的钩子函数，是拉取成功的消息，在消费前
+     * @see ConsumeMessageConcurrentlyService.ConsumeRequest#run()
+     * @param hook
+     */
     public void registerConsumeMessageHook(final ConsumeMessageHook hook) {
         this.defaultMQPushConsumerImpl.registerConsumeMessageHook(hook);
     }

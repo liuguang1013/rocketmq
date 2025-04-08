@@ -58,7 +58,8 @@ public class HookUtils {
     private static final Integer MAX_TOPIC_LENGTH = 255;
 
     public static PutMessageResult checkBeforePutMessage(BrokerController brokerController, final MessageExt msg) {
-        // 消息存储是否关闭
+        //  消息存储是否关闭
+        // DefaultMessageStore中Shutdown属性为true
         if (brokerController.getMessageStore().isShutdown()) {
             LOG.warn("message store has shutdown, so putMessage is forbidden");
             return new PutMessageResult(PutMessageStatus.SERVICE_NOT_AVAILABLE, null);
@@ -85,19 +86,19 @@ public class HookUtils {
 
         final byte[] topicData = msg.getTopic().getBytes(MessageDecoder.CHARSET_UTF8);
         boolean retryTopic = msg.getTopic() != null && msg.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX);
-        // 检查 topic 长度，不能大于127 字节
+        //检查不是重试Topic，Topic长度，不能大于127字节
         if (!retryTopic && topicData.length > Byte.MAX_VALUE) {
             LOG.warn("putMessage message topic[{}] length too long {}, but it is not supported by broker",
                 msg.getTopic(), topicData.length);
             return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null);
         }
-        // topic 长度不能大于 255
+        //检查任何类型Topic长度，不能大于255字节
         if (topicData.length > MAX_TOPIC_LENGTH) {
             LOG.warn("putMessage message topic[{}] length too long {}, but it is not supported by broker",
                 msg.getTopic(), topicData.length);
             return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null);
         }
-
+        //检查消息Body字节数组不能为null
         if (msg.getBody() == null) {
             LOG.warn("putMessage message topic[{}], but message body is null", msg.getTopic());
             return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null);
@@ -111,13 +112,13 @@ public class HookUtils {
     }
 
     public static PutMessageResult checkInnerBatch(BrokerController brokerController, final MessageExt msg) {
-        // 检查包含 INNER_NUM 属性，但是不存在值
+        // 检查消息包含 INNER_NUM 属性，但是不存在值
         if (msg.getProperties().containsKey(MessageConst.PROPERTY_INNER_NUM)
             && !MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
             LOG.warn("[BUG]The message had property {} but is not an inner batch", MessageConst.PROPERTY_INNER_NUM);
             return new PutMessageResult(PutMessageStatus.MESSAGE_ILLEGAL, null);
         }
-        // 判断 topic 的配置中attributes 中是否存在 批量配置
+        // 检查消息系统标识为批量消息，但是TopicConfig配置中消费队列不是批量消息类型
         if (MessageSysFlag.check(msg.getSysFlag(), MessageSysFlag.INNER_BATCH_FLAG)) {
             Optional<TopicConfig> topicConfig = Optional.ofNullable(brokerController.getTopicConfigManager().getTopicConfigTable().get(msg.getTopic()));
             if (!QueueTypeUtils.isBatchCq(topicConfig)) {
@@ -197,6 +198,7 @@ public class HookUtils {
         if (TimerMessageStore.TIMER_TOPIC.equals(msg.getTopic()) || null != msg.getProperty(MessageConst.PROPERTY_TIMER_OUT_MS)) {
             return false;
         }
+        // TIMER_DELIVER_MS、TIMER_DELAY_MS、TIMER_DELAY_SEC
         return null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELIVER_MS)
                 || null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_MS)
                 || null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC);

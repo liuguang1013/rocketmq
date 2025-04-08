@@ -22,13 +22,29 @@ import java.util.Date;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.rocketmq.common.UtilAll;
 
+/**
+ *  ipv4 地址转换为数组长度 4
+ *  ipv4 地址转换为数组长度 16
+ */
 public class MessageClientIDSetter {
-    
+
+    /**
+     *  LEN = ip.length + 12 =  16/28 ;
+     *
+     *  2：  pid
+     *  4：  MessageClientIDSetter 类加载器的 hashcode
+     *  4：
+     */
     private static final int LEN;
     /**
      * 每个客户端的消息的 前缀都是固定的
-     * ip + pid + this.hashCode()
      *
+     * ip + pid + this.hashCode()
+     * ip.length + 2 + 4
+     *
+     * s = 4/16 + 2 + 4 = 10/22
+     *
+     * 长度 20/44
      */
     private static final char[] FIX_STRING;
     private static final AtomicInteger COUNTER;
@@ -40,8 +56,11 @@ public class MessageClientIDSetter {
         try {
             ip = UtilAll.getIP();
         } catch (Exception e) {
+            // System.currentTimeMillis() 的后四位字节
+            // 4字节
             ip = createFakeIP();
         }
+        // 16
         LEN = ip.length + 2 + 4 + 4 + 2;
         ByteBuffer tempBuffer = ByteBuffer.allocate(ip.length + 2 + 4);
         tempBuffer.put(ip);
@@ -119,13 +138,29 @@ public class MessageClientIDSetter {
         return value & 0x0000FFFF;
     }
 
+    /**
+     * 对ipv4 来说长度 32
+     *
+     * 20 字符：固定前缀，每个客户端的实例的 消息的前缀是相同的
+     * 8 字符：当前时间与月初时间的毫秒差值。通过无符号右移，获取8个16进制的字符
+     * 4 字符：从0开始，自增值。通过无符号右移，获取4个16进制的字符
+     *
+     * 对ipv6 来说长度 56
+     *
+     * 44 字符：固定前缀，每个客户端的实例的 消息的前缀是相同的
+     * 8 字符：当前时间与月初时间的毫秒差值。通过无符号右移，获取8个16进制的字符
+     * 4 字符：从0开始，自增值。通过无符号右移，获取4个16进制的字符
+     */
     public static String createUniqID() {
         char[] sb = new char[LEN * 2];
         System.arraycopy(FIX_STRING, 0, sb, 0, FIX_STRING.length);
+
+        // 每月更新时间
         long current = System.currentTimeMillis();
         if (current >= nextStartTime) {
             setStartTime(current);
         }
+        // 处理 NTP 导致的 时钟回拨问题
         int diff = (int)(current - startTime);
         if (diff < 0 && diff > -1000_000) {
             // may cause by NTP

@@ -27,7 +27,9 @@ public class MessageExtBrokerInner extends MessageExt {
     private long tagsCode;
 
     /**
-     * 保存消息编码后的字节数组
+     * 消息会通过 putMessageThreadLocal 的 Encoder 将消息转换为字节数组，
+     * 先保存到 putMessageThreadLocal 的 Encoder 的 bytebuffer 属性中，
+     * 后转移到该属性中
      */
     private ByteBuffer encodedBuff;
 

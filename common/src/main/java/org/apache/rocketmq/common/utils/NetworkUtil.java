@@ -77,7 +77,6 @@ public class NetworkUtil {
                 // ignore
             }
         }
-
         if (result == null) {
             // 根据当前平台和Java虚拟机的配置选择最合适的实现方式
             // SelectorProvider.provider().openSelector();

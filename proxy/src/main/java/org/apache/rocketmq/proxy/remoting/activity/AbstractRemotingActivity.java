@@ -99,6 +99,7 @@ public abstract class AbstractRemotingActivity implements NettyRequestProcessor 
 
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws Exception {
+        // 创建上下文
         ProxyContext context = createContext(ctx, request);
         try {
             this.requestPipeline.execute(ctx, request, context);
@@ -122,14 +123,17 @@ public abstract class AbstractRemotingActivity implements NettyRequestProcessor 
         ProxyContext context) throws Exception;
 
     protected ProxyContext createContext(ChannelHandlerContext ctx, RemotingCommand request) {
+        // 实际就是个 hashMap
         ProxyContext context = ProxyContext.create();
         Channel channel = ctx.channel();
+        // 保存： 请求code、请求协议类型、channel、本机/远端地址
         context.setAction(RemotingHelper.getRequestCodeDesc(request.getCode()))
             .setProtocolType(ChannelProtocolType.REMOTING.getName())
             .setChannel(channel)
             .setLocalAddress(NetworkUtil.socketAddress2String(ctx.channel().localAddress()))
             .setRemoteAddress(RemotingHelper.parseChannelRemoteAddr(ctx.channel()));
 
+        // 保存channel中Attr信息：LanguageCode、ClientId、Version
         Optional.ofNullable(RemotingHelper.getAttributeValue(AttributeKeys.LANGUAGE_CODE_KEY, channel))
             .ifPresent(language -> context.setLanguage(language.name()));
         Optional.ofNullable(RemotingHelper.getAttributeValue(AttributeKeys.CLIENT_ID_KEY, channel))

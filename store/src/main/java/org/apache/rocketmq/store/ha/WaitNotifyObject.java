@@ -28,6 +28,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class WaitNotifyObject {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    /**
+     * 使用 map 保存多个 线程，并等待，方便后续一并唤起
+     */
     protected final ConcurrentHashMap<Long/* thread id */, AtomicBoolean/* notified */> waitingThreadTable =
         new ConcurrentHashMap<>(16);
 
@@ -43,20 +46,26 @@ public class WaitNotifyObject {
     }
 
     protected void waitForRunning(long interval) {
+        // 将线程挂起  hasNotified
+        // 当前是唤醒状态 true， CAS尝试 true ->false
+        // 当前是挂起状态 false，直接向下执行
         if (this.hasNotified.compareAndSet(true, false)) {
             this.onWaitEnd();
             return;
         }
+
         synchronized (this) {
             try {
                 if (this.hasNotified.compareAndSet(true, false)) {
                     this.onWaitEnd();
                     return;
                 }
+                // 挂起线程，释放锁
                 this.wait(interval);
             } catch (InterruptedException e) {
                 log.error("Interrupted", e);
             } finally {
+
                 this.hasNotified.set(false);
                 this.onWaitEnd();
             }

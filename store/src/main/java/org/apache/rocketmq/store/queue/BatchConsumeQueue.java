@@ -63,6 +63,9 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
     public static final int CQ_STORE_UNIT_SIZE = 46;
     public static final int MSG_TAG_OFFSET_INDEX = 12;
     public static final int MSG_STORE_TIME_OFFSET_INDEX = 20;
+    /**
+     *
+     */
     public static final int MSG_BASE_OFFSET_INDEX = 28;
     public static final int MSG_BATCH_SIZE_INDEX = 36;
     public static final int MSG_COMPACT_OFFSET_INDEX = 38;
@@ -72,6 +75,9 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
     protected MessageStore messageStore;
     protected final String topic;
     protected final int queueId;
+    /**
+     * 临时存储
+     */
     protected final ByteBuffer byteBufferItem;
 
     protected final String storePath;
@@ -82,7 +88,7 @@ public class BatchConsumeQueue implements ConsumeQueueInterface {
     protected volatile long maxMsgPhyOffsetInCommitLog = -1;
 
     /**
-     * 最小逻辑偏移量
+     * 最小逻辑偏移量：实际是文件名
      * 在向 Compaction Log 中添加数据 appendMessage ， 同时会向 SparseConsumeQueue 中添加消息，
      * 向第一个 SparseConsumeQueue 中添加第一个消息的时候，会设置该属性，文件名表示开始偏移量
      */

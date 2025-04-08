@@ -55,6 +55,8 @@ public class NamesrvStartup {
     private static ControllerConfig controllerConfig = null;
 
     public static void main(String[] args) {
+        System.setProperty(MixAll.ROCKETMQ_HOME_PROPERTY, "/Users/wanghaoran/Desktop/temprocketmq/nameSrv");
+        System.setProperty("user.home", "/Users/wanghaoran/Desktop/temprocketmq/nameSrv");
 
         main0(args);
         // todo：创建  controllerManager 的作用是什么？broker 节点宕机，发起选举

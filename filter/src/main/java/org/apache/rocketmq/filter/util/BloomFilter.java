@@ -33,9 +33,17 @@ public class BloomFilter {
     private int f = 10;
     private int n = 128;
 
-    // hash function num, by calculation.
+    /**
+     * hash function num, by calculation.
+     * 哈希函数的数量：计算获取
+     * 标识一个数据，会计算多少次哈希值
+     */
     private int k;
-    // bit count, by calculation.
+
+    /**
+     * bit count, by calculation.
+     * 布隆过滤器的总位数： 通过计算获取
+     */
     private int m;
 
     /**
@@ -89,9 +97,11 @@ public class BloomFilter {
      * <p>
      * See "Less Hashing, Same Performance: Building a Better Bloom Filter" by Adam Kirsch and Michael
      * Mitzenmacher.
+     * 参见Adam Kirsch和Michael Mitzenmacher的《更少的哈希，相同的性能：构建更好的布隆过滤器》。
      * </p>
      */
     public int[] calcBitPositions(String str) {
+        // 每个数据 都会占用的 位的数量
         int[] bitPositions = new int[this.k];
 
         long hash64 = Hashing.murmur3_128().hashString(str, UTF_8).asLong();
@@ -100,8 +110,10 @@ public class BloomFilter {
         int hash2 = (int) (hash64 >>> 32);
 
         for (int i = 1; i <= this.k; i++) {
+
             int combinedHash = hash1 + (i * hash2);
             // Flip all the bits if it's negative (guaranteed positive number)
+            // 如果是负数（保证是正数），则翻转所有位
             if (combinedHash < 0) {
                 combinedHash = ~combinedHash;
             }
@@ -113,6 +125,9 @@ public class BloomFilter {
 
     /**
      * Calculate bit positions of {@code str} to construct {@code BloomFilterData}
+     *
+     * 1、计算出：数据在位数组中，所处位置的多个位置。
+     * 2、与 布隆过滤器总的位数，封装位 BloomFilterData 对象
      */
     public BloomFilterData generate(String str) {
         int[] bitPositions = calcBitPositions(str);
@@ -129,11 +144,13 @@ public class BloomFilter {
 
     /**
      * Set the related {@code bits} positions to 1.
+     * 将 BitsArray 中对映的 位 上的值，设置为1
      */
     public void hashTo(int[] bitPositions, BitsArray bits) {
         check(bits);
 
         for (int i : bitPositions) {
+
             bits.setBit(i, true);
         }
     }
@@ -141,8 +158,10 @@ public class BloomFilter {
     /**
      * Extra check:
      * <li>1. check {@code filterData} belong to this bloom filter.</li>
+     * 检查 BloomFilterData 属于 bloom filter.
      * <p>
      * Then set the related {@code bits} positions to 1.
+     * 设置相关的位为1
      * </p>
      */
     public void hashTo(BloomFilterData filterData, BitsArray bits) {

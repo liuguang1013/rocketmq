@@ -22,6 +22,10 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
+/**
+ * todo：该类是做啥的？
+ *
+ */
 public class TransactionalOpBatchService extends ServiceThread {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.TRANSACTION_LOGGER_NAME);
 
@@ -71,6 +75,7 @@ public class TransactionalOpBatchService extends ServiceThread {
      */
     @Override
     protected void onWaitEnd() {
+        // 事务消息-broker-保存已提交消息-(1)定时：每3s执行一次，保存已提交消息
         wakeupTimestamp = transactionalMessageService.batchSendOpMessage();
     }
 }

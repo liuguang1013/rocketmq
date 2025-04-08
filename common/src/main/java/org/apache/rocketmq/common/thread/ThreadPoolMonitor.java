@@ -49,8 +49,11 @@ public class ThreadPoolMonitor {
         boolean enablePrintJstack, long jstackPeriodTimeConfig, long threadPoolStatusPeriodTimeConfig) {
         jstackLogger = jstackLoggerConfig;
         waterMarkLogger = waterMarkLoggerConfig;
+        // 3s
         threadPoolStatusPeriodTime = threadPoolStatusPeriodTimeConfig;
+        // true
         ThreadPoolMonitor.enablePrintJstack = enablePrintJstack;
+        // 60s
         jstackPeriodTime = jstackPeriodTimeConfig;
     }
 
@@ -60,6 +63,7 @@ public class ThreadPoolMonitor {
         TimeUnit unit,
         String name,
         int queueCapacity) {
+
         return createAndMonitor(corePoolSize, maximumPoolSize, keepAliveTime, unit, name, queueCapacity, Collections.emptyList());
     }
 
@@ -70,6 +74,7 @@ public class ThreadPoolMonitor {
         String name,
         int queueCapacity,
         ThreadPoolStatusMonitor... threadPoolStatusMonitors) {
+
         return createAndMonitor(corePoolSize, maximumPoolSize, keepAliveTime, unit, name, queueCapacity,
             Lists.newArrayList(threadPoolStatusMonitors));
     }
@@ -88,7 +93,9 @@ public class ThreadPoolMonitor {
             unit,
             new LinkedBlockingQueue<>(queueCapacity),
             new ThreadFactoryBuilder().setNameFormat(name + "-%d").build(),
+            // 丢弃最老的任务
             new ThreadPoolExecutor.DiscardOldestPolicy());
+
         List<ThreadPoolStatusMonitor> printers = Lists.newArrayList(new ThreadPoolQueueSizeMonitor(queueCapacity));
         printers.addAll(threadPoolStatusMonitors);
 
@@ -101,6 +108,7 @@ public class ThreadPoolMonitor {
     }
 
     public static void logThreadPoolStatus() {
+        // 遍历
         for (ThreadPoolWrapper threadPoolWrapper : MONITOR_EXECUTOR) {
             List<ThreadPoolStatusMonitor> monitors = threadPoolWrapper.getStatusPrinters();
             for (ThreadPoolStatusMonitor monitor : monitors) {
@@ -121,6 +129,7 @@ public class ThreadPoolMonitor {
     }
 
     public static void init() {
+        // 3s 执行一次
         MONITOR_SCHEDULED.scheduleAtFixedRate(ThreadPoolMonitor::logThreadPoolStatus, 20,
             threadPoolStatusPeriodTime, TimeUnit.MILLISECONDS);
     }

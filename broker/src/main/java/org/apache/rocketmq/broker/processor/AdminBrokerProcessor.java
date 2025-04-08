@@ -1296,22 +1296,31 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
         return response;
     }
 
+    /**
+     * broker锁定队列
+     */
     private RemotingCommand lockBatchMQ(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         LockBatchRequestBody requestBody = LockBatchRequestBody.decode(request.getBody(), LockBatchRequestBody.class);
 
         Set<MessageQueue> lockOKMQSet = new HashSet<>();
+        // 顺序消息-broker-锁定队列(1)使用 RebalanceLockManager 重新平衡锁管理器，来锁定消息队列
         Set<MessageQueue> selfLockOKMQSet = this.brokerController.getRebalanceLockManager().tryLockBatch(
             requestBody.getConsumerGroup(),
             requestBody.getMqSet(),
             requestBody.getClientId());
+
+        // requestBody 中 onlyThisBroker 默认是false、
+        // broker 配置项 lockInStrictMode 默认是false，取反为 true
         if (requestBody.isOnlyThisBroker() || !brokerController.getBrokerConfig().isLockInStrictMode()) {
             lockOKMQSet = selfLockOKMQSet;
-        } else {
+        }
+        else {
             requestBody.setOnlyThisBroker(true);
             int replicaSize = this.brokerController.getMessageStoreConfig().getTotalReplicas();
 
+            //半数节点数量+1
             int quorum = replicaSize / 2 + 1;
 
             if (quorum <= 1) {
@@ -1388,6 +1397,7 @@ public class AdminBrokerProcessor implements NettyRequestProcessor {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
         UnlockBatchRequestBody requestBody = UnlockBatchRequestBody.decode(request.getBody(), UnlockBatchRequestBody.class);
 
+        // lockInStrictMode 默认为 false
         if (requestBody.isOnlyThisBroker() || !this.brokerController.getBrokerConfig().isLockInStrictMode()) {
             this.brokerController.getRebalanceLockManager().unlockBatch(
                 requestBody.getConsumerGroup(),

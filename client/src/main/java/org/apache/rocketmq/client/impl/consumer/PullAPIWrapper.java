@@ -127,12 +127,18 @@ public class PullAPIWrapper {
             List<MessageExt> msgListFilterAgain = msgList;
             if (!subscriptionData.getTagsSet().isEmpty() && !subscriptionData.isClassFilterMode()) {
                 msgListFilterAgain = new ArrayList<>(msgList.size());
+                List<MessageExt> filterMsg = new ArrayList<>(msgList.size());
                 for (MessageExt msg : msgList) {
                     if (msg.getTags() != null) {
                         if (subscriptionData.getTagsSet().contains(msg.getTags())) {
                             msgListFilterAgain.add(msg);
+                        } else {
+                            filterMsg.add(msg);
                         }
                     }
+                }
+                if (filterMsg.size()>0) {
+                    System.out.println("拉取到消息但是出现过滤：原来数量： "+ msgListFilterAgain.size()+ " 被过滤的消息"+filterMsg);
                 }
             }
 

@@ -113,8 +113,10 @@ public class DefaultMessagingProcessor extends AbstractStartAndShutdown implemen
     public static DefaultMessagingProcessor createForClusterMode() {
         RPCHook rpcHook = null;
         if (ConfigurationManager.getProxyConfig().isEnableAclRpcHookForClusterMode()) {
+            // 构建身份认证的 rpc 钩子函数
             rpcHook = AclUtils.getAclRPCHook(ROCKETMQ_HOME + MixAll.ACL_CONF_TOOLS_FILE);
         }
+
         return createForClusterMode(rpcHook);
     }
 
@@ -244,10 +246,12 @@ public class DefaultMessagingProcessor extends AbstractStartAndShutdown implemen
         long timeoutMillis) {
         int originalRequestOpaque = request.getOpaque();
         request.setOpaque(RemotingCommand.createNewRequestId());
-        return this.requestBrokerProcessor.request(ctx, brokerName, request, timeoutMillis).thenApply(r -> {
-            request.setOpaque(originalRequestOpaque);
-            return r;
-        });
+        return this.requestBrokerProcessor
+                .request(ctx, brokerName, request, timeoutMillis)
+                .thenApply(r -> {
+                    request.setOpaque(originalRequestOpaque);
+                    return r;
+                });
     }
 
     @Override

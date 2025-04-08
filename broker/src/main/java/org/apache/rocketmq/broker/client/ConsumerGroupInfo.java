@@ -190,7 +190,13 @@ public class ConsumerGroupInfo {
                         this.groupName,
                         sub.toString());
                 }
-            } else if (sub.getSubVersion() > old.getSubVersion()) {
+            }
+            /**
+             *  SubscriptionData 的版本实际就是创建时间的先后
+             *  这就要求同一消费者组下的，多个消费者订阅信息tags相同
+              */
+            else if (sub.getSubVersion() > old.getSubVersion()) {
+                log.info("发送心跳，topic:{} 订阅数据版本大于之前版本，sub：{},old:{}",sub.getTopic(),sub,old);
                 if (this.consumeType == ConsumeType.CONSUME_PASSIVELY) {
                     log.info("subscription changed, group: {} OLD: {} NEW: {}",
                         this.groupName,
@@ -215,8 +221,10 @@ public class ConsumerGroupInfo {
                     this.groupName,
                     oldTopic,
                     next.getValue().toString());
-
+                log.info("删除 oldTopic：{},topicSet:{}",oldTopic,topicSet);
                 // todo： 此处为啥要删除？？其他客户端添加的 topic 为啥要删除
+                // 同一个消费者组下的消费者订阅的 topic 必须相同，否则会出现消费不能被消费情况。
+                // 这就要求同一消费者组下的，多个消费者订阅的 topic必须相同
                 it.remove();
                 updated = true;
             }

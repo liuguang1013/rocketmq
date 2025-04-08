@@ -53,6 +53,8 @@ public class ConsumeQueueExt {
 
     /**
      * Addr can not exceed this value.For compatible.
+     * 使用 Integer.MIN_VALUE - 1L 的方式，得出的值，肯定是long 类型的
+     * 主要是以此数来进行区分 int 和 long 类型
      */
     public static final long MAX_ADDR = Integer.MIN_VALUE - 1L;
     public static final long MAX_REAL_OFFSET = MAX_ADDR - Long.MIN_VALUE;
@@ -104,6 +106,7 @@ public class ConsumeQueueExt {
      * </p>
      */
     public static boolean isExtAddr(final long address) {
+        // 判断 address 是不是小于int最小值的 long 类型的值
         return address <= MAX_ADDR;
     }
 
@@ -246,8 +249,12 @@ public class ConsumeQueueExt {
                 }
                 // 向 ConsumeQueueExt对映的 DefaultMappedFile文件添加消息
                 if (mappedFile.appendMessage(cqExtUnit.write(this.tempContainer), 0, size)) {
-                    // 对 逻辑队列 绝对偏移量 进行装饰，用于区分 tagCode
-                    // todo：不知道为啥要区分
+                    /**
+                     *  对消息在消费队列额外信息的 逻辑队列 中方的 绝对偏移量 进行装饰，用于区分 tagCode
+                     *  todo：不知道为啥要区分：一个是存在消费队列中、一个是消息额外信息肯定不一样。
+                     *  装饰：实际就是判断 绝对偏移量 是否是小于 int 最小值，
+                     *         不是的就通过和 long 最小值相加，保证是long类型的值。
+                      */
                     return decorate(wrotePosition + mappedFile.getFileFromOffset());
                 }
             }
@@ -454,6 +461,7 @@ public class ConsumeQueueExt {
 
         /**
          * unit size
+         * 存储单位的大小： 固定位数20 + bitmap的数组大小
          */
         private short size;
         /**
@@ -470,6 +478,8 @@ public class ConsumeQueueExt {
         private short bitMapSize;
         /**
          * filter bit map
+         * 实际是 BitsArray 中的字节数组，保存了 消息在 topic 的各个消费组下的字节位信息
+         * 在消息的第一个 dispatcher：CommitLogDispatcherCalcBitMap中设置到 DispatchRequest 中
          */
         private byte[] filterBitMap;
 

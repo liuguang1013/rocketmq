@@ -26,6 +26,7 @@ public class DispatchRequest {
      */
     private final long commitLogOffset;
     private int msgSize;
+
     private final long tagsCode;
     private final long storeTimestamp;
     private final long consumeQueueOffset;

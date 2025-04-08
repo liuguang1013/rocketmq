@@ -123,6 +123,7 @@ public class RemotingChannel extends ProxyChannel implements RemoteChannelConver
         CompletableFuture<Void> writeFuture = new CompletableFuture<>();
         try {
             CheckTransactionStateRequestHeader requestHeader = new CheckTransactionStateRequestHeader();
+            // 偏移量会一直传递到 事务消息 回查完毕，返回broker。根据该偏移量会查出事务半消息
             requestHeader.setCommitLogOffset(transactionData.getCommitLogOffset());
             requestHeader.setTranStateTableOffset(transactionData.getTranStateTableOffset());
             requestHeader.setTransactionId(transactionData.getTransactionId());

@@ -21,10 +21,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 public class Message implements Serializable {
     private static final long serialVersionUID = 8445773977080406428L;
-
     /**
      * topic
      */
@@ -38,7 +38,7 @@ public class Message implements Serializable {
      * org.apache.rocketmq.spring.support.RocketMQHeaders
      *
      * 属性包括
-     * TAGS:
+     * TAGS:消息标签
      * KEYS:
      * WAIT：是否等待存储完成，默认是 true
      * DELAY：延迟等级，0 无延迟，大于 0才设置这个属性
@@ -48,6 +48,8 @@ public class Message implements Serializable {
      * MSG_REGION：消息区域，默认  DefaultRegion
      * TRACE_ON ：消息轨迹开关
      * __SHARDINGKEY： 标识是否顺序消息
+     *
+     * @see MessageConst 中是properties存放的消息属性。
      */
     private Map<String, String> properties;
     /**
@@ -202,6 +204,7 @@ public class Message implements Serializable {
     /**
      * WAIT 属性
      * 为空默认为 需要等待
+     * 这个属性 在 RocketMQTemplate 发送消息的时候， RocketMQUtil.getAndWrapMessage
      * @return
      */
     public boolean isWaitStoreMsgOK() {

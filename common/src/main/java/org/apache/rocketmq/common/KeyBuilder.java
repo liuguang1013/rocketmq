@@ -77,6 +77,7 @@ public class KeyBuilder {
     }
 
     public static boolean isPopRetryTopicV2(String retryTopic) {
+        //  %RETRY%  重试消息，并且消息中包含 +
         return retryTopic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX) && retryTopic.contains(String.valueOf(POP_RETRY_SEPARATOR_V2));
     }
 }

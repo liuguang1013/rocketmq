@@ -73,6 +73,9 @@ public class GroupTransferService extends ServiceThread {
         this.notifyTransferObject.wakeup();
     }
 
+    /**
+     * 在加锁情况下，将缓存的请求转移到新容器中，方便后面使用
+     */
     private void swapRequests() {
         lock.lock();
         try {
@@ -96,6 +99,7 @@ public class GroupTransferService extends ServiceThread {
                 // 以默认的 HA 主从处理方式来看：不断的重试判断消息是否同步到从节点，直至消息同步从节点个数达到要求
                 for (int i = 0; !transferOK && deadLine - System.nanoTime() > 0; i++) {
                     if (i > 0) {
+                        // 挂起 1ms 让出cup资源
                         this.notifyTransferObject.waitForRunning(1);
                     }
 

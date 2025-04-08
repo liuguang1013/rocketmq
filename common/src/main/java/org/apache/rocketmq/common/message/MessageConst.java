@@ -19,7 +19,21 @@ package org.apache.rocketmq.common.message;
 import java.util.HashSet;
 
 public class MessageConst {
+
+    /**
+     * 用于消息查询和追踪
+     * 给每个消息设置标识
+     * keys 可能会有多个值 ' '分割
+     * 构建索引时，会把每个key 的进行索引构建
+     * 压实日志执行压实时，是对整个keys进行压实的
+     */
     public static final String PROPERTY_KEYS = "KEYS";
+    /**
+     * tags：主要是用于消息的过滤。
+     * 发送消息的时候，可以通过 topic:tags 的方式发送消息
+     * 在构建 rocketMQ 的 message 消息时，会将该属性放到 properties 中
+     * 在构建消息的消费队列的时候，每个消息的存储单位中后8位保存 tags 的 HashCode
+     */
     public static final String PROPERTY_TAGS = "TAGS";
     /**
      * todo ：在 FlushDiskType.SYNC_FLUSH 同步刷盘下，这个属性会影响 GroupCommitService 处理消息的 刷盘
@@ -28,6 +42,7 @@ public class MessageConst {
      */
     public static final String PROPERTY_WAIT_STORE_MSG_OK = "WAIT";
     public static final String PROPERTY_DELAY_TIME_LEVEL = "DELAY";
+
     public static final String PROPERTY_RETRY_TOPIC = "RETRY_TOPIC";
     public static final String PROPERTY_REAL_TOPIC = "REAL_TOPIC";
     public static final String PROPERTY_REAL_QUEUE_ID = "REAL_QID";

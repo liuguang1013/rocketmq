@@ -62,9 +62,12 @@ public abstract class TopicRouteService extends AbstractStartAndShutdown {
     public TopicRouteService(MQClientAPIFactory mqClientAPIFactory) {
         ProxyConfig config = ConfigurationManager.getProxyConfig();
 
+        //
         this.scheduledExecutorService = ThreadUtils.newSingleThreadScheduledExecutor(
             new ThreadFactoryImpl("TopicRouteService_")
         );
+
+        // 缓存刷新线程池
         this.cacheRefreshExecutor = ThreadPoolMonitor.createAndMonitor(
             config.getTopicRouteServiceThreadPoolNums(),
             config.getTopicRouteServiceThreadPoolNums(),
@@ -73,17 +76,26 @@ public abstract class TopicRouteService extends AbstractStartAndShutdown {
             "TopicRouteCacheRefresh",
             config.getTopicRouteServiceThreadPoolQueueCapacity()
         );
+
         this.mqClientAPIFactory = mqClientAPIFactory;
 
-        this.topicCache = Caffeine.newBuilder().maximumSize(config.getTopicRouteServiceCacheMaxNum())
+
+        this.topicCache = Caffeine.newBuilder()
+             // 20000
+            .maximumSize(config.getTopicRouteServiceCacheMaxNum())
+             // 300 s
             .expireAfterAccess(config.getTopicRouteServiceCacheExpiredSeconds(), TimeUnit.SECONDS)
+             // 20 s
             .refreshAfterWrite(config.getTopicRouteServiceCacheRefreshSeconds(), TimeUnit.SECONDS)
             .executor(cacheRefreshExecutor)
             .build(new CacheLoader<String, MessageQueueView>() {
                 @Override
                 public @Nullable MessageQueueView load(String topic) throws Exception {
                     try {
-                        TopicRouteData topicRouteData = mqClientAPIFactory.getClient().getTopicRouteInfoFromNameServer(topic, Duration.ofSeconds(3).toMillis());
+                        TopicRouteData topicRouteData = mqClientAPIFactory
+                                .getClient()
+                                .getTopicRouteInfoFromNameServer(topic, Duration.ofSeconds(3).toMillis());
+
                         return buildMessageQueueView(topic, topicRouteData);
                     } catch (Exception e) {
                         if (TopicRouteHelper.isTopicNotExistError(e)) {
@@ -104,6 +116,8 @@ public abstract class TopicRouteService extends AbstractStartAndShutdown {
                     }
                 }
             });
+
+        // 服务探测器，
         ServiceDetector serviceDetector = new ServiceDetector() {
             @Override
             public boolean detect(String endpoint, long timeoutMillis) {
@@ -122,17 +136,23 @@ public abstract class TopicRouteService extends AbstractStartAndShutdown {
                 }
             }
         };
-        mqFaultStrategy = new MQFaultStrategy(extractClientConfigFromProxyConfig(config), new Resolver() {
-            @Override
-            public String resolve(String name) {
-                try {
-                    String brokerAddr = getBrokerAddr(ProxyContext.createForInner("MQFaultStrategy"), name);
-                    return brokerAddr;
-                } catch (Exception e) {
-                    return null;
-                }
-            }
-        }, serviceDetector);
+
+        mqFaultStrategy = new MQFaultStrategy(
+                extractClientConfigFromProxyConfig(config),
+                new Resolver() {
+                    @Override
+                    public String resolve(String name) {
+                        try {
+                            String brokerAddr = getBrokerAddr(ProxyContext.createForInner("MQFaultStrategy"), name);
+                            return brokerAddr;
+                        } catch (Exception e) {
+                            return null;
+                        }
+                    }
+                },
+                serviceDetector);
+
+        // 添加 延迟线程池、mqClientAPIFactory 关闭函数
         this.init();
     }
 
@@ -158,6 +178,7 @@ public abstract class TopicRouteService extends AbstractStartAndShutdown {
 
     @Override
     public void start() throws Exception {
+        // 开启容错策略： todo:
         if (this.mqFaultStrategy.isStartDetectorEnable()) {
             this.mqFaultStrategy.startDetector();
         }

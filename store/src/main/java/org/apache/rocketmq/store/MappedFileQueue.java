@@ -332,7 +332,8 @@ public class MappedFileQueue implements Swappable {
     }
 
     /**
-     *
+     * 与 getLastMappedFile() 的区别：
+     *  该方法会尝试创建新的 MappedFile
      * @param startOffset 开始的偏移量：在整个逻辑队列中的绝对偏移量
      * @param needCreate
      * @return
@@ -342,7 +343,7 @@ public class MappedFileQueue implements Swappable {
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
 
-        //
+        // 正常情况不为 null
         if (mappedFileLast == null) {
             // 获取文件最开始的绝对偏移量
             createOffset = startOffset - (startOffset % this.mappedFileSize);
@@ -758,7 +759,9 @@ public class MappedFileQueue implements Swappable {
                         this.mappedFileSize,
                         this.mappedFiles.size());
                 } else {
-                    int index = (int) ((offset / this.mappedFileSize) - (firstMappedFile.getFileFromOffset() / this.mappedFileSize));
+                    // todo：什么时候 首个MappedFile不是从0开始？
+                    int index = (int) ((offset / this.mappedFileSize)
+                                            - (firstMappedFile.getFileFromOffset() / this.mappedFileSize));
                     MappedFile targetFile = null;
                     try {
                         targetFile = this.mappedFiles.get(index);

@@ -31,6 +31,11 @@ public class TransactionMQProducer extends DefaultMQProducer {
 
     private ExecutorService executorService;
 
+    /**
+     * 用户自定义的添加@RocketMQTransactionListener注解的类，
+     * 会在 rocketMq-spring 依赖中 RocketMQUtil 类中转换为 TransactionListener 类型
+     * 最终保存到该类中
+     */
     private TransactionListener transactionListener;
 
     public TransactionMQProducer() {

@@ -50,14 +50,27 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
 public class ConsumeMessageConcurrentlyService implements ConsumeMessageService {
     private static final Logger log = LoggerFactory.getLogger(ConsumeMessageConcurrentlyService.class);
+    private final String consumerGroup;
     private final DefaultMQPushConsumerImpl defaultMQPushConsumerImpl;
     private final DefaultMQPushConsumer defaultMQPushConsumer;
+    /**
+     * 封装用户自定义的消息
+     */
     private final MessageListenerConcurrently messageListener;
-    private final BlockingQueue<Runnable> consumeRequestQueue;
-    private final ThreadPoolExecutor consumeExecutor;
-    private final String consumerGroup;
 
+    private final BlockingQueue<Runnable> consumeRequestQueue;
+    /**
+     * 处理ConsumeRequest 请求，调用ConsumeRequest的run方法
+     */
+    private final ThreadPoolExecutor consumeExecutor;
+
+    /**
+     * 用于将消费请求添加到线程池处理时，触发拒绝策略通过该线程池延迟再次提交
+     */
     private final ScheduledExecutorService scheduledExecutorService;
+    /**
+     * start 方法，定时清除消费时间 大于 15 分钟的消息，重新发回Broker
+     */
     private final ScheduledExecutorService cleanExpireMsgExecutors;
 
     public ConsumeMessageConcurrentlyService(DefaultMQPushConsumerImpl defaultMQPushConsumerImpl, MessageListenerConcurrently messageListener) {
@@ -256,7 +269,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
 
     /**
      * 处理消费结果：经过 listener 消费消息后
-     * 整批消息（默认只有一条），多条遇到一条消费失败就会返回 RECONSUME_LATER
+     * 整批消息（默认只有一条），多条遇到一条消费失败就会返回 RECONSUME_LATER，后续消息不再消费
      * 消费失败将消息发回
      * 消费成功更新消费偏移量
      */
@@ -299,6 +312,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
             case CLUSTERING:
                 List<MessageExt> msgBackFailed = new ArrayList<>(consumeRequest.getMsgs().size());
                 // 默认只有一条消息，多条时候可能只有部分消费成功
+                // 从消费失败的消息开始遍历，
                 for (int i = ackIndex + 1; i < consumeRequest.getMsgs().size(); i++) {
                     MessageExt msg = consumeRequest.getMsgs().get(i);
                     // Maybe message is expired and cleaned, just ignore it.
@@ -327,7 +341,7 @@ public class ConsumeMessageConcurrentlyService implements ConsumeMessageService 
             default:
                 break;
         }
-
+        // 移除处理队列中的消息
         long offset = consumeRequest.getProcessQueue().removeMessage(consumeRequest.getMsgs());
         if (offset >= 0 && !consumeRequest.getProcessQueue().isDropped()) {
             // 消费成功更新消费偏移量

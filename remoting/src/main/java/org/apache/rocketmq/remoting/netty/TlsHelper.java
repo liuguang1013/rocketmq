@@ -89,13 +89,13 @@ public class TlsHelper {
     }
 
     /**
-     *
-     * @param forClient 标识用于客户端/服务端 ssl 上下文构建
+     *ssl 上下文构建
+     * @param forClient 标识用于客户端/服务端
      */
     public static SslContext buildSslContext(boolean forClient) throws IOException, CertificateException {
         // /etc/rocketmq/tls.properties
         File configFile = new File(TlsSystemConfig.tlsConfigFile);
-        // 将文件中存储属性保存到 TlsHelper 中
+        // 将 tls.properties 文件中存储属性保存到 TlsHelper 中
         extractTlsConfigFromFile(configFile);
         // 日志输出
         logTheFinalUsedTlsConfig();

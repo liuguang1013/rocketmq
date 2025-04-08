@@ -81,6 +81,7 @@ public class IndexFile {
         this.mappedByteBuffer = this.mappedFile.getMappedByteBuffer();
         // 500 0000
         this.hashSlotNum = hashSlotNum;
+        // 500 * 4w
         this.indexNum = indexNum;
 
         ByteBuffer byteBuffer = this.mappedByteBuffer.slice();
@@ -148,7 +149,7 @@ public class IndexFile {
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
         // 判断文件是否写满
         if (this.indexHeader.getIndexCount() < this.indexNum) {
-            // 获取 索引 key 的哈希值
+            // 获取 索引 key 的哈希值，取绝对值
             int keyHash = indexKeyHashMethod(key);
             // 哈希值与槽位取余，计算槽位
             int slotPos = keyHash % this.hashSlotNum;
@@ -157,8 +158,7 @@ public class IndexFile {
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             try {
-                // 获取 槽位的值
-                // todo ： 槽位的值什么时候更新的？
+                // 获取 槽位的值，不发生hash冲突时，是0；发生hash冲突时，是上个消息的在索引文件中存储时索引的数量
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
 
                 // 槽位值 小于 invalidIndex，默认 0
@@ -195,7 +195,13 @@ public class IndexFile {
                     timeDiff = 0;
                 }
 
-                // 计算 消息 在索引文件中的相对位置
+                /**
+                 * 计算 消息数据 在索引文件中的相对位置
+                 * 前两部分是固定不变的，
+                 * 但 IndexCount 数量没添加一个索引就会递增
+                 * 所以即使出现hash冲突，也会将消息数据保存到后面，
+                 * 但是此时在索引头中的HashSlotCount肯定小于IndexCount索引数
+                 */
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
@@ -206,7 +212,7 @@ public class IndexFile {
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
 
-                //
+                // 在hash槽位保存索引数量，计算消息的起始位置，出现hash冲突时，会覆盖之前的索引数
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
 
                 // 当第一放入消息 索引时，更新开始物理偏移量、开始时间戳
@@ -216,6 +222,7 @@ public class IndexFile {
                 }
 
 
+                // invalidIndex 默认是0 ，slotValue 和 invalidIndex 相等，意味这没有出现hash冲突，此处没有放过消息数据
                 if (invalidIndex == slotValue) {
                     // 增加索引文件请求头中  hashSlotCount 中数据量
                     this.indexHeader.incHashSlotCount();
@@ -240,7 +247,7 @@ public class IndexFile {
     }
 
     /**
-     * 获取 索引 key 的哈希值
+     * 获取 索引 key 的哈希值，取绝对值
      * @param key
      * @return
      */
@@ -272,23 +279,32 @@ public class IndexFile {
         return result;
     }
 
+    /**
+     * 查找物理偏移量
+     */
     public void selectPhyOffset(final List<Long> phyOffsets, final String key, final int maxNum,
                                 final long begin, final long end) {
         if (this.mappedFile.hold()) {
+            // 获取 key 哈希值，并取绝对值
             int keyHash = indexKeyHashMethod(key);
             int slotPos = keyHash % this.hashSlotNum;
+            // 索引文件中，消息key的hash槽位起始位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             try {
+                // 获取槽位中保存的索引数量
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
+                // 索引不存在直接结束方法
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()
                     || this.indexHeader.getIndexCount() <= 1) {
                 } else {
+                    // 链表形式向下查找
                     for (int nextIndexToRead = slotValue; ; ) {
                         if (phyOffsets.size() >= maxNum) {
                             break;
                         }
 
+                        // 获取索引存储单位的起始位置
                         int absIndexPos =
                             IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                                 + nextIndexToRead * indexSize;

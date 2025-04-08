@@ -117,7 +117,7 @@ public class TlsSystemConfig {
      *     <li><strong>permissive:</strong> SSL is optional, aka, server in this mode can serve client connections with or without SSL;</li>
      *     SSL是可选的，也就是说，这种模式下的服务器可以使用或不使用SSL来提供客户端连接
      *     <li><strong>enforcing:</strong> SSL is required, aka, non SSL connection will be rejected.</li>
-     *     SSL是可选的，也就是说，这种模式下的服务器可以使用或不使用SSL来提供客户端连接
+     *     SSL是执行，SSL是必需的，也就是说，非SSL连接将被拒绝
      * </ol>
      */
     public static TlsMode tlsMode = TlsMode.parse(System.getProperty(TLS_SERVER_MODE, "permissive"));

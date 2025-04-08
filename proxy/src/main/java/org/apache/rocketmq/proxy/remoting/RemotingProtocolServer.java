@@ -85,11 +85,21 @@ public class RemotingProtocolServer implements StartAndShutdown, RemotingProxyOu
     protected final ThreadPoolExecutor defaultExecutor;
     protected final ScheduledExecutorService timerExecutor;
 
+    /**
+     * 1、创建多个 Activity
+     * 2、指定TLS 相关系统参数
+     * 3、创建 MultiProtocolRemotingServer
+     * 4、指定 RequestCode 和 Activity 关系
+     * 5、线程池创建
+     * 6、定时任务：清除过期的请求
+     */
     public RemotingProtocolServer(MessagingProcessor messagingProcessor, List<AccessValidator> accessValidators) {
         this.messagingProcessor = messagingProcessor;
         this.remotingChannelManager = new RemotingChannelManager(this, messagingProcessor.getProxyRelayService());
 
+        // 创建请求 pipeline，指定 AuthenticationPipeline 在下面的 多种活动的 处理请求前，都需要执行访问认证
         RequestPipeline pipeline = createRequestPipeline(accessValidators);
+
         this.getTopicRouteActivity = new GetTopicRouteActivity(pipeline, messagingProcessor);
         this.clientManagerActivity = new ClientManagerActivity(pipeline, messagingProcessor, remotingChannelManager);
         this.consumerManagerActivity = new ConsumerManagerActivity(pipeline, messagingProcessor);
@@ -112,13 +122,16 @@ public class RemotingProtocolServer implements StartAndShutdown, RemotingProxyOu
 
         this.clientHousekeepingService = new ClientHousekeepingService(this.clientManagerActivity);
 
+        // true
         if (config.isEnableRemotingLocalProxyGrpc()) {
             this.defaultRemotingServer = new MultiProtocolRemotingServer(defaultServerConfig, this.clientHousekeepingService);
         } else {
             this.defaultRemotingServer = new NettyRemotingServer(defaultServerConfig, this.clientHousekeepingService);
         }
+        // 为 RequestCode 注册 Activity 处理请求
         this.registerRemotingServer(this.defaultRemotingServer);
 
+        // 创建多个线程池
         this.sendMessageExecutor = ThreadPoolMonitor.createAndMonitor(
             config.getRemotingSendMessageThreadPoolNums(),
             config.getRemotingSendMessageThreadPoolNums(),
@@ -179,6 +192,8 @@ public class RemotingProtocolServer implements StartAndShutdown, RemotingProxyOu
             new ThreadPoolHeadSlowTimeMillsMonitor(config.getRemotingWaitTimeMillsInDefaultQueue())
         );
 
+        // 定时任务： 清除过期的请求
+        // todo：不太理解为什么使用这种方式清除，
         this.timerExecutor = ThreadUtils.newSingleThreadScheduledExecutor(
             new ThreadFactoryBuilder().setNameFormat("RemotingServerScheduler-%d").build()
         );
@@ -314,6 +329,13 @@ public class RemotingProtocolServer implements StartAndShutdown, RemotingProxyOu
         return -1;
     }
 
+    /**
+     * 清除线程池的队列中过期的请求
+     *
+     * 通过比较：队列中首个元素创建时间、当前时间 与 指定的时间
+     *
+     * 移除队列中前面的元素，直到满足要求
+     */
     protected void cleanExpireRequest() {
         ProxyConfig config = ConfigurationManager.getProxyConfig();
 
@@ -328,8 +350,10 @@ public class RemotingProtocolServer implements StartAndShutdown, RemotingProxyOu
     protected void cleanExpiredRequestInQueue(ThreadPoolExecutor threadPoolExecutor, long maxWaitTimeMillsInQueue) {
         while (true) {
             try {
+                // 线程池阻塞队列
                 BlockingQueue<Runnable> blockingQueue = threadPoolExecutor.getQueue();
                 if (!blockingQueue.isEmpty()) {
+                    // 查询，队列不存在返回 null
                     final Runnable runnable = blockingQueue.peek();
                     if (null == runnable) {
                         break;

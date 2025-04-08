@@ -83,10 +83,12 @@ public class ConsumeMessagePopOrderlyService implements ConsumeMessageService {
 
     @Override
     public void start() {
+        // 只在集群消费模式下：延迟执行1s，之后固定每20s执行一次
         if (MessageModel.CLUSTERING.equals(ConsumeMessagePopOrderlyService.this.defaultMQPushConsumerImpl.messageModel())) {
             this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
                 @Override
                 public void run() {
+                    // 定期锁定：作用是啥
                     ConsumeMessagePopOrderlyService.this.lockMQPeriodically();
                 }
             }, 1000 * 1, ProcessQueue.REBALANCE_LOCK_INTERVAL, TimeUnit.MILLISECONDS);

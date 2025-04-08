@@ -23,6 +23,7 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.apache.rocketmq.common.MixAll;
 import org.apache.rocketmq.common.constant.LoggerName;
+import org.apache.rocketmq.common.message.MessageExtBrokerInner;
 import org.apache.rocketmq.common.utils.ConcurrentHashMapUtils;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
@@ -37,6 +38,15 @@ public class QueueOffsetOperator {
      * broker启动的时候，恢复 TopicQueueTable 时候，统计 某topic某Queue存储的消息数量
      * key：  String key = logic.getTopic() + "-" + logic.getQueueId();
      * value： 某topic某Queue存储的消息数量
+     *
+     * @see org.apache.rocketmq.store.CommitLog#asyncPutMessage(MessageExtBrokerInner)
+     * 1、对于主节点，在获取到第一层 Topic-QueueId 锁后，
+     * 会获取并设置MessageExtBrokerInner消息的queueOffset属性
+     * 2、放入消息成功的时候会调用 defaultMessageStore.increaseOffset(msg, getMessageNum(msg));
+     * 增加偏移量
+     *
+     * QueueOffset 代表消息的数量
+     *
      */
     private ConcurrentMap<String, Long> topicQueueTable = new ConcurrentHashMap<>(1024);
     private ConcurrentMap<String, Long> batchTopicQueueTable = new ConcurrentHashMap<>(1024);

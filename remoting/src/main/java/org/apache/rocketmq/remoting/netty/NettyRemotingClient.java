@@ -242,6 +242,7 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
                         nettyClientConfig.isDisableNettyWorkerGroup() ? null : defaultEventExecutorGroup,
                         new NettyEncoder(),
                         new NettyDecoder(),
+
                         new IdleStateHandler(0, 0, nettyClientConfig.getClientChannelMaxIdleTimeSeconds()),
                         // 连接管理handler
                         new NettyConnectManageHandler(),
@@ -816,6 +817,7 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
             if (timeoutMillis < costTime) {
                 throw new RemotingTooMuchRequestException("invokeAsync call the addr[" + channelRemoteAddr + "] timeout");
             }
+            // 异步调用实现
             this.invokeAsyncImpl(channel, request, timeoutMillis - costTime, new InvokeCallbackWrapper(invokeCallback, addr));
         } else {
             this.closeChannel(addr, channel);
@@ -1127,6 +1129,9 @@ public class NettyRemotingClient extends NettyRemotingAbstract implements Remoti
         }
     }
 
+    /**
+     * 对 InvokeCallback 的封装，添加调用地址 address
+     */
     class InvokeCallbackWrapper implements InvokeCallback {
 
         private final InvokeCallback invokeCallback;

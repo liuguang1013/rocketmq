@@ -24,6 +24,9 @@ import org.apache.rocketmq.common.MixAll;
 
 public class ConfigurationManager {
     public static final String RMQ_PROXY_HOME = "RMQ_PROXY_HOME";
+    /**
+     * 默认的代理目录 ROCKETMQ_HOME
+     */
     protected static final String DEFAULT_RMQ_PROXY_HOME = System.getenv(MixAll.ROCKETMQ_HOME_ENV);
     protected static String proxyHome;
     protected static Configuration configuration;
@@ -31,6 +34,7 @@ public class ConfigurationManager {
     public static void initEnv() {
         proxyHome = System.getenv(RMQ_PROXY_HOME);
         if (StringUtils.isEmpty(proxyHome)) {
+            // 将 ROCKETMQ_HOME 环境变量赋值给 RMQ_PROXY_HOME
             proxyHome = System.getProperty(RMQ_PROXY_HOME, DEFAULT_RMQ_PROXY_HOME);
         }
 
@@ -41,6 +45,7 @@ public class ConfigurationManager {
 
     public static void intConfig() throws Exception {
         configuration = new Configuration();
+        // 初始化 ProxyConfig 代理配置
         configuration.init();
     }
 

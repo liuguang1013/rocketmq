@@ -19,20 +19,26 @@ package org.apache.rocketmq.client.consumer.listener;
 public enum ConsumeOrderlyStatus {
     /**
      * Success consumption
+     * 成功消费
      */
     SUCCESS,
     /**
      * Rollback consumption(only for binlog consumption)
+     * 回滚消耗（仅用于binlog消耗）
      */
     @Deprecated
     ROLLBACK,
     /**
      * Commit offset(only for binlog consumption)
+     * 提交偏移量（仅用于binlog消耗）
      */
     @Deprecated
     COMMIT,
     /**
      * Suspend current queue a moment
+     * 暂时挂起当前队列
+     *
+     * 当自定义消费消息方法中，抛出异常，DefaultMessageListenerOrderly 中会返回该值
      */
     SUSPEND_CURRENT_QUEUE_A_MOMENT;
 }

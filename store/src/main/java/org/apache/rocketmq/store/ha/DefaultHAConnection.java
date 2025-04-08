@@ -167,12 +167,20 @@ public class DefaultHAConnection implements HAConnection {
 
     /**
      * 在从节点发送数据中，获取从节点已同步的消息偏移量
+     * DefaultHAClient 客户端启动会向服务端发送偏移量
      */
     class ReadSocketService extends ServiceThread {
         private static final int READ_MAX_BUFFER_SIZE = 1024 * 1024;
         private final Selector selector;
         private final SocketChannel socketChannel;
+        /**
+         * 申请 jvm 内的 ByteBuffer，用来缓存客户端的响应
+         * 默认 1M
+         */
         private final ByteBuffer byteBufferRead = ByteBuffer.allocate(READ_MAX_BUFFER_SIZE);
+        /**
+         * 记录ByteBuffer 当前处理的位置
+         */
         private int processPosition = 0;
         private volatile long lastReadTimestamp = System.currentTimeMillis();
 
@@ -196,7 +204,6 @@ public class DefaultHAConnection implements HAConnection {
                         break;
                     }
 
-                    //
                     long interval = DefaultHAConnection.this.haService.getDefaultMessageStore().getSystemClock().now() - this.lastReadTimestamp;
                     if (interval > DefaultHAConnection.this.haService.getDefaultMessageStore().getMessageStoreConfig().getHaHousekeepingInterval()) {
                         log.warn("ha housekeeping, found this connection[" + DefaultHAConnection.this.clientAddress + "] expired, " + interval);
@@ -248,7 +255,7 @@ public class DefaultHAConnection implements HAConnection {
             int readSizeZeroTimes = 0;
 
             if (!this.byteBufferRead.hasRemaining()) {
-                // 变为读模式
+                // 变为读模式,重置position的值，相当于可以重复写入
                 this.byteBufferRead.flip();
                 this.processPosition = 0;
             }
@@ -263,11 +270,12 @@ public class DefaultHAConnection implements HAConnection {
                        // 大于 8 字节
                         if ((this.byteBufferRead.position() - this.processPosition) >= DefaultHAClient.REPORT_HEADER_SIZE) {
                             int pos = this.byteBufferRead.position() - (this.byteBufferRead.position() % DefaultHAClient.REPORT_HEADER_SIZE);
-                            // 获取从节点的响应偏移量
+                            // 获取从节点的响应偏移量,
+                            // getLong（index） 不会改变byteBuffer的position的值
                             long readOffset = this.byteBufferRead.getLong(pos - 8);
                             // 记录处理位置
                             this.processPosition = pos;
-
+                            // 记录该从节点相应的commitLog的偏移量
                             DefaultHAConnection.this.slaveAckOffset = readOffset;
                             if (DefaultHAConnection.this.slaveRequestOffset < 0) {
                                 DefaultHAConnection.this.slaveRequestOffset = readOffset;
@@ -277,6 +285,7 @@ public class DefaultHAConnection implements HAConnection {
                             DefaultHAConnection.this.haService.notifyTransferSome(DefaultHAConnection.this.slaveAckOffset);
                         }
                     } else if (readSize == 0) {
+                        // 三次都为读取到数据，结束循环
                         if (++readSizeZeroTimes >= 3) {
                             break;
                         }
@@ -296,6 +305,7 @@ public class DefaultHAConnection implements HAConnection {
 
     /**
      * 不断向从节点发送 commitLog 的新数据
+     * 前提：获取到从节点的偏移量数据后，才开始执行写服务。
      */
     class WriteSocketService extends ServiceThread {
         private final Selector selector;
@@ -339,6 +349,7 @@ public class DefaultHAConnection implements HAConnection {
                         if (0 == DefaultHAConnection.this.slaveRequestOffset) {
                             // 主节点的commit log 的数据绝对偏移量
                             long masterOffset = DefaultHAConnection.this.haService.getDefaultMessageStore().getCommitLog().getMaxOffset();
+                            // 计算得出，最后一个CommitLog 的初始偏移量
                             masterOffset =
                                 masterOffset
                                     - (masterOffset % DefaultHAConnection.this.haService.getDefaultMessageStore().getMessageStoreConfig()
@@ -363,7 +374,7 @@ public class DefaultHAConnection implements HAConnection {
                         // 计算上次发送的时间间隔
                         long interval = DefaultHAConnection.this.haService.getDefaultMessageStore().getSystemClock().now() - this.lastWriteTimestamp;
 
-                        // 发送心跳
+                        // 发送心跳，默认5s
                         if (interval > DefaultHAConnection.this.haService.getDefaultMessageStore()
                                 .getMessageStoreConfig().getHaSendHeartbeatInterval()) {
 
@@ -475,6 +486,7 @@ public class DefaultHAConnection implements HAConnection {
             int writeSizeZeroTimes = 0;
             // Write Header
             // 向 客户端 socketChannel 写入数据头
+            // 上面
             while (this.byteBufferHeader.hasRemaining()) {
                 int writeSize = this.socketChannel.write(this.byteBufferHeader);
                 if (writeSize > 0) {

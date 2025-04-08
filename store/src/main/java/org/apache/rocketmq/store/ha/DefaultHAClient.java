@@ -305,7 +305,7 @@ public class DefaultHAClient extends ServiceThread implements HAClient {
             if (addr != null) {
                 // 将 IP、端口 封装成 SocketAddress 对象
                 SocketAddress socketAddress = NetworkUtil.string2SocketAddress(addr);
-                // 连接服务端
+                // 连接服务端：使用 SocketChannel 创建客户端，并连接服务端
                 this.socketChannel = RemotingHelper.connect(socketAddress);
                 if (this.socketChannel != null) {
                     // 监听 读事件
@@ -366,6 +366,7 @@ public class DefaultHAClient extends ServiceThread implements HAClient {
             try {
                 switch (this.currentState) {
                     case SHUTDOWN:
+                        // 关闭监控服务
                         this.flowMonitor.shutdown(true);
                         return;
                     // 默认初始状态
@@ -378,7 +379,7 @@ public class DefaultHAClient extends ServiceThread implements HAClient {
                         }
                         continue;
                     case TRANSFER:
-                        // 将 主动向上报当前从节点的commit log 的最大偏移量
+                        // 将 主动向上报当前从节点的commit log 的最大偏移量，并接收保存主节点传送来的消息数据。
                         if (!transferFromMaster()) {
                             // 当写入缓存不足时候，进入这里，
                             // 关闭连接，将状态置为 READY ，之后重新连接主节点

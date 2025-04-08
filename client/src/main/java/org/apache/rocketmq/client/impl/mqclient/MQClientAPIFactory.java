@@ -35,6 +35,12 @@ public class MQClientAPIFactory implements StartAndShutdown {
     private MQClientAPIExt[] clients;
     private final String namePrefix;
     private final int clientNum;
+    /**
+     *  NettyRemotingClient 会默认的注册RequestCode，
+     *  这些请求的处理器就是该属性
+     *  DoNothingClientRemotingProcessor ：对于服务端的请求都不处理直接返回
+     *  ProxyClientRemotingProcessor：只处理 RequestCode.CHECK_TRANSACTION_STATE 请求
+     */
     private final ClientRemotingProcessor clientRemotingProcessor;
     private final RPCHook rpcHook;
     private final ScheduledExecutorService scheduledExecutorService;
@@ -43,6 +49,7 @@ public class MQClientAPIFactory implements StartAndShutdown {
     public MQClientAPIFactory(NameserverAccessConfig nameserverAccessConfig, String namePrefix, int clientNum,
         ClientRemotingProcessor clientRemotingProcessor,
         RPCHook rpcHook, ScheduledExecutorService scheduledExecutorService) {
+
         this.nameserverAccessConfig = nameserverAccessConfig;
         this.namePrefix = namePrefix;
         this.clientNum = clientNum;
@@ -53,6 +60,9 @@ public class MQClientAPIFactory implements StartAndShutdown {
         this.init();
     }
 
+    /**
+     * 设置NameServer相关的系统属性，区分：固定的domain模式，还是直接指定 IP
+     */
     protected void init() {
         System.setProperty(ClientConfig.SEND_MESSAGE_WITH_VIP_CHANNEL_PROPERTY, "false");
         if (StringUtils.isEmpty(nameserverAccessConfig.getNamesrvDomain())) {
@@ -79,6 +89,7 @@ public class MQClientAPIFactory implements StartAndShutdown {
         this.clients = new MQClientAPIExt[this.clientNum];
 
         for (int i = 0; i < this.clientNum; i++) {
+            // 创建多个 MQClientAPIExt
             clients[i] = createAndStart(this.namePrefix + "N_" + i);
         }
     }
@@ -103,7 +114,9 @@ public class MQClientAPIFactory implements StartAndShutdown {
             clientRemotingProcessor,
             rpcHook);
 
+        // 在 系统配置参数中获取 NameServerAddr ，并进行连接
         if (!mqClientAPIExt.updateNameServerAddressList()) {
+
             mqClientAPIExt.fetchNameServerAddr();
             this.scheduledExecutorService.scheduleAtFixedRate(
                 mqClientAPIExt::fetchNameServerAddr,
@@ -112,6 +125,7 @@ public class MQClientAPIFactory implements StartAndShutdown {
                 TimeUnit.MILLISECONDS
             );
         }
+        // 直接调用 NettyRemotingClient.start 方法
         mqClientAPIExt.start();
         return mqClientAPIExt;
     }

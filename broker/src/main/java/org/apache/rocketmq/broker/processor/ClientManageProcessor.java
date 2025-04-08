@@ -16,11 +16,15 @@
  */
 package org.apache.rocketmq.broker.processor;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import io.netty.channel.ChannelHandlerContext;
 import org.apache.rocketmq.broker.BrokerController;
 import org.apache.rocketmq.broker.client.ClientChannelInfo;
+import org.apache.rocketmq.broker.client.ConsumerGroupInfo;
 import org.apache.rocketmq.common.MixAll;
 import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.common.constant.PermName;
@@ -99,7 +103,7 @@ public class ClientManageProcessor implements NettyRequestProcessor {
         // 遍历消费者组信息：一个消费者组中包含
         for (ConsumerData consumerData : heartbeatData.getConsumerDataSet()) {
             //Reject the PullConsumer
-            // 默认 false
+            // 默认 falseheartbeatData = {HeartbeatData@4789} "HeartbeatData [clientID=192.168.106.136@71560#1265631106461416, producerDataSet=[ProducerData [groupName=CLIENT_INNER_PRODUCER]], consumerDataSet=[ConsumerData [groupName=normalConsumerGroup1, consumeType=CONSUME_PASSIVELY, messageModel=CLUSTERING, consumeFromWhere=CONSUME_FROM_LAST_OFFSET, unitMode=false, subscriptionDataSet=[SubscriptionData [classFilterMode=false, topic=topic1, subString=*, tagsSet=[], codeSet=[], subVersion=1741869393299, expressionType=TAG], SubscriptionData [classFilterMode=false, topic=%RETRY%normalConsumerGroup1, subString=*, tagsSet=[], codeSet=[], subVersion=1741869393319, expressionType=TAG]]]]]"
             if (brokerController.getBrokerConfig().isRejectPullConsumerEnable()) {
                 if (ConsumeType.CONSUME_ACTIVELY == consumerData.getConsumeType()) {
                     continue;
@@ -153,6 +157,14 @@ public class ClientManageProcessor implements NettyRequestProcessor {
             }
 
         }
+
+//        ConcurrentMap<String, ConsumerGroupInfo> consumerTable = this.brokerController.getConsumerManager().getConsumerTable();
+//        System.out.println("自测日志-发送心跳-消费者组：" + consumerTable.keySet());
+//        for (Map.Entry<String, ConsumerGroupInfo> entry : consumerTable.entrySet()) {
+//            List<String> allClientId = entry.getValue().getAllClientId();
+//            Set<String> subscribeTopics = entry.getValue().getSubscribeTopics();
+//            System.out.println(entry.getKey()+" allClientId = " + allClientId+" subscribeTopics:"+subscribeTopics);
+//        }
 
         for (ProducerData data : heartbeatData.getProducerDataSet()) {
             this.brokerController.getProducerManager().registerProducer(data.getGroupName(),

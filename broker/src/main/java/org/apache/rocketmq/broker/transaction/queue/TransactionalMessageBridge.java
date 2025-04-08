@@ -88,6 +88,9 @@ public class TransactionalMessageBridge {
         return offset;
     }
 
+    /**
+     * 查询 事务半消息的 topic的配置信息，构建消息队列，默认只有1个
+     */
     public Set<MessageQueue> fetchMessageQueues(String topic) {
         Set<MessageQueue> mqSet = new HashSet<>();
         TopicConfig topicConfig = selectTopicConfig(topic);
@@ -125,6 +128,7 @@ public class TransactionalMessageBridge {
 
     private PullResult getMessage(String group, String topic, int queueId, long offset, int nums,
         SubscriptionData sub) {
+        // 通过 DefaultMessageStore  获取消息
         GetMessageResult getMessageResult = store.getMessage(group, topic, queueId, offset, nums, null);
 
         if (getMessageResult != null) {
@@ -133,7 +137,9 @@ public class TransactionalMessageBridge {
             switch (getMessageResult.getStatus()) {
                 case FOUND:
                     pullStatus = PullStatus.FOUND;
+                    // 将GetMessageResult 中消息由字节数组 转换为 MessageExt 中
                     foundList = decodeMsgList(getMessageResult);
+                    // 统计
                     this.brokerController.getBrokerStatsManager().incGroupGetNums(group, topic,
                         getMessageResult.getMessageCount());
                     this.brokerController.getBrokerStatsManager().incGroupGetSize(group, topic,
@@ -145,7 +151,6 @@ public class TransactionalMessageBridge {
                     this.brokerController.getBrokerStatsManager().recordDiskFallBehindTime(group, topic, queueId,
                         this.brokerController.getMessageStore().now() - foundList.get(foundList.size() - 1)
                             .getStoreTimestamp());
-
                     Attributes attributes = BrokerMetricsManager.newAttributesBuilder()
                         .put(LABEL_TOPIC, topic)
                         .put(LABEL_CONSUMER_GROUP, group)
@@ -213,19 +218,25 @@ public class TransactionalMessageBridge {
     }
 
     public CompletableFuture<PutMessageResult> asyncPutHalfMessage(MessageExtBrokerInner messageInner) {
+        // 最终进入 DefaultMessageStore
         return store.asyncPutMessage(parseHalfMessageInner(messageInner));
     }
 
+    /**
+     * 事务消息-broker-发送-(3)将消息中，topic、queueId 保存到 Property 中，
+     * 并将消息的 topic 替换为 RMQ_SYS_TRANS_HALF_TOPIC、将 queueId 替换为 0
+     */
     private MessageExtBrokerInner parseHalfMessageInner(MessageExtBrokerInner msgInner) {
+        // 获取消息id ，并向消息中添加属性 "__transactionId__"
         String uniqId = msgInner.getUserProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX);
         if (uniqId != null && !uniqId.isEmpty()) {
             MessageAccessor.putProperty(msgInner, TransactionalMessageUtil.TRANSACTION_ID, uniqId);
         }
         MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_TOPIC, msgInner.getTopic());
-        MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_QUEUE_ID,
-            String.valueOf(msgInner.getQueueId()));
-        msgInner.setSysFlag(
-            MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), MessageSysFlag.TRANSACTION_NOT_TYPE));
+        MessageAccessor.putProperty(msgInner, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msgInner.getQueueId()));
+        // 重置消息 SysFlag 中事务消息的标识
+        msgInner.setSysFlag(MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), MessageSysFlag.TRANSACTION_NOT_TYPE));
+
         msgInner.setTopic(TransactionalMessageUtil.buildHalfTopic());
         msgInner.setQueueId(0);
         msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgInner.getProperties()));
@@ -329,7 +340,11 @@ public class TransactionalMessageBridge {
         return topicConfig;
     }
 
+    /**
+     * 事务消息-broker-结束事务-提交-(4.3)向 commitLog 中保存消息，消息体是：多个已提交的事务消息的偏移量
+     */
     public boolean writeOp(Integer queueId,Message message) {
+        // 写入消息
         MessageQueue opQueue = opQueueMap.get(queueId);
         if (opQueue == null) {
             // RMQ_SYS_TRANS_OP_HALF_TOPIC
@@ -339,7 +354,7 @@ public class TransactionalMessageBridge {
                 opQueue = oldQueue;
             }
         }
-        // 向 commit Log 中保存消息
+        // 向 commit Log 中保存  消息
         PutMessageResult result = putMessageReturnResult(makeOpMessageInner(message, opQueue));
         if (result != null && result.getPutMessageStatus() == PutMessageStatus.PUT_OK) {
             return true;

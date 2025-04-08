@@ -16,21 +16,44 @@
  */
 package org.apache.rocketmq.client.consumer;
 
+import org.apache.rocketmq.remoting.protocol.ResponseCode;
+
 public enum PullStatus {
     /**
      * Founded
+     *
+     * GetMessageStatus.FOUND
+     *
+     * ResponseCode.SUCCESS
      */
     FOUND,
+
+
     /**
      * No new message can be pull
+     *
+     *
+     * ResponseCode.PULL_NOT_FOUND
      */
     NO_NEW_MSG,
+
+
     /**
      * Filtering results can not match
+     * 过滤结果不匹配
+     *
+     *
+     * ResponseCode.PULL_RETRY_IMMEDIATELY
      */
     NO_MATCHED_MSG,
+
+
     /**
      * Illegal offset,may be too big or too small
+     * 非法抵消，可能太大或太小
+     *
+     *
+     * ResponseCode.PULL_OFFSET_MOVED
      */
     OFFSET_ILLEGAL
 }

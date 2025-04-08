@@ -261,6 +261,10 @@ public class AclUtils {
         return true;
     }
 
+    /**
+     * 加载 ./conf/tools.yml 文件
+     * 对 tools.yml 中的 accessKey、secretKey 封装保存到 AclClientRPCHook
+     */
     public static RPCHook getAclRPCHook(String fileName) {
         JSONObject yamlDataObject;
         try {
@@ -284,6 +288,9 @@ public class AclUtils {
         return buildRpcHook(yamlDataObject);
     }
 
+    /**
+     * 对 tools.yml 中的 accessKey、secretKey 封装保存到 AclClientRPCHook
+     */
     private static RPCHook buildRpcHook(JSONObject yamlDataObject) {
         if (yamlDataObject == null || yamlDataObject.isEmpty()) {
             log.warn("Failed to parse configuration to enable ACL.");

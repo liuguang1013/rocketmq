@@ -23,7 +23,13 @@ import org.apache.rocketmq.common.topic.TopicValidator;
 public class NamespaceUtil {
     public static final char NAMESPACE_SEPARATOR = '%';
     public static final String STRING_BLANK = "";
+    /**
+     * %RETRY%
+     */
     public static final int RETRY_PREFIX_LENGTH = MixAll.RETRY_GROUP_TOPIC_PREFIX.length();
+    /**
+     * %DLQ%
+     */
     public static final int DLQ_PREFIX_LENGTH = MixAll.DLQ_GROUP_TOPIC_PREFIX.length();
 
     /**

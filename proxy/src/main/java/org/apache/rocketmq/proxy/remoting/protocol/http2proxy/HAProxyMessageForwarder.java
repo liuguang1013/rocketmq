@@ -73,6 +73,7 @@ public class HAProxyMessageForwarder extends ChannelInboundHandlerAdapter {
     }
 
     private void forwardHAProxyMessage(Channel inboundChannel, Channel outboundChannel) throws Exception {
+        // 没有 HA 协议地址，直接返回
         if (!inboundChannel.hasAttr(AttributeKeys.PROXY_PROTOCOL_ADDR)) {
             return;
         }
@@ -80,7 +81,7 @@ public class HAProxyMessageForwarder extends ChannelInboundHandlerAdapter {
         if (!(inboundChannel instanceof DefaultAttributeMap)) {
             return;
         }
-
+        //  通过反射获取 channel 的 attributes 属性
         Attribute<?>[] attributes = (Attribute<?>[]) FieldUtils.readField(FIELD_ATTRIBUTE, inboundChannel);
         if (ArrayUtils.isEmpty(attributes)) {
             return;
@@ -92,6 +93,7 @@ public class HAProxyMessageForwarder extends ChannelInboundHandlerAdapter {
 
         for (Attribute<?> attribute : attributes) {
             String attributeKey = attribute.key().name();
+            // 不是 proxy_protocol_ 开头，直接往下走
             if (!StringUtils.startsWith(attributeKey, HAProxyConstants.PROXY_PROTOCOL_PREFIX)) {
                 continue;
             }
@@ -111,6 +113,7 @@ public class HAProxyMessageForwarder extends ChannelInboundHandlerAdapter {
             if (attribute.key() == AttributeKeys.PROXY_PROTOCOL_SERVER_PORT) {
                 destinationPort = Integer.parseInt(attributeValue);
             }
+
             if (StringUtils.startsWith(attributeKey, HAProxyConstants.PROXY_PROTOCOL_TLV_PREFIX)) {
                 HAProxyTLV haProxyTLV = buildHAProxyTLV(attributeKey, attributeValue);
                 if (haProxyTLV != null) {
@@ -122,8 +125,12 @@ public class HAProxyMessageForwarder extends ChannelInboundHandlerAdapter {
         HAProxyProxiedProtocol proxiedProtocol = AclUtils.isColon(sourceAddress) ? HAProxyProxiedProtocol.TCP6 :
             HAProxyProxiedProtocol.TCP4;
 
+        // 构建 HAProxyMessage 消息
         HAProxyMessage message = new HAProxyMessage(HAProxyProtocolVersion.V2, HAProxyCommand.PROXY,
             proxiedProtocol, sourceAddress, destinationAddress, sourcePort, destinationPort, haProxyTLVs);
+        // sync() 会阻塞当前线程，所以在 Netty 的事件循环线程（即负责处理 I/O 事件的线程）中调用它是不推荐的，
+        // 因为这会导致该线程无法处理其他事件，从而影响性能。通常应该在独立的业务线程中使用 sync()，
+        // 而不是直接在网络事件处理过程中调用。
         outboundChannel.writeAndFlush(message).sync();
     }
 

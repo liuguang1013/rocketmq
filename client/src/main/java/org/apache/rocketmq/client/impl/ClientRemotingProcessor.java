@@ -69,6 +69,7 @@ public class ClientRemotingProcessor implements NettyRequestProcessor {
     public RemotingCommand processRequest(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
         switch (request.getCode()) {
+            // 事务消息-生产者-回查-(1)接收Broker请求，检查本地事务状态，并回报事务状态
             case RequestCode.CHECK_TRANSACTION_STATE:
                 return this.checkTransactionState(ctx, request);
             case RequestCode.NOTIFY_CONSUMER_IDS_CHANGED:
@@ -99,15 +100,18 @@ public class ClientRemotingProcessor implements NettyRequestProcessor {
 
     public RemotingCommand checkTransactionState(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
+        // 解析消息对象
         final CheckTransactionStateRequestHeader requestHeader =
             (CheckTransactionStateRequestHeader) request.decodeCommandCustomHeader(CheckTransactionStateRequestHeader.class);
         final ByteBuffer byteBuffer = ByteBuffer.wrap(request.getBody());
         final MessageExt messageExt = MessageDecoder.decode(byteBuffer);
         if (messageExt != null) {
+            // topic 去除 Namespace
             if (StringUtils.isNotEmpty(this.mqClientFactory.getClientConfig().getNamespace())) {
                 messageExt.setTopic(NamespaceUtil
                     .withoutNamespace(messageExt.getTopic(), this.mqClientFactory.getClientConfig().getNamespace()));
             }
+            // 事务id
             String transactionId = messageExt.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX);
             if (null != transactionId && !"".equals(transactionId)) {
                 messageExt.setTransactionId(transactionId);
@@ -117,6 +121,7 @@ public class ClientRemotingProcessor implements NettyRequestProcessor {
                 MQProducerInner producer = this.mqClientFactory.selectProducer(group);
                 if (producer != null) {
                     final String addr = RemotingHelper.parseChannelRemoteAddr(ctx.channel());
+                    // 事务消息-生产者-回查-(2)查找到客户端中生产者，开始检查事务状态
                     producer.checkTransactionState(addr, messageExt, requestHeader);
                 } else {
                     logger.debug("checkTransactionState, pick producer by group[{}] failed", group);

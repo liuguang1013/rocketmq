@@ -768,8 +768,10 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                 cqExtUnit.setFilterBitMap(request.getBitMap());
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
                 cqExtUnit.setTagsCode(request.getTagsCode());
-
-                // 将消息保存到 consumeQueueExt 映射文件中，如果文件写不下，创建新的文件
+                /**
+                 * 将消息保存到 consumeQueueExt 映射文件中，如果文件写不下，创建新的文件
+                 * 对消息在消费队列额外信息的 逻辑队列 中方的 绝对偏移量 进行装饰，返回 long 值，用于区分 tagsCode
+                 */
                 long extAddr = this.consumeQueueExt.put(cqExtUnit);
                 if (isExtAddr(extAddr)) {
                     tagsCode = extAddr;
@@ -883,7 +885,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
      *
      * @param offset 消息在 commit log 中的绝对偏移量
      * @param size 消息的大小
-     * @param tagsCode 标签
+     * @param tagsCode 标签hashCode 或者 是消息在额外信息队列中的绝对偏移量
      * @param cqOffset 在消息队列的绝对偏移个数
      * @return
      */
@@ -912,6 +914,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                 this.minLogicOffset = expectLogicOffset;
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);
                 this.mappedFileQueue.setCommittedWhere(expectLogicOffset);
+                //
                 this.fillPreBlank(mappedFile, expectLogicOffset);
                 log.info("fill pre blank space " + mappedFile.getFileName() + " " + expectLogicOffset + " "
                     + mappedFile.getWrotePosition());

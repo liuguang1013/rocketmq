@@ -37,6 +37,10 @@ public class BitsArray implements Cloneable {
         return new BitsArray(bytes);
     }
 
+    /**
+     * 根据 BloomFilter 中的参数：总位数，创建位数组，初始化 0 值
+     * @param bitLength
+     */
     private BitsArray(int bitLength) {
         this.bitLength = bitLength;
         // init bytes
@@ -45,6 +49,7 @@ public class BitsArray implements Cloneable {
             temp++;
         }
         bytes = new byte[temp];
+        // 初始化 0 值
         for (int i = 0; i < bytes.length; i++) {
             bytes[i] = (byte) 0x00;
         }
@@ -156,6 +161,13 @@ public class BitsArray implements Cloneable {
         setBit(bitPos, !getBit(bitPos));
     }
 
+    /**
+     * 先计算位置 在字节数组中的位置，
+     * 再计算，在字节中的位的位置
+     * 设置值 为 0、1
+     * @param bitPos
+     * @param set
+     */
     public void setBit(int bitPos, boolean set) {
         checkBitPosition(bitPos, this);
         int sub = subscript(bitPos);

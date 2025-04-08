@@ -35,12 +35,18 @@ public class MessageExt extends Message {
     private int queueId;
 
     private int storeSize;
-
+    /**
+     * 在消费队列的所属的消息个数
+     * 乘 20 字节存储单位，计算在消费队列中的获得起始偏移量
+     * @see org.apache.rocketmq.store.queue.QueueOffsetOperator#topicQueueTable
+     */
     private long queueOffset;
     private int sysFlag;
     private long bornTimestamp;
     private SocketAddress bornHost;
-
+    /**
+     * @see org.apache.rocketmq.store.CommitLog#asyncPutMessage(MessageExtBrokerInner)
+     */
     private long storeTimestamp;
     private SocketAddress storeHost;
     private String msgId;

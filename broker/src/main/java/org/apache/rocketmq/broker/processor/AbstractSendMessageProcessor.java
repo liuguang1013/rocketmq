@@ -94,6 +94,9 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         final ConsumerSendMsgBackRequestHeader requestHeader =
             (ConsumerSendMsgBackRequestHeader) request.decodeCommandCustomHeader(ConsumerSendMsgBackRequestHeader.class);
 
+        System.out.println("自测日志-重试消息-请求信息 " + requestHeader);
+
+        // 消费失败发回的消息，必须主节点处理
         // The send back requests sent to SlaveBroker will be forwarded to the master broker beside
         final BrokerController masterBroker = this.brokerController.peekMasterBroker();
         if (null == masterBroker) {
@@ -106,6 +109,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         // It may be a master broker or a slave broker
         final BrokerController currentBroker = this.brokerController;
 
+        // 检查消费者组的订阅信息存在、并且重试队列的数量必须大于0
         SubscriptionGroupConfig subscriptionGroupConfig =
             masterBroker.getSubscriptionGroupManager().findSubscriptionGroupConfig(requestHeader.getGroup());
         if (null == subscriptionGroupConfig) {
@@ -115,6 +119,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             return response;
         }
 
+        // 检查broker当前是否可写
         BrokerConfig masterBrokerConfig = masterBroker.getBrokerConfig();
         if (!PermName.isWriteable(masterBrokerConfig.getBrokerPermission())) {
             response.setCode(ResponseCode.NO_PERMISSION);
@@ -122,12 +127,14 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             return response;
         }
 
+        // 默认的消费订阅组配置信息，重试队列数量为 1
         if (subscriptionGroupConfig.getRetryQueueNums() <= 0) {
             response.setCode(ResponseCode.SUCCESS);
             response.setRemark(null);
             return response;
         }
 
+        // 构建重试消息的 topic ： %RETRY% + 原来消费者组信息
         String newTopic = MixAll.getRetryTopic(requestHeader.getGroup());
         int queueIdInt = this.random.nextInt(subscriptionGroupConfig.getRetryQueueNums());
 
@@ -386,6 +393,7 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
         }
         sendMessageContext.setMsgUniqueKey(uniqueKey);
 
+        // 顺序消息-broker-接收(1)消息的属性中包含 __SHARDINGKEY 属性，标识是否顺序消息
         //  标识是否顺序消息
         if (properties.containsKey(MessageConst.PROPERTY_SHARDING_KEY)) {
             sendMessageContext.setMsgType(MessageType.Order_Msg);
@@ -510,8 +518,10 @@ public abstract class AbstractSendMessageProcessor implements NettyRequestProces
             topicConfig = this.brokerController.getTopicConfigManager()
                     .createTopicInSendMessageMethod(
                             requestHeader.getTopic(),
+                            // 默认topic： TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC      TBW102
                             requestHeader.getDefaultTopic(),
                             RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
+                            // 默认 4
                             requestHeader.getDefaultTopicQueueNums(),
                             topicSysFlag);
 

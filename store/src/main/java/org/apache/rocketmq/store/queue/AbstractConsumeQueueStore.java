@@ -33,13 +33,15 @@ public abstract class AbstractConsumeQueueStore implements ConsumeQueueStoreInte
     protected final DefaultMessageStore messageStore;
     protected final MessageStoreConfig messageStoreConfig;
     /**
-     *
+     * 消息队列偏移量
      */
     protected final QueueOffsetOperator queueOffsetOperator = new QueueOffsetOperator();
     /**
-     *
+     * key：topic
+     * value：ConcurrentMap key：queueId
+     *                      value：ConsumeQueueInterface
      */
-    protected final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueueInterface>> consumeQueueTable;
+    protected final ConcurrentMap<String, ConcurrentMap<Integer, ConsumeQueueInterface>> consumeQueueTable;
 
     public AbstractConsumeQueueStore(DefaultMessageStore messageStore) {
         this.messageStore = messageStore;

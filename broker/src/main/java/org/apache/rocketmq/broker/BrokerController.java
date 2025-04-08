@@ -1026,6 +1026,9 @@ public class BrokerController {
             });
     }
 
+    /**
+     * 这些钩子函数在 broker接收到消息，调用 CommitLog 真正存储消息之前 执行
+     */
     public void registerMessageStoreHook() {
 
         List<PutMessageHook> putMessageHookList = messageStore.getPutMessageHookList();
@@ -2014,18 +2017,21 @@ public class BrokerController {
          * 向所有 NameSrv 注册 broker 信息
          */
         List<RegisterBrokerResult> registerBrokerResultList = this.brokerOuterAPI.registerBrokerAll(
-            //默认：DefaultCluster
+            //默认名称：DefaultCluster
             this.brokerConfig.getBrokerClusterName(),
             // ip：port
             this.getBrokerAddr(),
-            //
+            // BrokerName
             this.brokerConfig.getBrokerName(),
             // 标识主从节点
             this.brokerConfig.getBrokerId(),
             // 本机ip：10912
             this.getHAServerAddr(),
+            // topicConfigTable、topicQueueMappingInfoMap的封装
             topicConfigWrapper,
+            // TopicQueueMappingManager中获取的filterServerList
             Lists.newArrayList(),
+            // 调用方式：是否为单向调用
             oneway,
             // 默认 24 s
             this.brokerConfig.getRegisterBrokerTimeoutMills(),
@@ -2120,6 +2126,10 @@ public class BrokerController {
         }
     }
 
+    /**
+     * 判断是否需要注册 broker
+     *  向各个NameServer发送 RequestCode.QUERY_DATA_VERSION
+     */
     private boolean needRegister(final String clusterName,
         final String brokerAddr,
         final String brokerName,

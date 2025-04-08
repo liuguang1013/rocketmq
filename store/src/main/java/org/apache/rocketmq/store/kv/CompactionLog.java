@@ -95,7 +95,14 @@ public class CompactionLog {
     private final int offsetMapMemorySize;
     private final PutMessageLock putMessageLock;
     private final PutMessageLock readMessageLock;
+    /**
+     * 消息 初始写入到 该对象
+     */
     private TopicPartitionLog current;
+    /**
+     * 定时压实任务中，
+     * compaction 方法中创建该对象
+     */
     private TopicPartitionLog compacting;
     private TopicPartitionLog replicating;
     private final CompactionPositionMgr positionMgr;
@@ -111,12 +118,14 @@ public class CompactionLog {
         this.offsetMapMemorySize = compactionStore.getOffsetMapSize();
 
         // 每个压缩消息队列 映射文件大小 = 10 M / 每条存储数据固定大小 46 字节 * 每条存储数据固定大小 46 字节
+        // 10485760 / 64 = 163840 个消息
         // 先除再乘，实际上除的时候向下取整，最终达到效果就是 除数的整数倍
         this.compactionCqMappedFileSize =
             messageStoreConfig.getCompactionCqMappedFileSize() / BatchConsumeQueue.CQ_STORE_UNIT_SIZE
                 * BatchConsumeQueue.CQ_STORE_UNIT_SIZE;
 
         // 设置压缩日志映射文件大小：文件默认配置 100 M ，需要根据每个文件大小计算；最小是每个消费队列大小的 5 倍
+        // 115343360
         this.compactionLogMappedFileSize = getCompactionLogSize(compactionCqMappedFileSize, messageStoreConfig.getCompactionMappedFileSize());
         // user.home/store/compaction/compactionLog/topic/queueId
         this.compactionLogFilePath = Paths.get(compactionStore.getCompactionLogPath(), topic, String.valueOf(queueId)).toString();
@@ -341,14 +350,16 @@ public class CompactionLog {
 
     /**
      * 通过对比 消息的和 消息偏移量缓存的 偏移量，来判断是够保留消息
-     * todo：这个偏移量，是相对于哪里的偏移量
+     * 对于大于 最大的消息queueOffset 的消息，直接保留
+     * 对于存在 keys 并且大于等于 OffsetMap缓存的queueOffset 的消息，保留
+     * 其他消息不保留
      */
     boolean shouldRetainMsg(final MessageExt msgExt, final OffsetMap map) throws DigestException {
-        // 消息的偏移量，大于 map 中最大的偏移量
+        // 消息的偏移量，大于 map 中最大的偏移量，直接返回
         if (msgExt.getQueueOffset() > map.getLastOffset()) {
             return true;
         }
-        //
+        // 消息的偏移量 >= 缓存的偏移量 也保留
         String key = msgExt.getKeys();
         if (StringUtils.isNotBlank(key)) {
             boolean keyNotExistOrOffsetBigger = msgExt.getQueueOffset() >= map.get(key);
@@ -620,6 +631,10 @@ public class CompactionLog {
         }
     }
 
+    /**
+     * 获取压实日志中，第一个到倒数第二个 MappedFile 文件，添加到 toCompactFiles
+     * 获取压实日志中，稀疏队列保存的最大消息在消息队列偏移量 > 压实位置管理已压实的偏移量 的 MappedFile压实日志文件，到newFiles中
+     */
     ProcessFileList getCompactionFile() {
         // 获取 compactionLog/topic/queueId/  下的内存映射文件的 封装对象
         List<MappedFile> mappedFileList = Lists.newArrayList(getLog().getMappedFiles());
@@ -635,7 +650,8 @@ public class CompactionLog {
         List<MappedFile> newFiles = Lists.newArrayList();
         for (int i = 0; i < mappedFileList.size() - 1; i++) {
             MappedFile mf = mappedFileList.get(i);
-            // 获取 SparseConsumeQueue 队列的 最大的消息偏移量
+            // 获取 SparseConsumeQueue 队列中保存的消息中，在CommitLog中queueOffset属性的最大值
+            // 实际就是最后一条消息的在消费队列中的所排的消息数，缓存在 QueueOffsetOperator#topicQueueTable 中
             long maxQueueOffsetInFile = getCQ().getMaxMsgOffsetFromFile(mf.getFile().getName());
             // 大于检查点，检查点文件
             // 保存在 user.home/store/compaction/position-checkpoint 文件中，创建 CompactionPositionMgr 对象就进行了加载
@@ -658,9 +674,11 @@ public class CompactionLog {
         }
 
         long startTime = System.nanoTime();
-        // 传入检查点以后的文件，获取偏移量集合，对相同的消息进行偏移量压缩，记录后面的偏移量
+        // 传入检查点以后的文件，获取偏移量集合，对相同的keys的消息进行偏移量压缩，记录后面的偏移量
+        // OffsetMap 封装newFiles中所有压实后消息的 keys的hash值、queueOffset
         OffsetMap offsetMap = getOffsetMap(compactFiles.newFiles);
-        // 压缩 compactionLog 下的文件
+        // 压实 compactionLog 目录下的名为current 的TopicPartitionLog，到 compactionLog/compacting 子目录下，名为 compacting的TopicPartitionLog中
+        // 根据OffsetMap对 toCompactFiles消息进行筛选
         compaction(compactFiles.toCompactFiles, offsetMap);
         // 替换文件
         replaceFiles(compactFiles.toCompactFiles, current, compacting);
@@ -749,8 +767,8 @@ public class CompactionLog {
     }
 
     /**
-     * todo：所谓的压缩，如何起到作用？offsetMap 中缓存的是有 keys 属性消息的最大偏移量，此处遍历消息，都不大于啊。
-     *
+     * todo：所谓的压缩，如何起到作用？
+     * 压缩就是对有相同 keys的消息，只保存最新的一条，方便通过keys进行消息高效的查询。
      *
      * @param mappedFileList   /compactionLog 文件夹下的文件
      * @param offsetMap     偏移量大于position-checkpoint 的文件 封装的 map，对相同keys 的消息，保留最后一次 偏移量
@@ -786,6 +804,7 @@ public class CompactionLog {
             }
         }
         // todo： 不知道干啥
+        // 向 compacting 压缩的文件中添加结束消息，8字节
         putEndMessage(compacting.getLog());
     }
 
@@ -813,22 +832,25 @@ public class CompactionLog {
         // 将当前文件夹下文件重命名为 .delete 结尾
         mappedFileList.forEach(MappedFile::renameToDelete);
 
+        // 将每个mappedFile文件刷新到磁盘
         src.getMappedFiles().forEach(mappedFile -> {
             try {
                 // 刷新数据到磁盘
                 // 清除 mappedFile 相关的信息：总映射的虚拟内存、总映射文件数
                 mappedFile.flush(0);
-                // 将文件移到上层文件夹
+                // 将文件移到上层文件夹，
                 mappedFile.moveToParent();
             } catch (IOException e) {
                 log.error("move file {} to parent directory exception: ", mappedFile.getFileName());
             }
         });
 
+        // 将当前TopicPartitionLog中，已经压实的、最后一个未压实的MappedFile 添加到新的 MappedFileQueue逻辑队列中
         dest.getMappedFiles().stream()
             .filter(m -> !mappedFileList.contains(m))
             .forEach(m -> src.getMappedFiles().add(m));
 
+        // 获取消息的时候，也会获取该锁
         readMessageLock.lock();
         try {
             mappedFileList.forEach(mappedFile -> mappedFile.destroy(1000));
@@ -996,7 +1018,7 @@ public class CompactionLog {
     }
 
     /**
-     *
+     * 保存偏移量的 Map
      */
     static class OffsetMap {
         private final ByteBuffer dataBytes;
@@ -1006,6 +1028,10 @@ public class CompactionLog {
         private final MessageDigest digest;
         private final int hashSize;
         private long lastOffset;
+        /**
+         * 字节数组实际保存的就是 keys的数字摘要值
+         * 存在两个原因，是为了解决 hash冲突，对新旧数据进行比较
+         */
         private final byte[] hash1;
         private final byte[] hash2;
 
@@ -1118,6 +1144,12 @@ public class CompactionLog {
             digest.digest(buf, 0, hashSize);
         }
 
+        /**
+         * 看不懂。。。。。
+         * @param buf
+         * @param offset
+         * @return
+         */
         private int readInt(byte[] buf, int offset) {
             return ((buf[offset] & 0xFF) << 24) |
                 ((buf[offset + 1] & 0xFF) << 16) |

@@ -80,6 +80,11 @@ public class DefaultMappedFile extends AbstractMappedFile {
      * 例如： 当开启写入缓存池时， commit log 的 CommitRealTimeService 服务会刷新提交位置
      */
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> COMMITTED_POSITION_UPDATER;
+    /**
+     * 标记 mappedFile 文件消息刷新位置
+     * 异步落盘、不使用临时缓存池 CommitLog.FlushRealTimeService：会定时刷新该位置
+     *
+     */
     protected static final AtomicIntegerFieldUpdater<DefaultMappedFile> FLUSHED_POSITION_UPDATER;
 
     protected volatile int wrotePosition;
@@ -90,6 +95,8 @@ public class DefaultMappedFile extends AbstractMappedFile {
     /**
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
      * 如果 writeBuffer 不为空，消息将首先放到这里，然后重新放到FileChannel。
+     *
+     * TransientStorePool 中持有多个
      */
     protected ByteBuffer writeBuffer = null;
     protected TransientStorePool transientStorePool = null;
@@ -285,6 +292,9 @@ public class DefaultMappedFile extends AbstractMappedFile {
         return fileChannel;
     }
 
+    /**
+     * 在消息重放，执行dispacher时，构建压实日志时候，会调用该方法保存消息
+     */
     public AppendMessageResult appendMessage(final ByteBuffer byteBufferMsg, final CompactionAppendMsgCallback cb) {
         assert byteBufferMsg != null;
         assert cb != null;
@@ -342,6 +352,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
 
         if (currentPos < this.fileSize) {
 
+            // mappedByteBuffer
             ByteBuffer byteBuffer = appendMessageBuffer().slice();
             byteBuffer.position(currentPos);
             AppendMessageResult result;
@@ -482,7 +493,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
     public int commit(final int commitLeastPages) {
         if (writeBuffer == null) {
             //no need to commit data to file channel, so just regard wrotePosition as committedPosition.
-            // 需要向文件通道提交数据，因此只需将 writePosition 视为 committedPosition。
+            // 不需要向文件通道提交数据，因此只需将 writePosition 视为 committedPosition。
             return WROTE_POSITION_UPDATER.get(this);
         }
 
@@ -755,6 +766,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
             byteBuffer.put((int) i, (byte) 0);
             // force flush when flush disk type is sync
             if (type == FlushDiskType.SYNC_FLUSH) {
+                // OS_PAGE_SIZE 系统 page cache 默认 4K
                 if ((i / OS_PAGE_SIZE) - (flush / OS_PAGE_SIZE) >= pages) {
                     flush = i;
                     mappedByteBuffer.force();

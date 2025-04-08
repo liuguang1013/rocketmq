@@ -22,8 +22,15 @@ package org.apache.rocketmq.remoting.protocol.heartbeat;
 
 public enum ConsumeType {
 
+    /**
+     * DefaultLitePullConsumerImpl、DefaultMQPullConsumerImpl 中的 RebalanceImpl 实现类都设定消费模式：积极的
+     */
     CONSUME_ACTIVELY("PULL"),
 
+    /**
+     * DefaultMQPushConsumerImpl 中 RebalancePushImpl 设定消费模式为：被动的
+     *
+     */
     CONSUME_PASSIVELY("PUSH"),
 
     CONSUME_POP("POP");

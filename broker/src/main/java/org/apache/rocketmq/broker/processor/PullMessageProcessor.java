@@ -327,7 +327,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
      *
      * @param channel  客户端 netty channel
      * @param request  客户端请求
-     * @param brokerAllowSuspend
+     * @param brokerAllowSuspend ResponseCode.PULL_NOT_FOUND 当拉取不到消息时，挂起请求
      * @param brokerAllowFlowCtrSuspend   请求中 不包含 _noSuspend_ 属性
      * @return
      * @throws RemotingCommandException
@@ -345,6 +345,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
         response.setOpaque(request.getOpaque());
 
         LOGGER.debug("receive PullMessage request command, {}", request);
+//        System.out.println("自测日志-拉取请求- " + request);
 
         // 查看 broker 状态是否 可读
         if (!PermName.isReadable(this.brokerController.getBrokerConfig().getBrokerPermission())) {

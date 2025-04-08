@@ -202,6 +202,9 @@ public class ConsumerManager {
             isNotifyConsumerIdsChangedEnable, true);
     }
 
+    /**
+     * 消费者启动时候，会向broker 发送心跳信息，新启动的消费者客户端实例，会触发注册流程
+     */
     public boolean registerConsumer(final String group, final ClientChannelInfo clientChannelInfo,
         ConsumeType consumeType, MessageModel messageModel, ConsumeFromWhere consumeFromWhere,
         final Set<SubscriptionData> subList, boolean isNotifyConsumerIdsChangedEnable, boolean updateSubscription) {
@@ -209,6 +212,7 @@ public class ConsumerManager {
         long start = System.currentTimeMillis();
         ConsumerGroupInfo consumerGroupInfo = this.consumerTable.get(group);
         if (null == consumerGroupInfo) {
+            // DefaultConsumerIdsChangeListener 对于 CLIENT_REGISTER 事件什么也没处理
             callConsumerIdsChangeListener(ConsumerGroupEvent.CLIENT_REGISTER, group, clientChannelInfo,
                 subList.stream().map(SubscriptionData::getTopic).collect(Collectors.toSet()));
             // 创建并缓存 消费组信息
@@ -230,6 +234,7 @@ public class ConsumerManager {
         if (r1 || r2) {
             if (isNotifyConsumerIdsChangedEnable) {
                 // 调用  DefaultConsumerIdsChangeListener
+                LOGGER.info("触发ConsumerGroupEvent.CHANGE事件，r1:{},r2:{}",r1,r2);
                 callConsumerIdsChangeListener(ConsumerGroupEvent.CHANGE, group, consumerGroupInfo.getAllChannel());
             }
         }
@@ -237,6 +242,9 @@ public class ConsumerManager {
             this.brokerStatsManager.incConsumerRegisterTime((int) (System.currentTimeMillis() - start));
         }
 
+        // 注册信息：会进入到 DefaultConsumerIdsChangeListener 监听器的 REGISTER 事件中，
+        // 最终会向ConsumerFilterManager中，通过布隆过滤器生成  consumerGroup#topic 的 BloomFilterData信息，并封装到 FilterDataMapByTopic 对象，缓存起来
+        // todo：此处的用处待看。。。。。
         callConsumerIdsChangeListener(ConsumerGroupEvent.REGISTER, group, subList, clientChannelInfo);
 
         return r1 || r2;

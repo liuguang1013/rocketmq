@@ -137,6 +137,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         // 创建ServerBootstrap
         this.serverBootstrap = new ServerBootstrap();
         this.nettyServerConfig = nettyServerConfig;
+        // ClientHousekeepingService
         this.channelEventListener = channelEventListener;
         // 创建公共、定时任务线程池
         this.publicExecutor = buildPublicExecutor(nettyServerConfig);
@@ -144,7 +145,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
         // 创建nettyServer的参数：主reactor线程数1，从reactor线程数3
         this.eventLoopGroupBoss = buildBossEventLoopGroup();
         this.eventLoopGroupSelector = buildEventLoopGroupSelector();
-
+        // 构建ssl上下文信息
         loadSslContext();
     }
 
@@ -202,6 +203,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
     @Override
     public void start() {
+        // 创建新的DefaultEventExecutorGroup，不使用 channel 其自身的 EventLoop 来执行 pipeline 中的 handler处理器
         // 默认的服务端工作线程组，默认线程数8
         this.defaultEventExecutorGroup = new DefaultEventExecutorGroup(nettyServerConfig.getServerWorkerThreads(),
             new ThreadFactoryImpl("NettyServerCodecThread_"));
@@ -281,6 +283,7 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
                 encoder,
                 new NettyDecoder(),
                 distributionHandler,
+                // netty 自带的空闲状态处理器
                 new IdleStateHandler(0, 0,
                     nettyServerConfig.getServerChannelMaxIdleTimeSeconds()),
                 connectionManageHandler,
@@ -421,7 +424,6 @@ public class NettyRemotingServer extends NettyRemotingAbstract implements Remoti
 
     private void prepareSharableHandlers() {
         // tls 模式的处理器
-        // todo:待看
         tlsModeHandler = new TlsModeHandler(TlsSystemConfig.tlsMode);
         // netty编码器：字节数据编码器，主要通过remotingCommand中自带的方法处理
         // 有rocket自定义格式、json格式

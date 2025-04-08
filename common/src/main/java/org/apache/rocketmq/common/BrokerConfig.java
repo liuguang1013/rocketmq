@@ -253,6 +253,7 @@ public class BrokerConfig extends BrokerIdentity {
     /**
      * The minimum time of the transactional message  to be checked firstly, one message only exceed this time interval
      * that can be checked.
+     * 首先要检查的事务性消息的最小时间间隔，只有一个消息超过这个时间间隔才可以检查，默认 6分钟
      */
     @ImportantField
     private long transactionTimeOut = 6 * 1000;
@@ -323,6 +324,8 @@ public class BrokerConfig extends BrokerIdentity {
      * Whether to lock quorum replicas.
      *
      * True: need to lock quorum replicas succeed. False: only need to lock one replica succeed.
+     * True：需要锁定仲裁副本成功。False：只需要锁定一个副本成功。
+     *
      */
     private boolean lockInStrictMode = false;
 

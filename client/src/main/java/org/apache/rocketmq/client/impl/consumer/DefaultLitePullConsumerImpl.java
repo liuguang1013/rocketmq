@@ -169,6 +169,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
             new ThreadFactoryImpl("PullMsgThread-" + this.defaultLitePullConsumer.getConsumerGroup())
         );
         this.scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("MonitorMessageQueueChangeThread"));
+        // 发生异常延迟拉取的时间 1s
         this.pullTimeDelayMillsWhenException = defaultLitePullConsumer.getPullTimeDelayMillsWhenException();
     }
 
@@ -289,6 +290,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
 
                 this.checkConfig();
 
+                // 集群消费模式下，根据pid设置实例名
                 if (this.defaultLitePullConsumer.getMessageModel() == MessageModel.CLUSTERING) {
                     this.defaultLitePullConsumer.changeInstanceNameToPID();
                 }
@@ -302,7 +304,7 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
                 initOffsetStore();
 
                 mQClientFactory.start();
-
+                //
                 startScheduleTask();
 
                 this.serviceState = ServiceState.RUNNING;
@@ -369,6 +371,10 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
         this.offsetStore.load();
     }
 
+    /**
+     * 在 broker 端查询各个topic的队列信息，和本地进行比对
+     * 发生变化 调用 topicMessageQueueChangeListener
+     */
     private void startScheduleTask() {
         scheduledExecutorService.scheduleAtFixedRate(
             new Runnable() {
@@ -397,9 +403,18 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
             Set<MessageQueue> messageQueues = fetchMessageQueues(topic);
             messageQueuesForTopic.put(topic, messageQueues);
         }
+        // todo：此处为啥检查客户端配置？
         this.mQClientFactory.checkClientInBroker();
     }
 
+    /**
+     * 检查配置信息：
+     *  1、检查消费者组名
+     *  2、组名不能与默认的组名重复
+     *  3、消息消费的模式不能为空
+     *  4、消息分配策略不能为空
+     *  5、消费者超时时间不能小于broker暂停时间
+     */
     private void checkConfig() throws MQClientException {
         // Check consumerGroup
         Validators.checkGroup(this.defaultLitePullConsumer.getConsumerGroup());
@@ -1214,7 +1229,11 @@ public class DefaultLitePullConsumerImpl implements MQConsumerInner {
         return parseMessageQueues(result);
     }
 
+    /**
+     * 从远程拉取各个 topic 的队列信息，并与当前缓存进行比较，如果存在差异，则调用对应的监听器
+     */
     private synchronized void fetchTopicMessageQueuesAndCompare() throws MQClientException {
+        // 暂未查找到注册的 topicMessageQueueChangeListener
         for (Map.Entry<String, TopicMessageQueueChangeListener> entry : topicMessageQueueChangeListenerMap.entrySet()) {
             String topic = entry.getKey();
             TopicMessageQueueChangeListener topicMessageQueueChangeListener = entry.getValue();

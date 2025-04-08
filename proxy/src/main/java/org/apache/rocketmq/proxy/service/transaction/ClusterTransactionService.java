@@ -62,6 +62,7 @@ public class ClusterTransactionService extends AbstractTransactionService {
 
     public ClusterTransactionService(TopicRouteService topicRouteService, ProducerManager producerManager,
         MQClientAPIFactory mqClientAPIFactory) {
+
         this.topicRouteService = topicRouteService;
         this.producerManager = producerManager;
         this.mqClientAPIFactory = mqClientAPIFactory;
@@ -272,6 +273,7 @@ public class ClusterTransactionService extends AbstractTransactionService {
 
         @Override
         protected void onWaitEnd() {
+            // 等待 wakeup ，
             scanProducerHeartBeat();
         }
     }

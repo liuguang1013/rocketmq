@@ -18,6 +18,7 @@ package org.apache.rocketmq.store;
 
 import com.google.common.collect.Sets;
 import com.google.common.hash.Hashing;
+import io.netty.channel.Channel;
 import io.openmessaging.storage.dledger.entry.DLedgerEntry;
 import io.opentelemetry.api.common.AttributesBuilder;
 import io.opentelemetry.api.metrics.Meter;
@@ -86,7 +87,12 @@ import org.apache.rocketmq.common.utils.ServiceProvider;
 import org.apache.rocketmq.common.utils.ThreadUtils;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
+import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 import org.apache.rocketmq.remoting.protocol.body.HARuntimeInfo;
+import org.apache.rocketmq.remoting.protocol.header.PullMessageRequestHeader;
+import org.apache.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
+import org.apache.rocketmq.remoting.protocol.statictopic.TopicQueueMappingContext;
+import org.apache.rocketmq.remoting.protocol.subscription.SubscriptionGroupConfig;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.config.FlushDiskType;
 import org.apache.rocketmq.store.config.MessageStoreConfig;
@@ -936,6 +942,10 @@ public class DefaultMessageStore implements MessageStore {
     @Override
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
                                        final int maxMsgNums, final int maxTotalMsgSize, final MessageFilter messageFilter) {
+
+        if (topic.equals("topic1")&&group.equals("normalConsumerGroup2")) {
+            System.out.println("消息在消息队列偏移量 = " + queueId+" offset"+offset+" ");
+        }
         if (this.shutdown) {
             LOGGER.warn("message store has shutdown, so getMessage is forbidden");
             return null;
@@ -1056,7 +1066,15 @@ public class DefaultMessageStore implements MessageStore {
                             maxPhyOffsetPulling = offsetPy;
 
                             //Be careful, here should before the isTheBatchFull
-                            // 记录下个开始的位置：消息开始在消息队列中的排第几个 + 消息的数量
+                            /**
+                             * 记录下个开始的位置：消息开始在消息队列中的排第几个 + 消息的数量
+                             *
+                             * 注意：此处先加上偏移量了，即使后面通过 messageFilter 消息订阅信息过滤，不满足要求
+                             * 下次开始拉取的偏移量也会增加，在拉取消息结果处理的时候会提交消息队列拉取偏移量
+                             * @see org.apache.rocketmq.broker.processor.DefaultPullMessageResultHandler#handle
+                             *
+                             * ！！！此处的效果就相当于是跳过不满足tag的消息
+                             */
                             nextBeginOffset = cqUnit.getQueueOffset() + cqUnit.getBatchNum();
 
                             if (nextPhyFileStartOffset != Long.MIN_VALUE) {
@@ -1066,12 +1084,17 @@ public class DefaultMessageStore implements MessageStore {
                             }
                             // 通过 messageFilter 判断 消费队列匹配，如：判断 tag 是否相同
                             // 不匹配直接跳过
-                            if (messageFilter != null
-                                && !messageFilter.isMatchedByConsumeQueue(cqUnit.getValidTagsCodeAsLong(), cqUnit.getCqExtUnit())) {
+//                            if (topic.equals("topic1")&&group.equals("normalConsumerGroup2")) {
+//                                System.out.println("消息在消息队列偏移量 = " + cqUnit.getQueueOffset()+" queueId"+queueId);
+//                            }
+                            if (messageFilter != null && !messageFilter.isMatchedByConsumeQueue(cqUnit.getValidTagsCodeAsLong(), cqUnit.getCqExtUnit())) {
                                 if (getResult.getBufferTotalSize() == 0) {
                                     // 没有匹配的消息
                                     status = GetMessageStatus.NO_MATCHED_MESSAGE;
                                 }
+//                                if (topic.equals("topic1")&&group.equals("normalConsumerGroup2")) {
+//                                    System.out.println("消息在消息队列偏移量 = 跳过！！！！！ " + cqUnit.getQueueOffset()+" queueId"+queueId);
+//                                }
                                 continue;
                             }
                             // 将  commit log  中的一个消息封装到对象中
@@ -1091,8 +1114,7 @@ public class DefaultMessageStore implements MessageStore {
                             }
 
                             // 通过 messageFilter 判断 CommitLog匹配，如：tag 类型直接 空判断，通过
-                            if (messageFilter != null
-                                && !messageFilter.isMatchedByCommitLog(selectResult.getByteBuffer().slice(), null)) {
+                            if (messageFilter != null && !messageFilter.isMatchedByCommitLog(selectResult.getByteBuffer().slice(), null)) {
                                 if (getResult.getBufferTotalSize() == 0) {
                                     status = GetMessageStatus.NO_MATCHED_MESSAGE;
                                 }
@@ -2218,7 +2240,10 @@ public class DefaultMessageStore implements MessageStore {
      * 2、broker 启动，开启 ReputMessageService 服务，每隔 1ms 触发一次，当 reputFromOffset < confirmOffset 时调用
      *
      * 实际作用：
-     *  构建消息队列、构建消息索引、向 CompactionLog 中添加消息、计算bitmap
+     *  计算bitmap
+     *  构建消息队列
+     *  构建消息索引
+     *  向 CompactionLog 中添加消息
      * @param req
      * @throws RocksDBException
      */
@@ -2423,6 +2448,7 @@ public class DefaultMessageStore implements MessageStore {
         public void dispatch(DispatchRequest request) throws RocksDBException {
             // 获取消息的事务类型
             final int tranType = MessageSysFlag.getTransactionValue(request.getSysFlag());
+            // 事务消息-broker-重放-(1)事务半消息、回滚消息，不构建消费队列
             switch (tranType) {
                 // 不是事务消息、提交事务消息
                 case MessageSysFlag.TRANSACTION_NOT_TYPE:
@@ -2436,7 +2462,7 @@ public class DefaultMessageStore implements MessageStore {
                      */
                     putMessagePositionInfo(request);
                     break;
-                // 事务消息准备、回滚
+                // 事务消息准备、回滚： 不构建消息队列，消息只存储到commitLog中。
                 case MessageSysFlag.TRANSACTION_PREPARED_TYPE:
                 case MessageSysFlag.TRANSACTION_ROLLBACK_TYPE:
                     break;
@@ -3110,6 +3136,7 @@ public class DefaultMessageStore implements MessageStore {
                 dispatchRequest.getQueueId(), dispatchRequest.getConsumeQueueOffset() + 1,
                 dispatchRequest.getTagsCode(), dispatchRequest.getStoreTimestamp(),
                 dispatchRequest.getBitMap(), dispatchRequest.getPropertiesMap());
+
             DefaultMessageStore.this.reputMessageService.notifyMessageArrive4MultiQueue(dispatchRequest);
         }
     }
@@ -3121,6 +3148,7 @@ public class DefaultMessageStore implements MessageStore {
 
         /**
          * defaultMessageStore 启动时，将 commit log 的提交偏移量设置到属性中
+         * 默认情况下，会把CommitLog 的最大偏移量设置到 该属性中。
          */
         protected volatile long reputFromOffset = 0;
 
@@ -3173,8 +3201,12 @@ public class DefaultMessageStore implements MessageStore {
                 this.reputFromOffset = DefaultMessageStore.this.commitLog.getMinOffset();
             }
             //reputFromOffset  重放位置 < commitLog 的 ConfirmOffset ，代表有信息的消息存入 commitLog
+            // 此处无需考虑消息是否已经刷盘，只要消息写入到内存中就开始构建消息队列
+            // 当一个循环执行完成，在此期间有新的数据写入，此循环会继续执行
             for (boolean doNext = true; this.isCommitLogAvailable() && doNext; ) {
                 // 获取从偏移量以后的 commitLog 消息，后面有多个文件获取第一个
+                // todo： 此处获取的是 mappedByteBuffer 中的数据，如果使用 TransientStorePool 没写入到内存映射怎么办？
+                // 因为使用 mappedByteBuffer 所以此处的数据肯定是已经刷入到CommitLog文件中的消息数据
                 SelectMappedBufferResult result = DefaultMessageStore.this.commitLog.getData(reputFromOffset);
 
                 if (result == null) {
@@ -3182,12 +3214,15 @@ public class DefaultMessageStore implements MessageStore {
                 }
 
                 try {
+
                     this.reputFromOffset = result.getStartOffset();
 
-                    for (int readSize = 0; readSize < result.getSize() && reputFromOffset < DefaultMessageStore.this.getConfirmOffset() && doNext; ) {
+                    // readSize 已经读取的数据量
+                    for (int readSize = 0; readSize < result.getSize() && this.isCommitLogAvailable() && doNext; ) {
                         // 将第一个消息封装成 dispatchRequest 对象
                         DispatchRequest dispatchRequest = DefaultMessageStore.this.commitLog.checkMessageAndReturnSize(result.getByteBuffer(), false, false, false);
 
+                        // bufferSize 默认是 -1 ，在DledgerCommitLog  中会设置。
                         int size = dispatchRequest.getBufferSize() == -1 ? dispatchRequest.getMsgSize() : dispatchRequest.getBufferSize();
 
                         // 超过 commit log 的提交偏移量，结束
@@ -3200,7 +3235,7 @@ public class DefaultMessageStore implements MessageStore {
                             if (size > 0) {
                                 // 构建消息队列、构建消息索引、向 CompactionLog 中添加消息、计算bitmap
                                 DefaultMessageStore.this.doDispatch(dispatchRequest);
-                                // 默认开启
+                                // notifyMessageArriveInBatch = false
                                 if (!notifyMessageArriveInBatch) {
                                     // todo：待看
                                     notifyMessageArriveIfNecessary(dispatchRequest);
@@ -3250,6 +3285,8 @@ public class DefaultMessageStore implements MessageStore {
                     ERROR_LOG.info("dispatch message to cq exception. reputFromOffset: {}", this.reputFromOffset, e);
                     return;
                 } finally {
+                    //获取 SelectMappedBufferResult 的方法commitLog.getData 中，调用了 mappedFile 的 hold 方法，增加了引用计数
+                    // 在方法执行完毕时，要释放引用计数
                     result.release();
                 }
 

@@ -88,6 +88,7 @@ public class DefaultConsumerIdsChangeListener implements ConsumerIdsChangeListen
                 this.brokerController.getConsumerFilterManager().unRegister(group);
                 break;
             case REGISTER:
+                // 处理注册时间
                 if (args == null || args.length < 1) {
                     return;
                 }

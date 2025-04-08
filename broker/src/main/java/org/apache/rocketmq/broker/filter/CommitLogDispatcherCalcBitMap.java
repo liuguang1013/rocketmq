@@ -60,16 +60,24 @@ public class CommitLogDispatcherCalcBitMap implements CommitLogDispatcher {
             return;
         }
 
-        // todo：这部分和消费者注册有关，待看
         try {
-            //
+            /**
+             * consumerFilterManager 中 topic 的过滤信息缓存，与消费者注册有关，
+             * @see org.apache.rocketmq.broker.filter.ConsumerFilterManager#register(String, String, String, String, long)
+             */
             Collection<ConsumerFilterData> filterDatas = consumerFilterManager.get(request.getTopic());
 
+            // 对于  消费者组的  SelectorType 是 tag 类型 ，注册的时候直接返回，不会保存 ConsumerFilterData 数据。
             if (filterDatas == null || filterDatas.isEmpty()) {
                 return;
             }
 
+            /**
+             * 遍历 Topic 各个消费者组的 过滤信息
+             */
             Iterator<ConsumerFilterData> iterator = filterDatas.iterator();
+            // 创建位数组
+            // todo： 为啥每个消息 分发都要创建 新的？
             BitsArray filterBitMap = BitsArray.create(
                 this.consumerFilterManager.getBloomFilter().getM()
             );
@@ -77,12 +85,17 @@ public class CommitLogDispatcherCalcBitMap implements CommitLogDispatcher {
             long startTime = System.currentTimeMillis();
             while (iterator.hasNext()) {
                 ConsumerFilterData filterData = iterator.next();
-
+                // 编译表达式为空，直接跳过。
+                // 默认情况下， 消费者组的  SelectorType 是 tag 类型 ，注册的时候直接返回，不会有 Expression 对象
                 if (filterData.getCompiledExpression() == null) {
                     log.error("[BUG] Consumer in filter manager has no compiled expression! {}", filterData);
                     continue;
                 }
 
+                /**
+                 * 不是 tag 类型，并且表达式不为空才初始化 BloomFilter 数据
+                 * @see  org.apache.rocketmq.broker.filter.ConsumerFilterManager#register(String, String, String, String, long)
+                 */
                 if (filterData.getBloomFilterData() == null) {
                     log.error("[BUG] Consumer in filter manager has no bloom data! {}", filterData);
                     continue;
@@ -90,8 +103,9 @@ public class CommitLogDispatcherCalcBitMap implements CommitLogDispatcher {
 
                 Object ret = null;
                 try {
+                    // 将 消息 的 Properties 属性 封装为 MessageEvaluationContext
                     MessageEvaluationContext context = new MessageEvaluationContext(request.getPropertiesMap());
-
+                    // 使用 编译表达式，评估消息
                     ret = filterData.getCompiledExpression().evaluate(context);
                 } catch (Throwable e) {
                     log.error("Calc filter bit map error!commitLogOffset={}, consumer={}, {}", request.getCommitLogOffset(), filterData, e);
@@ -100,14 +114,18 @@ public class CommitLogDispatcherCalcBitMap implements CommitLogDispatcher {
                 log.debug("Result of Calc bit map:ret={}, data={}, props={}, offset={}", ret, filterData, request.getPropertiesMap(), request.getCommitLogOffset());
 
                 // eval true
+                // 经过编译表达式评估 满足要求，计算并记录到 位数组中
                 if (ret != null && ret instanceof Boolean && (Boolean) ret) {
+                    // 将 BitsArray 中对映的 位 上的值，设置为1
                     consumerFilterManager.getBloomFilter().hashTo(
+                        // 某topic在某消费者组下的，所属的多个位置信息：这个在消费者组创建的时候就已经计算出了
                         filterData.getBloomFilterData(),
+                        // 位数组
                         filterBitMap
                     );
                 }
             }
-
+            // 向每个请求中 设置 位数组的值
             request.setBitMap(filterBitMap.bytes());
 
             long elapsedTime = UtilAll.computeElapsedTimeMilliseconds(startTime);

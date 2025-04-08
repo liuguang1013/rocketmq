@@ -277,6 +277,7 @@ public class TopicConfigManager extends ConfigManager {
                     if (defaultTopicConfig != null) {
                         //
                         if (defaultTopic.equals(TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC)) {
+                            // autoCreateTopicEnable 默认 true
                             if (!this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
                                 defaultTopicConfig.setPerm(PermName.PERM_READ | PermName.PERM_WRITE);
                             }

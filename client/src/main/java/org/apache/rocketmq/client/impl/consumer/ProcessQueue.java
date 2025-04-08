@@ -45,7 +45,9 @@ public class ProcessQueue {
     private final ReadWriteLock treeMapLock = new ReentrantReadWriteLock();
 
     /**
-     *
+     * 有序的消息缓存，顺序消费消息的时候，从map 缓存中获取
+     * key ： 消息在消息中的偏移量
+     * value：消息信息
      */
     private final TreeMap<Long, MessageExt> msgTreeMap = new TreeMap<>();
     /**
@@ -56,28 +58,54 @@ public class ProcessQueue {
      * 缓存 队列中 所有消息的大小
      */
     private final AtomicLong msgSize = new AtomicLong();
+    /**
+     * 消费消息的读写锁
+     *
+     * ConsumeMessageOrderlyService：消费消息的时候，加读锁
+     *
+     * RebalanceImpl：在移除消息队列的时候加写锁
+     */
     private final ReadWriteLock consumeLock = new ReentrantReadWriteLock();
     /**
      * A subset of msgTreeMap, will only be used when orderly consume
+     *
+     * 缓存的意义是啥？查看使用吗
+     *
+     * 缓存正在消费的消息：正常的消费消息的批量值为1 ，此处设计成Map形式，可以满足批量值大于1
+     *
+     * takeMessages：顺序消息获取消息的时候，向 消息缓存的子集中添加数据
+     * commit：消费消息完成后，提交，清除缓存
+     *
      */
     private final TreeMap<Long, MessageExt> consumingMsgOrderlyTreeMap = new TreeMap<>();
+    /**
+     * 记录消息队列解锁的失败次数
+     *
+     */
     private final AtomicLong tryUnlockTimes = new AtomicLong(0);
     /**
      * 消息在消费队列中 最大偏移量（个数）
      */
     private volatile long queueOffsetMax = 0L;
+    /**
+     * 该标识标识当前消息队列是否丢弃
+     * 在丢弃状态下，不会去broker拉取改消息队列的消息
+     */
     private volatile boolean dropped = false;
     private volatile long lastPullTimestamp = System.currentTimeMillis();
     private volatile long lastConsumeTimestamp = System.currentTimeMillis();
     /**
      * todo： 锁定状态有啥用？
+     * 顺序消息消费：代表当前队列已经被消费这锁定
+     * 当队列未锁定，不会从Broker拉取消息
      */
     private volatile boolean locked = false;
     private volatile long lastLockTimestamp = System.currentTimeMillis();
     /**
      * 标识是否正在消费
-     * 当从 broker 拉取到新消息后，不是消费状态，变更为消费状态
+     * putMessage：当从 broker 拉取到新消息后，不是消费状态，变更为消费状态， 置为 true
      *
+     * takeMessages：当 顺序消息在 msgTreeMap 获取消息的时候，消息不存在，会将状态 置为 false
      */
     private volatile boolean consuming = false;
     /**
@@ -111,6 +139,7 @@ public class ProcessQueue {
                 try {
                     if (!msgTreeMap.isEmpty()) {
                         String consumeStartTimeStamp = MessageAccessor.getConsumeStartTimeStamp(msgTreeMap.firstEntry().getValue());
+                       // 大于 15 分钟
                         if (StringUtils.isNotEmpty(consumeStartTimeStamp) && System.currentTimeMillis() - Long.parseLong(consumeStartTimeStamp) > pushConsumer.getConsumeTimeout() * 60 * 1000) {
                             msg = msgTreeMap.firstEntry().getValue();
                         }
@@ -159,6 +188,7 @@ public class ProcessQueue {
      *
      */
     public boolean putMessage(final List<MessageExt> msgs) {
+        // 是否分发的标识：在顺序消息的时候，会使用该标识
         boolean dispatchToConsume = false;
         try {
             this.treeMapLock.writeLock().lockInterruptibly();
@@ -298,11 +328,16 @@ public class ProcessQueue {
         }
     }
 
+    /**
+     * 只有在顺序消息，消费才会调用该方法
+     */
     public long commit() {
         try {
+            // 加写锁，提交消息
             this.treeMapLock.writeLock().lockInterruptibly();
             try {
                 Long offset = this.consumingMsgOrderlyTreeMap.lastKey();
+                // 减少消息数量
                 if (msgCount.addAndGet(-this.consumingMsgOrderlyTreeMap.size()) == 0) {
                     msgSize.set(0);
                 } else {
@@ -310,6 +345,7 @@ public class ProcessQueue {
                         msgSize.addAndGet(-msg.getBody().length);
                     }
                 }
+                // 清除正在消费的消息
                 this.consumingMsgOrderlyTreeMap.clear();
                 if (offset != null) {
                     return offset + 1;
@@ -340,6 +376,11 @@ public class ProcessQueue {
         }
     }
 
+    /**
+     * 在 缓存消息的 treeMap 中获取消息
+     * @param batchSize
+     * @return
+     */
     public List<MessageExt> takeMessages(final int batchSize) {
         List<MessageExt> result = new ArrayList<>(batchSize);
         final long now = System.currentTimeMillis();
@@ -349,9 +390,11 @@ public class ProcessQueue {
             try {
                 if (!this.msgTreeMap.isEmpty()) {
                     for (int i = 0; i < batchSize; i++) {
+                        // 缓存中获取一个消息
                         Map.Entry<Long, MessageExt> entry = this.msgTreeMap.pollFirstEntry();
                         if (entry != null) {
                             result.add(entry.getValue());
+
                             consumingMsgOrderlyTreeMap.put(entry.getKey(), entry.getValue());
                         } else {
                             break;
@@ -360,6 +403,7 @@ public class ProcessQueue {
                 }
 
                 if (result.isEmpty()) {
+                    //
                     consuming = false;
                 }
             } finally {

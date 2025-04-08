@@ -54,6 +54,11 @@ import org.apache.rocketmq.proxy.remoting.RemotingProtocolServer;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 import org.apache.rocketmq.srvutil.ServerUtil;
 
+/**
+ * todo：这是干啥的？？？？
+ *
+ *
+ */
 public class ProxyStartup {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.PROXY_LOGGER_NAME);
     private static final ProxyStartAndShutdown PROXY_START_AND_SHUTDOWN = new ProxyStartAndShutdown();
@@ -69,18 +74,22 @@ public class ProxyStartup {
         try {
             // parse argument from command line
             CommandLineArgument commandLineArgument = parseCommandLineArgument(args);
+            // 初始化 ProxyConfig 配置，并将命令行中参数指定到类中
             initConfiguration(commandLineArgument);
 
             // init thread pool monitor for proxy.
+            // 初始化 线程池监控，启动 3s 定时执行任务
             initThreadPoolMonitor();
 
+            // 创建服务端线程池，并添加程序关闭的钩子函数
             ThreadPoolExecutor executor = createServerExecutor();
-
+            // 创建消息处理器：分为 CLUSTER、LOCAL
             MessagingProcessor messagingProcessor = createMessagingProcessor();
 
             List<AccessValidator> accessValidators = loadAccessValidators();
             // create grpcServer
-            GrpcServer grpcServer = GrpcServerBuilder.newBuilder(executor, ConfigurationManager.getProxyConfig().getGrpcServerPort())
+            GrpcServer grpcServer = GrpcServerBuilder
+                    .newBuilder(executor, ConfigurationManager.getProxyConfig().getGrpcServerPort())
                 .addService(createServiceProcessor(messagingProcessor))
                 .addService(ChannelzService.newInstance(100))
                 .addService(ProtoReflectionService.newInstance())
@@ -89,12 +98,14 @@ public class ProxyStartup {
                 .build();
             PROXY_START_AND_SHUTDOWN.appendStartAndShutdown(grpcServer);
 
+            //
             RemotingProtocolServer remotingServer = new RemotingProtocolServer(messagingProcessor, accessValidators);
             PROXY_START_AND_SHUTDOWN.appendStartAndShutdown(remotingServer);
 
             // start servers one by one.
             PROXY_START_AND_SHUTDOWN.start();
 
+            // jvm 钩子函数关闭线程池
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 log.info("try to shutdown server");
                 try {
@@ -125,10 +136,18 @@ public class ProxyStartup {
 
     protected static void initConfiguration(CommandLineArgument commandLineArgument) throws Exception {
         if (StringUtils.isNotBlank(commandLineArgument.getProxyConfigPath())) {
+            // com.rocketmq.proxy.configPath
             System.setProperty(Configuration.CONFIG_PATH_PROPERTY, commandLineArgument.getProxyConfigPath());
         }
+        // 只初始化环境变量：RMQ_PROXY_HOME
         ConfigurationManager.initEnv();
+
+        // 初始化 ProxyConfig 代理配置
+        // 可以在 rmq-proxy.json 中优先指定
         ConfigurationManager.intConfig();
+
+        // 设置 命令行参数中配置到 ProxyConfig 中，
+        // NamesrvAddr、BrokerConfigPath、ProxyMode
         setConfigFromCommandLineArgument(commandLineArgument);
         log.info("Current configuration: " + ConfigurationManager.formatProxyConfig());
 
@@ -180,11 +199,14 @@ public class ProxyStartup {
         String proxyModeStr = ConfigurationManager.getProxyConfig().getProxyMode();
         MessagingProcessor messagingProcessor;
 
+        // CLUSTER 集群模式
         if (ProxyMode.isClusterMode(proxyModeStr)) {
             messagingProcessor = DefaultMessagingProcessor.createForClusterMode();
             ProxyMetricsManager proxyMetricsManager = ProxyMetricsManager.initClusterMode(ConfigurationManager.getProxyConfig());
             PROXY_START_AND_SHUTDOWN.appendStartAndShutdown(proxyMetricsManager);
-        } else if (ProxyMode.isLocalMode(proxyModeStr)) {
+        }
+        // LOCAL 本地模式：创建 BrokerController
+        else if (ProxyMode.isLocalMode(proxyModeStr)) {
             BrokerController brokerController = createBrokerController();
             ProxyMetricsManager.initLocalMode(brokerController.getBrokerMetricsManager(), ConfigurationManager.getProxyConfig());
             StartAndShutdown brokerControllerWrapper = new StartAndShutdown() {
@@ -241,6 +263,7 @@ public class ProxyStartup {
             "GrpcRequestExecutorThread",
             threadPoolQueueCapacity
         );
+        // 向 ProxyStartAndShutdown 中添加 程序关闭的钩子函数
         PROXY_START_AND_SHUTDOWN.appendShutdown(executor::shutdown);
         return executor;
     }
@@ -250,8 +273,13 @@ public class ProxyStartup {
         ThreadPoolMonitor.config(
             LoggerFactory.getLogger(LoggerName.PROXY_LOGGER_NAME),
             LoggerFactory.getLogger(LoggerName.PROXY_WATER_MARK_LOGGER_NAME),
-            config.isEnablePrintJstack(), config.getPrintJstackInMillis(),
+            // 默认 true
+            config.isEnablePrintJstack(),
+            // 一分钟
+            config.getPrintJstackInMillis(),
+            // 3s
             config.getPrintThreadPoolStatusInMillis());
+        // 启动延迟任务。3s 定期执行
         ThreadPoolMonitor.init();
     }
 }

@@ -25,12 +25,16 @@ import java.util.HashSet;
 import java.util.Set;
 import org.apache.rocketmq.common.filter.ExpressionType;
 
+/**
+ * 在发送心跳的时候，会发给 broker
+ */
 public class SubscriptionData implements Comparable<SubscriptionData> {
     public final static String SUB_ALL = "*";
     private boolean classFilterMode = false;
     private String topic;
     /**
      * 订阅信息，通过 || 分隔，最终存入 tagsSet 中，并将 hashCode 存入 codeSet
+     * tags起到过滤消息作用
      */
     private String subString;
     private Set<String> tagsSet = new HashSet<>();

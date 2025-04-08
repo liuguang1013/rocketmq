@@ -44,10 +44,12 @@ public class Http2ProxyBackendHandler extends ChannelInboundHandlerAdapter {
 
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) {
+        //proxy 接收到 broker 信息后，向生产/客户端 返回数据
         inboundChannel.writeAndFlush(msg).addListener(new ChannelFutureListener() {
             @Override
             public void operationComplete(ChannelFuture future) {
                 if (future.isSuccess()) {
+                    // 写入完成后，希望继续处理读事件
                     ctx.channel().read();
                 } else {
                     future.channel().close();

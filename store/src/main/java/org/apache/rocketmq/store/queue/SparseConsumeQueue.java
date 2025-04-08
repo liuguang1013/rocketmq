@@ -393,11 +393,11 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
             long offset = byteBuffer.getLong();
             // 4
             int size = byteBuffer.getInt();
-            // 8
-            byteBuffer.getLong();   //tagscode
-            // 8
-            long timestamp = byteBuffer.getLong();//timestamp
-            // 8
+            // 8 tagsCode
+            byteBuffer.getLong();
+            // 8 timestamp
+            long timestamp = byteBuffer.getLong();
+            // 8 CommitLog中queueOffset的属性
             long msgBaseOffset = byteBuffer.getLong();
             // 2
             short batchSize = byteBuffer.getShort();
@@ -422,11 +422,12 @@ public class SparseConsumeQueue extends BatchConsumeQueue {
         if (mappedFile == null) {
             return -1;
         }
-        // 获取最大偏移量
+        //BatchOffsetIndex 多个属性的封装：
         BatchOffsetIndex max = getMaxMsgOffset(mappedFile, false, false);
         if (max == null) {
             return -1;
         }
+        // 获取稀疏队列中，保存的消息在CommitLog中的queueOffset的最大值
         return max.getMsgOffset();
     }
 

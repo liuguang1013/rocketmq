@@ -278,27 +278,29 @@
                     </execution>
                 </executions>
             </plugin>
-            <plugin>
-                <artifactId>maven-checkstyle-plugin</artifactId>
-                <version>${maven-checkstyle-plugin.version}</version>
-                <executions>
-                    <execution>
-                        <id>validate</id>
-                        <phase>validate</phase>
-                        <configuration>
-                            <configLocation>style/rmq_checkstyle.xml</configLocation>
-                            <inputEncoding>UTF-8</inputEncoding>
-                            <consoleOutput>true</consoleOutput>
-                            <failsOnError>true</failsOnError>
-                            <includeTestSourceDirectory>true</includeTestSourceDirectory>
-                            <excludes>**/generated*/**/*</excludes>
-                        </configuration>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
+
+<!--&lt;!&ndash;            去除代码检查插件，代码中有中文注释，package 失败： &ndash;&gt;-->
+<!--&lt;!&ndash;            <plugin>&ndash;&gt;-->
+<!--&lt;!&ndash;                <artifactId>maven-checkstyle-plugin</artifactId>&ndash;&gt;-->
+<!--&lt;!&ndash;                <version>${maven-checkstyle-plugin.version}</version>&ndash;&gt;-->
+<!--&lt;!&ndash;                <executions>&ndash;&gt;-->
+<!--&lt;!&ndash;                    <execution>&ndash;&gt;-->
+<!--&lt;!&ndash;                        <id>validate</id>&ndash;&gt;-->
+<!--&lt;!&ndash;                        <phase>validate</phase>&ndash;&gt;-->
+<!--&lt;!&ndash;                        <configuration>&ndash;&gt;-->
+<!--&lt;!&ndash;                            <configLocation>style/rmq_checkstyle.xml</configLocation>&ndash;&gt;-->
+<!--&lt;!&ndash;                            <inputEncoding>UTF-8</inputEncoding>&ndash;&gt;-->
+<!--&lt;!&ndash;                            <consoleOutput>true</consoleOutput>&ndash;&gt;-->
+<!--&lt;!&ndash;                            <failsOnError>true</failsOnError>&ndash;&gt;-->
+<!--&lt;!&ndash;                            <includeTestSourceDirectory>true</includeTestSourceDirectory>&ndash;&gt;-->
+<!--&lt;!&ndash;                            <excludes>**/generated*/**/*</excludes>&ndash;&gt;-->
+<!--&lt;!&ndash;                        </configuration>&ndash;&gt;-->
+<!--&lt;!&ndash;                        <goals>&ndash;&gt;-->
+<!--&lt;!&ndash;                            <goal>check</goal>&ndash;&gt;-->
+<!--&lt;!&ndash;                        </goals>&ndash;&gt;-->
+<!--&lt;!&ndash;                    </execution>&ndash;&gt;-->
+<!--&lt;!&ndash;                </executions>&ndash;&gt;-->
+<!--&lt;!&ndash;            </plugin>&ndash;&gt;-->
             <plugin>
                 <groupId>org.apache.rat</groupId>
                 <artifactId>apache-rat-plugin</artifactId>

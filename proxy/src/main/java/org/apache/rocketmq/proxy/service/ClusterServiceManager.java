@@ -71,17 +71,21 @@ public class ClusterServiceManager extends AbstractStartAndShutdown implements S
 
     public ClusterServiceManager(RPCHook rpcHook) {
         ProxyConfig proxyConfig = ConfigurationManager.getProxyConfig();
+        // 封装 Nameserver 访问配置
         NameserverAccessConfig nameserverAccessConfig = new NameserverAccessConfig(proxyConfig.getNamesrvAddr(),
             proxyConfig.getNamesrvDomain(), proxyConfig.getNamesrvDomainSubgroup());
+
         this.scheduledExecutorService = ThreadUtils.newScheduledThreadPool(3);
 
         this.messagingClientAPIFactory = new MQClientAPIFactory(
             nameserverAccessConfig,
             "ClusterMQClient_",
+            // 6
             proxyConfig.getRocketmqMQClientNum(),
             new DoNothingClientRemotingProcessor(null),
             rpcHook,
             scheduledExecutorService);
+
         this.operationClientAPIFactory = new MQClientAPIFactory(
             nameserverAccessConfig,
             "OperationClient_",
@@ -90,24 +94,34 @@ public class ClusterServiceManager extends AbstractStartAndShutdown implements S
             rpcHook,
             this.scheduledExecutorService
         );
-
+        // 主要缓存 topicCache
         this.topicRouteService = new ClusterTopicRouteService(operationClientAPIFactory);
+        // 持有 messagingClientAPIFactory 通过其进行收发操作
         this.messageService = new ClusterMessageService(this.topicRouteService, this.messagingClientAPIFactory);
+        // 主要缓存  topicConfigCache、subscriptionGroupConfigCache
         this.metadataService = new ClusterMetadataService(topicRouteService, operationClientAPIFactory);
+        // 主要功能是创建 topic
         this.adminService = new DefaultAdminService(this.operationClientAPIFactory);
 
+
+        // 生产/消费者管理器
         this.producerManager = new ProducerManager();
-        this.consumerManager = new ClusterConsumerManager(this.topicRouteService, this.adminService, this.operationClientAPIFactory, new ConsumerIdsChangeListenerImpl(), proxyConfig.getChannelExpiredTimeout(), rpcHook);
+        this.consumerManager = new ClusterConsumerManager(
+                this.topicRouteService, this.adminService,
+                this.operationClientAPIFactory, new ConsumerIdsChangeListenerImpl(),
+                proxyConfig.getChannelExpiredTimeout(), rpcHook);
 
         this.transactionClientAPIFactory = new MQClientAPIFactory(
-            nameserverAccessConfig,
-            "ClusterTransaction_",
-            1,
-            new ProxyClientRemotingProcessor(producerManager),
-            rpcHook,
-            scheduledExecutorService);
+                nameserverAccessConfig,
+                "ClusterTransaction_",
+                1,
+                //
+                new ProxyClientRemotingProcessor(producerManager),
+                rpcHook,
+                scheduledExecutorService);
         this.clusterTransactionService = new ClusterTransactionService(this.topicRouteService, this.producerManager,
-            this.transactionClientAPIFactory);
+                this.transactionClientAPIFactory);
+
         this.proxyRelayService = new ClusterProxyRelayService(this.clusterTransactionService);
 
         this.init();

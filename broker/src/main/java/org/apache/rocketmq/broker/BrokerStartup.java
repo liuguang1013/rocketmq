@@ -47,6 +47,9 @@ public class BrokerStartup {
     public static final SystemConfigFileHelper CONFIG_FILE_HELPER = new SystemConfigFileHelper();
 
     public static void main(String[] args) {
+        System.setProperty(MixAll.ROCKETMQ_HOME_PROPERTY, "/Users/wanghaoran/Desktop/temprocketmq/broker");
+        System.setProperty("user.home", "/Users/wanghaoran/Desktop/temprocketmq/broker");
+
         start(createBrokerController(args));
     }
 
@@ -128,6 +131,8 @@ public class BrokerStartup {
 
         // Validate namesrvAddr
         String namesrvAddr = brokerConfig.getNamesrvAddr();
+        namesrvAddr = "127.0.0.1:9876";
+        brokerConfig.setNamesrvAddr(namesrvAddr);
         if (StringUtils.isNotBlank(namesrvAddr)) {
             try {
                 String[] addrArray = namesrvAddr.split(";");

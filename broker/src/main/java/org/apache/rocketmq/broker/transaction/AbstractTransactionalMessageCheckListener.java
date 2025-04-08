@@ -50,6 +50,7 @@ public abstract class AbstractTransactionalMessageCheckListener {
 
     public void sendCheckMessage(MessageExt msgExt) throws Exception {
         CheckTransactionStateRequestHeader checkTransactionStateRequestHeader = new CheckTransactionStateRequestHeader();
+       // 偏移量会一直传递到 事务消息 回查完毕，返回broker。根据该偏移量会查出事务半消息
         checkTransactionStateRequestHeader.setCommitLogOffset(msgExt.getCommitLogOffset());
         checkTransactionStateRequestHeader.setOffsetMsgId(msgExt.getMsgId());
         checkTransactionStateRequestHeader.setMsgId(msgExt.getUserProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX));
@@ -68,6 +69,13 @@ public abstract class AbstractTransactionalMessageCheckListener {
         }
     }
 
+    /**
+     * 处理解决 事务半消息
+     *
+     * 定时任务默认30s，执行一次
+     * @see org.apache.rocketmq.broker.transaction.queue.TransactionalMessageServiceImpl#check(long, int, AbstractTransactionalMessageCheckListener)
+     *
+     */
     public void resolveHalfMsg(final MessageExt msgExt) {
         if (executorService != null) {
             executorService.execute(new Runnable() {

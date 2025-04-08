@@ -101,7 +101,7 @@ public abstract class NettyRemotingAbstract {
      * 这个容器保存每个请求代码的所有处理器，也就是说，对于每个传入请求，我们可以在这个映射中查找响应处理器来处理请求
      *
      * 创建 MQClientAPIImpl 的时候设置
-//     * @see org.apache.rocketmq.client.impl.MQClientAPIImpl
+     * @see org.apache.rocketmq.client.impl.MQClientAPIImpl
      */
     protected final HashMap<Integer/* request code */, Pair<NettyRequestProcessor, ExecutorService>> processorTable =
         new HashMap<>(64);
@@ -482,7 +482,7 @@ public abstract class NettyRemotingAbstract {
             ResponseFuture rep = next.getValue();
 
             if ((rep.getBeginTimestamp() + rep.getTimeoutMillis() + 1000) <= System.currentTimeMillis()) {
-                // 释放信号量
+                // 释放同步请求中信号量
                 rep.release();
                 // 从响应缓存中移除
                 it.remove();
@@ -518,7 +518,6 @@ public abstract class NettyRemotingAbstract {
         String channelRemoteAddr = RemotingHelper.parseChannelRemoteAddr(channel);
         // 调用前执行钩子函数
         doBeforeRpcHooks(channelRemoteAddr, request);
-
         return invoke0(channel, request, timeoutMillis)
                 .whenComplete((v, t) -> {
                     // 没有异常，代表正常结束
@@ -547,26 +546,19 @@ public abstract class NettyRemotingAbstract {
             final SemaphoreReleaseOnlyOnce once = new SemaphoreReleaseOnlyOnce(this.semaphoreAsync);
             long costTime = System.currentTimeMillis() - beginStartTime;
             if (timeoutMillis < costTime) {
-                // 释放信号量，获取到才会涉及到释放
                 once.release();
                 future.completeExceptionally(new RemotingTimeoutException("invokeAsyncImpl call timeout"));
                 return future;
             }
-
             AtomicReference<ResponseFuture> responseFutureReference = new AtomicReference<>();
             final ResponseFuture responseFuture = new ResponseFuture(channel, opaque, request, timeoutMillis - costTime,
                     // 请求回调
                     new InvokeCallback() {
                     @Override
-                    public void operationComplete(ResponseFuture responseFuture) {
-
-                    }
-
+                    public void operationComplete(ResponseFuture responseFuture) {}
                     @Override
                     public void operationSucceed(RemotingCommand response) {
-                        future.complete(responseFutureReference.get());
-                    }
-
+                        future.complete(responseFutureReference.get());}
                     @Override
                     public void operationFail(Throwable throwable) {
                         future.completeExceptionally(throwable);
@@ -616,8 +608,7 @@ public abstract class NettyRemotingAbstract {
         }
     }
 
-    public void invokeAsyncImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis,
-        final InvokeCallback invokeCallback) {
+    public void invokeAsyncImpl(final Channel channel, final RemotingCommand request, final long timeoutMillis, final InvokeCallback invokeCallback) {
         invokeImpl(channel, request, timeoutMillis)
             .whenComplete((v, t) -> {
                 if (t == null) {

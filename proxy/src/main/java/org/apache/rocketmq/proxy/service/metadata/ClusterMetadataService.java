@@ -72,6 +72,7 @@ public class ClusterMetadataService extends AbstractStartAndShutdown implements 
             .expireAfterAccess(config.getTopicConfigCacheExpiredSeconds(), TimeUnit.SECONDS)
             .refreshAfterWrite(config.getTopicConfigCacheRefreshSeconds(), TimeUnit.SECONDS)
             .build(new ClusterTopicConfigCacheLoader());
+
         this.subscriptionGroupConfigCache = CacheBuilder.newBuilder()
             .maximumSize(config.getSubscriptionGroupConfigCacheMaxNum())
             .expireAfterAccess(config.getSubscriptionGroupConfigCacheExpiredSeconds(), TimeUnit.SECONDS)

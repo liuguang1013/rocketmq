@@ -86,6 +86,7 @@ public abstract class AbstractTransactionService implements TransactionService, 
 
     @Override
     public void start() throws Exception {
+
         this.transactionDataManager.start();
     }
 }

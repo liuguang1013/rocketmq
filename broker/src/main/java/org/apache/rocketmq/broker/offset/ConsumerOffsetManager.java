@@ -57,7 +57,7 @@ public class ConsumerOffsetManager extends ConfigManager {
      *
      * 缓存来源 ： todo： 应该是 消费端发送重置请求，才会缓存
      */
-    private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer, Long>> resetOffsetTable = new ConcurrentHashMap<>(512);
+    private final ConcurrentMap<String/* topic@group */, ConcurrentMap<Integer/*queueId*/, Long/*偏移量*/>> resetOffsetTable = new ConcurrentHashMap<>(512);
 
     /**
      * 缓存 下次拉取的开始偏移量
@@ -223,7 +223,7 @@ public class ConsumerOffsetManager extends ConfigManager {
                 LOG.warn("[NOTIFYME]update consumer offset less than store. clientHost={}, key={}, queueId={}, requestOffset={}, storeOffset={}", clientHost, key, queueId, offset, storeOffset);
             }
         }
-
+        // 与 500 取余数
         if (versionChangeCounter.incrementAndGet() % brokerController.getBrokerConfig().getConsumerOffsetUpdateVersionStep() == 0) {
             long stateMachineVersion = brokerController.getMessageStore() != null ? brokerController.getMessageStore().getStateMachineVersion() : 0;
             dataVersion.nextVersion(stateMachineVersion);

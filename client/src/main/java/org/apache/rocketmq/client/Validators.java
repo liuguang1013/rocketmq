@@ -41,6 +41,10 @@ public class Validators {
 
     /**
      * Validate group
+     * 校验字符串：组名
+     *  要求：
+     *      长度：1-255
+     *      正则表达式：^[%|a-zA-Z0-9_-]+$
      */
     public static void checkGroup(String group) throws MQClientException {
         if (UtilAll.isBlank(group)) {
@@ -51,7 +55,12 @@ public class Validators {
             throw new MQClientException("the specified group is longer than group max length 255.", null);
         }
 
-        // 组名是否满足正则表达式：^[%|a-zA-Z0-9_-]+$
+        /**
+        * 组名是否满足正则表达式：^[%|a-zA-Z0-9_-]+$
+         * ^：表示字符串的开始位置
+         * $：表示字符串的结束位置
+         * [%|a-zA-Z0-9_-]：表示允许的字符范围，包括：%、竖线、所有大小字母、数字、下划线、连字符
+        */
         if (isTopicOrGroupIllegal(group)) {
             throw new MQClientException(String.format(
                     "the specified group[%s] contains illegal characters, allowing only %s", group,
@@ -65,7 +74,7 @@ public class Validators {
         }
         // 验证 topic 长度、格式
         Validators.checkTopic(msg.getTopic());
-        // 特定的 topic 不能使用：详见 TopicValidator#NOT_ALLOWED_SEND_TOPIC_SET
+        // 系统使用的特定的 topic 不能使用：详见 TopicValidator#NOT_ALLOWED_SEND_TOPIC_SET
         Validators.isNotAllowedSendTopic(msg.getTopic());
 
         // body
@@ -82,7 +91,8 @@ public class Validators {
                 "the message body size over max value, MAX: " + defaultMQProducer.getMaxMessageSize());
         }
 
-        // todo：此处校验什么？
+        // 此处校验什么？
+        //  PROPERTY_INNER_MULTI_DISPATCH 是多队列分发消息的标识
         String lmqPath = msg.getUserProperty(MessageConst.PROPERTY_INNER_MULTI_DISPATCH);
         if (StringUtils.contains(lmqPath, File.separator)) {
             throw new MQClientException(ResponseCode.MESSAGE_ILLEGAL,

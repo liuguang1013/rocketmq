@@ -41,7 +41,7 @@ public class ProducerManager {
     private static final int GET_AVAILABLE_CHANNEL_RETRY_COUNT = 3;
     private final ConcurrentHashMap<String /* group name */, ConcurrentHashMap<Channel, ClientChannelInfo>> groupChannelTable =
         new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Channel> clientChannelTable = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String/*clientId*/, Channel> clientChannelTable = new ConcurrentHashMap<>();
     protected final BrokerStatsManager brokerStatsManager;
     private PositiveAtomicCounter positiveAtomicCounter = new PositiveAtomicCounter();
     private final List<ProducerChangeListener> producerChangeListenerList = new CopyOnWriteArrayList<>();

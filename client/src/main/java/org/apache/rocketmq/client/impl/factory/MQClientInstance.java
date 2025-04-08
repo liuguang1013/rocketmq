@@ -109,8 +109,13 @@ public class MQClientInstance {
      * The container of the consumer in the current client. The key is the name of consumerGroup.
      * 当前客户机中消费者的容器。关键字是consumerGroup的名称。
      *
+     * @see DefaultMQPushConsumerImpl#start()
      * 消费者启动的时候，会在 start调用 registerConsumer 方法中，进行 consumerGroup 的注册
      * 在客户端服务中，一个消费者组只能有一个 MQConsumerInner 实例，多个会抛出异常
+     *
+     * @see MQClientInstance#sendHeartbeatToAllBroker()
+     * 在 MQClientInstance star方法中，会执行定时任务先所有Broker 发送心跳，
+     * 会将consumerTable、producerTable 中的信息包装成 HeartbeatData 心跳信息，发送到Broker中
      */
     private final ConcurrentMap<String/* consumerGroup */, MQConsumerInner> consumerTable = new ConcurrentHashMap<>();
 
@@ -141,7 +146,10 @@ public class MQClientInstance {
      */
     private final ConcurrentMap<String, HashMap<Long, String>> brokerAddrTable = new ConcurrentHashMap<>();
 
-    private final ConcurrentMap<String/* Broker Name */, HashMap<String/* address */, Integer>> brokerVersionTable = new ConcurrentHashMap<>();
+    /**
+     * 向brokerName的主节点，发送心跳后，保存信息
+     */
+    private final ConcurrentMap<String/* BrokerName */, HashMap<String/* address */, Integer/* 心跳响应version */>> brokerVersionTable = new ConcurrentHashMap<>();
     private final Set<String/* Broker address */> brokerSupportV2HeartbeatSet = new HashSet();
     private final ConcurrentMap<String, Integer> brokerAddrHeartbeatFingerprintTable = new ConcurrentHashMap();
     private final ScheduledExecutorService scheduledExecutorService = Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "MQClientFactoryScheduledThread"));
@@ -236,6 +244,7 @@ public class MQClientInstance {
         this.rebalanceService = new RebalanceService(this);
         // 创建 CLIENT_INNER_PRODUCER 客户端内部生产者。
         // todo：作用
+        //  创建的defaultMQProducer 和消费者 有相同的 InstanceName 最终会被注册到 this 实例中，保存在 producerTable 缓存
         this.defaultMQProducer = new DefaultMQProducer(MixAll.CLIENT_INNER_PRODUCER_GROUP);
         this.defaultMQProducer.resetClientConfig(clientConfig);
         // 消费者状态管理器：通过定时线程池计算分钟、小时、天的 tps、avgpt
@@ -387,7 +396,8 @@ public class MQClientInstance {
                     // Start pull service
                     /**
                      *  开启拉取消息服务
-                     *  不断从阻塞队列中获取请求消息：pop 或者 pull 类型
+                     *  while（ture）获取 MessageRequest ，向broker发送拉取消息请求
+                     *  请求类型：pop 或者 pull 类型
                      *
                      */
                     this.pullMessageService.start();
@@ -395,10 +405,12 @@ public class MQClientInstance {
                     /**
                      * 开启重新平衡服务
                      * 最终会进入 RebalanceImpl.doRebalance 方法中
+                     *
+                     * @see org.apache.rocketmq.client.impl.consumer.RebalanceImpl#doRebalance(boolean)
                      */
                     this.rebalanceService.start();
                     // Start push service
-                    // todo：此处为什么又启动一次？
+                    // todo：此处为什么又启动一次？ 此处的入参 false 很重要，否则就会形成
                     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
                     log.info("the client factory [{}] start OK", this.clientId);
                     this.serviceState = ServiceState.RUNNING;
@@ -460,7 +472,7 @@ public class MQClientInstance {
                 log.error("ScheduledTask persistAllConsumerOffset exception", e);
             }
         }, 1000 * 10, this.clientConfig.getPersistConsumerOffsetInterval(), TimeUnit.MILLISECONDS);
-        // 延迟1分钟，每分钟 调整消费者的线程池
+        // 延迟1分钟，每分钟 调整消费者的线程池，实际都未实现
         this.scheduledExecutorService.scheduleAtFixedRate(() -> {
             try {
                 MQClientInstance.this.adjustThreadPool();
@@ -1015,6 +1027,7 @@ public class MQClientInstance {
                 consumerData.setGroupName(impl.groupName());
                 consumerData.setConsumeType(impl.consumeType());
                 consumerData.setMessageModel(impl.messageModel());
+                //默认  ConsumeFromWhere.CONSUME_FROM_LAST_OFFSET
                 consumerData.setConsumeFromWhere(impl.consumeFromWhere());
                 // 获取 rebalanceImpl 中的 subscriptionInner 缓存信息添加：包含不同 topic 的订阅信息
                 consumerData.getSubscriptionDataSet().addAll(impl.subscriptions());
@@ -1219,6 +1232,9 @@ public class MQClientInstance {
         this.rebalanceService.wakeup();
     }
 
+    /**
+     * doRebalance 实际就是进行消费队列的分配，并且是以消费者组的形式
+     */
     public boolean doRebalance() {
         boolean balanced = true;
         for (Map.Entry<String/* consumerGroup */, MQConsumerInner> entry : this.consumerTable.entrySet()) {
@@ -1282,6 +1298,11 @@ public class MQClientInstance {
         return null;
     }
 
+    /**
+     * 根据 brokerName 获取主节点的 ip
+     * @param brokerName
+     * @return
+     */
     public String findBrokerAddressInPublish(final String brokerName) {
         if (brokerName == null) {
             return null;
@@ -1363,6 +1384,9 @@ public class MQClientInstance {
         return null;
     }
 
+    /**
+     * 查询是否通过 broker 进行队列分配
+     */
     public Set<MessageQueueAssignment> queryAssignment(final String topic, final String consumerGroup,
         final String strategyName, final MessageModel messageModel, int timeout)
         throws RemotingException, InterruptedException, MQBrokerException {

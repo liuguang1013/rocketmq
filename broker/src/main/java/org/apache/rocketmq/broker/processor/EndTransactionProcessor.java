@@ -54,19 +54,107 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
         this.brokerController = brokerController;
     }
 
+    /**
+     * 事务消息-broker-结束事务-(1)Broker接收处理客户端 END_TRANSACTION 结束事务请求
+     */
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx, RemotingCommand request) throws
         RemotingCommandException {
+
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
-        final EndTransactionRequestHeader requestHeader =
-            (EndTransactionRequestHeader) request.decodeCommandCustomHeader(EndTransactionRequestHeader.class);
+        final EndTransactionRequestHeader requestHeader = (EndTransactionRequestHeader) request.decodeCommandCustomHeader(EndTransactionRequestHeader.class);
         LOGGER.debug("Transaction request:{}", requestHeader);
+        // 从节点不处理 事务请求
         if (BrokerRole.SLAVE == brokerController.getMessageStoreConfig().getBrokerRole()) {
             response.setCode(ResponseCode.SLAVE_NOT_AVAILABLE);
             LOGGER.warn("Message store is slave mode, so end transaction is forbidden. ");
             return response;
         }
 
+        // 结束事务区分是 broker 回查，还是正常回复
+        if (logPrint(ctx, request, requestHeader)) return null;
+
+        OperationResult result = new OperationResult();
+        // 事务消息-broker-结束事务-提交-(1)Broker处理事务提交
+        if (MessageSysFlag.TRANSACTION_COMMIT_TYPE == requestHeader.getCommitOrRollback()) {
+            // 从 commitLog中，根据偏移量获取半消息，并封装到OperationResult 中
+            result = this.brokerController.getTransactionalMessageService().commitMessage(requestHeader);
+
+            if (result.getResponseCode() == ResponseCode.SUCCESS) {
+                // 对于不是回查的正常结束事务的请求，判断是否大于免疫时间，将拒绝提交
+                if (rejectCommitOrRollback(requestHeader, result.getPrepareMessage())) {
+                    response.setCode(ResponseCode.ILLEGAL_OPERATION);
+                    LOGGER.warn("Message commit fail [producer end]. currentTimeMillis - bornTime > checkImmunityTime, msgId={},commitLogOffset={}, wait check",
+                            requestHeader.getMsgId(), requestHeader.getCommitLogOffset());
+                    return response;
+                }
+                // 检查半消息：生产组、偏移量等信息
+                RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
+                if (res.getCode() == ResponseCode.SUCCESS) {
+                    MessageExtBrokerInner msgInner = endMessageTransaction(result.getPrepareMessage());
+                    msgInner.setSysFlag(MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), requestHeader.getCommitOrRollback()));
+                    msgInner.setQueueOffset(requestHeader.getTranStateTableOffset());
+                    msgInner.setPreparedTransactionOffset(requestHeader.getCommitLogOffset());
+                    msgInner.setStoreTimestamp(result.getPrepareMessage().getStoreTimestamp());
+                    // 清除事务消息标识，（消息首次发送时，添加）
+                    MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_TRANSACTION_PREPARED);
+                    // 向CommitLog中，再次添加消息
+                    RemotingCommand sendResult = sendFinalMessage(msgInner);
+                    if (sendResult.getCode() == ResponseCode.SUCCESS) {
+                        // 删除之前发送时存储的事务半消息
+                        this.brokerController.getTransactionalMessageService()
+                                .deletePrepareMessage(result.getPrepareMessage());
+
+                        // successful committed, then total num of half-messages minus 1
+                        this.brokerController.getTransactionalMessageService().getTransactionMetrics().addAndGet(msgInner.getTopic(), -1);
+                        BrokerMetricsManager.commitMessagesTotal.add(1, BrokerMetricsManager.newAttributesBuilder()
+                                .put(LABEL_TOPIC, msgInner.getTopic())
+                                .build());
+                        // record the commit latency.
+                        Long commitLatency = (System.currentTimeMillis() - result.getPrepareMessage().getBornTimestamp()) / 1000;
+                        BrokerMetricsManager.transactionFinishLatency.record(commitLatency, BrokerMetricsManager.newAttributesBuilder()
+                                .put(LABEL_TOPIC, msgInner.getTopic())
+                                .build());
+                    }
+                    return sendResult;
+                }
+                return res;
+            }
+        }
+        // 事务消息-broker-结束事务-回滚-(1)Broker处理事务回滚，其处理流程与 提交相似，只是再次提交消息
+        else if (MessageSysFlag.TRANSACTION_ROLLBACK_TYPE == requestHeader.getCommitOrRollback()) {
+            // 从 commitLog中，根据偏移量获取半消息，并封装到OperationResult 中
+            result = this.brokerController.getTransactionalMessageService().rollbackMessage(requestHeader);
+
+
+            if (result.getResponseCode() == ResponseCode.SUCCESS) {
+                if (rejectCommitOrRollback(requestHeader, result.getPrepareMessage())) {
+                    response.setCode(ResponseCode.ILLEGAL_OPERATION);
+                    LOGGER.warn("Message rollback fail [producer end]. currentTimeMillis - bornTime > checkImmunityTime, msgId={},commitLogOffset={}, wait check",
+                            requestHeader.getMsgId(), requestHeader.getCommitLogOffset());
+                    return response;
+                }
+
+                RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
+                if (res.getCode() == ResponseCode.SUCCESS) {
+                    this.brokerController.getTransactionalMessageService()
+                            .deletePrepareMessage(result.getPrepareMessage());
+
+                    // roll back, then total num of half-messages minus 1
+                    this.brokerController.getTransactionalMessageService().getTransactionMetrics().addAndGet(result.getPrepareMessage().getProperty(MessageConst.PROPERTY_REAL_TOPIC), -1);
+                    BrokerMetricsManager.rollBackMessagesTotal.add(1, BrokerMetricsManager.newAttributesBuilder()
+                            .put(LABEL_TOPIC, result.getPrepareMessage().getProperty(MessageConst.PROPERTY_REAL_TOPIC))
+                            .build());
+                }
+                return res;
+            }
+        }
+        response.setCode(result.getResponseCode());
+        response.setRemark(result.getResponseRemark());
+        return response;
+    }
+
+    private boolean logPrint(ChannelHandlerContext ctx, RemotingCommand request, EndTransactionRequestHeader requestHeader) {
         if (requestHeader.getFromTransactionCheck()) {
             switch (requestHeader.getCommitOrRollback()) {
                 case MessageSysFlag.TRANSACTION_NOT_TYPE: {
@@ -75,7 +163,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                         RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
                         requestHeader.toString(),
                         request.getRemark());
-                    return null;
+                    return true;
                 }
 
                 case MessageSysFlag.TRANSACTION_COMMIT_TYPE: {
@@ -97,9 +185,10 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                     break;
                 }
                 default:
-                    return null;
+                    return true;
             }
-        } else {
+        }
+        else {
             switch (requestHeader.getCommitOrRollback()) {
                 case MessageSysFlag.TRANSACTION_NOT_TYPE: {
                     LOGGER.warn("The producer[{}] end transaction in sending message,  and it's pending status."
@@ -107,7 +196,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                         RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
                         requestHeader.toString(),
                         request.getRemark());
-                    return null;
+                    return true;
                 }
 
                 case MessageSysFlag.TRANSACTION_COMMIT_TYPE: {
@@ -123,69 +212,10 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                     break;
                 }
                 default:
-                    return null;
+                    return true;
             }
         }
-        OperationResult result = new OperationResult();
-        if (MessageSysFlag.TRANSACTION_COMMIT_TYPE == requestHeader.getCommitOrRollback()) {
-            result = this.brokerController.getTransactionalMessageService().commitMessage(requestHeader);
-            if (result.getResponseCode() == ResponseCode.SUCCESS) {
-                if (rejectCommitOrRollback(requestHeader, result.getPrepareMessage())) {
-                    response.setCode(ResponseCode.ILLEGAL_OPERATION);
-                    LOGGER.warn("Message commit fail [producer end]. currentTimeMillis - bornTime > checkImmunityTime, msgId={},commitLogOffset={}, wait check",
-                            requestHeader.getMsgId(), requestHeader.getCommitLogOffset());
-                    return response;
-                }
-                RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
-                if (res.getCode() == ResponseCode.SUCCESS) {
-                    MessageExtBrokerInner msgInner = endMessageTransaction(result.getPrepareMessage());
-                    msgInner.setSysFlag(MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), requestHeader.getCommitOrRollback()));
-                    msgInner.setQueueOffset(requestHeader.getTranStateTableOffset());
-                    msgInner.setPreparedTransactionOffset(requestHeader.getCommitLogOffset());
-                    msgInner.setStoreTimestamp(result.getPrepareMessage().getStoreTimestamp());
-                    MessageAccessor.clearProperty(msgInner, MessageConst.PROPERTY_TRANSACTION_PREPARED);
-                    RemotingCommand sendResult = sendFinalMessage(msgInner);
-                    if (sendResult.getCode() == ResponseCode.SUCCESS) {
-                        this.brokerController.getTransactionalMessageService().deletePrepareMessage(result.getPrepareMessage());
-                        // successful committed, then total num of half-messages minus 1
-                        this.brokerController.getTransactionalMessageService().getTransactionMetrics().addAndGet(msgInner.getTopic(), -1);
-                        BrokerMetricsManager.commitMessagesTotal.add(1, BrokerMetricsManager.newAttributesBuilder()
-                                .put(LABEL_TOPIC, msgInner.getTopic())
-                                .build());
-                        // record the commit latency.
-                        Long commitLatency = (System.currentTimeMillis() - result.getPrepareMessage().getBornTimestamp()) / 1000;
-                        BrokerMetricsManager.transactionFinishLatency.record(commitLatency, BrokerMetricsManager.newAttributesBuilder()
-                                .put(LABEL_TOPIC, msgInner.getTopic())
-                                .build());
-                    }
-                    return sendResult;
-                }
-                return res;
-            }
-        } else if (MessageSysFlag.TRANSACTION_ROLLBACK_TYPE == requestHeader.getCommitOrRollback()) {
-            result = this.brokerController.getTransactionalMessageService().rollbackMessage(requestHeader);
-            if (result.getResponseCode() == ResponseCode.SUCCESS) {
-                if (rejectCommitOrRollback(requestHeader, result.getPrepareMessage())) {
-                    response.setCode(ResponseCode.ILLEGAL_OPERATION);
-                    LOGGER.warn("Message rollback fail [producer end]. currentTimeMillis - bornTime > checkImmunityTime, msgId={},commitLogOffset={}, wait check",
-                            requestHeader.getMsgId(), requestHeader.getCommitLogOffset());
-                    return response;
-                }
-                RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
-                if (res.getCode() == ResponseCode.SUCCESS) {
-                    this.brokerController.getTransactionalMessageService().deletePrepareMessage(result.getPrepareMessage());
-                    // roll back, then total num of half-messages minus 1
-                    this.brokerController.getTransactionalMessageService().getTransactionMetrics().addAndGet(result.getPrepareMessage().getProperty(MessageConst.PROPERTY_REAL_TOPIC), -1);
-                    BrokerMetricsManager.rollBackMessagesTotal.add(1, BrokerMetricsManager.newAttributesBuilder()
-                            .put(LABEL_TOPIC, result.getPrepareMessage().getProperty(MessageConst.PROPERTY_REAL_TOPIC))
-                            .build());
-                }
-                return res;
-            }
-        }
-        response.setCode(result.getResponseCode());
-        response.setRemark(result.getResponseRemark());
-        return response;
+        return false;
     }
 
     /**
@@ -197,9 +227,11 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
      * @return
      */
     public boolean rejectCommitOrRollback(EndTransactionRequestHeader requestHeader, MessageExt messageExt) {
+        // 对于broker回查，直接返回
         if (requestHeader.getFromTransactionCheck()) {
             return false;
         }
+        // 事务超时时间，默认 6min
         long transactionTimeout = brokerController.getBrokerConfig().getTransactionTimeOut();
 
         String checkImmunityTimeStr = messageExt.getUserProperty(MessageConst.PROPERTY_CHECK_IMMUNITY_TIME_IN_SECONDS);
@@ -274,7 +306,9 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
 
     private RemotingCommand sendFinalMessage(MessageExtBrokerInner msgInner) {
         final RemotingCommand response = RemotingCommand.createResponseCommand(null);
+        // 事务消息-broker-结束事务-提交-(3)向CommitLog中，再次添加消息，此次消息是普通消息
         final PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
+
         if (putMessageResult != null) {
             switch (putMessageResult.getPutMessageStatus()) {
                 // Success

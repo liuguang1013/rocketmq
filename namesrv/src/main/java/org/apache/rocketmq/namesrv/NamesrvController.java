@@ -240,6 +240,8 @@ public class NamesrvController {
             nettyServerConfig.setListenPort(this.remotingServer.localListenPort());
         }
         // 更新客户端nameSrv地址
+        // nameSrv 单机模式下启动，会将本机的地址加到 namesrvAddrList 中，
+        // 后续在remotingClient 中scanAvailableNameSrv 不断的
         this.remotingClient.updateNameServerAddressList(Collections.singletonList(NetworkUtil.getLocalAddress()
             + ":" + nettyServerConfig.getListenPort()));
         // nameSrv中netty客户端启动

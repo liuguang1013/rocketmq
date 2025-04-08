@@ -33,6 +33,13 @@ public class RebalanceLockManager {
     private final static long REBALANCE_LOCK_MAX_LIVE_TIME = Long.parseLong(System.getProperty(
         "rocketmq.broker.rebalance.lockMaxLiveTime", "60000"));
     private final Lock lock = new ReentrantLock();
+    /**
+     * 每个消费者组都是独立的
+     * 缓存消费者组与队列的锁
+     * key: 消费者组
+     * value: map        key : MessageQueue
+     *                   value：clientId、lastUpdateTimestamp
+     */
     private final ConcurrentMap<String/* group */, ConcurrentHashMap<MessageQueue, LockEntry>> mqLockTable =
         new ConcurrentHashMap<>(1024);
 
@@ -122,12 +129,22 @@ public class RebalanceLockManager {
         return false;
     }
 
+
+    /**
+     * 顺序消息-broker-锁定队列(2)消息队列锁定信息保存在 RebalanceLockManager 的ConcurrentMap<String, Map<MessageQueue, LockEntry>> 缓存中
+     * 在顺序消息模式下
+     * 先区分出哪些队列已经被锁定，哪些没有被锁定
+     * 未锁定的队列：没有被其他消费者锁定，直接锁定返回
+     *             已被锁定的队列：判断是否过期，如果过期，加锁
+     *                                         未过期，不锁定，不添加到已锁定集合中
+     */
     public Set<MessageQueue> tryLockBatch(final String group, final Set<MessageQueue> mqs,
         final String clientId) {
         Set<MessageQueue> lockedMqs = new HashSet<>(mqs.size());
         Set<MessageQueue> notLockedMqs = new HashSet<>(mqs.size());
 
         for (MessageQueue mq : mqs) {
+            // 查询消费组下，某队列是否被该消费者锁定
             if (this.isLocked(group, mq, clientId)) {
                 lockedMqs.add(mq);
             } else {
@@ -156,6 +173,7 @@ public class RebalanceLockManager {
                                     + "group={}, clientId={}, mq={}", group, clientId, mq);
                         }
 
+                        // 已被客户端锁定，更新锁定时间，返回
                         if (lockEntry.isLocked(clientId)) {
                             lockEntry.setLastUpdateTimestamp(System.currentTimeMillis());
                             lockedMqs.add(mq);
@@ -164,6 +182,8 @@ public class RebalanceLockManager {
 
                         String oldClientId = lockEntry.getClientId();
 
+                        // 默认最大锁定时间 1 min
+                        // 旧锁定队列的客户端过期，设置锁定队列的新客户端、锁定时间
                         if (lockEntry.isExpired()) {
                             lockEntry.setClientId(clientId);
                             lockEntry.setLastUpdateTimestamp(System.currentTimeMillis());

@@ -58,9 +58,21 @@ public class ConsumerFilterManager extends ConfigManager {
     private static final long MS_24_HOUR = 24 * 3600 * 1000;
 
     /**
-     * 过滤信息缓存
+     *
+     * 数据添加流程：
+     * 1、消费者启动，发送心跳数据到 broker
+     * 2、broker 的 ConsumerManager 注册消费者中发布 ConsumerGroupEvent.REGISTER 事件
+     * 3、DefaultConsumerIdsChangeListener 监听并处理事件，通过 ConsumerFilterManager 注册消费者组的过滤信息
+     * 4、ConsumerFilterManager#regist 方法遍历消费者组中订阅的topic信息，构建并缓存 订阅组下每个topic的过滤信息（布隆过滤器的初始化）
+     *     缓存在 consumerFilterManager中名为filterDataByTopic的map中
+     *
      * key ： Topic
-     * value： key： consumer group   value：ConsumerFilterData 包含表达式等信息
+     *
+     * value：FilterDataMapByTopic 类中还有map缓存，保存了 某topic 在所有消费者组下的 过滤表达式信息
+     *          key： consumer group
+     *          value：ConsumerFilterData
+     *
+     *
      */
     private ConcurrentMap<String/*Topic*/, FilterDataMapByTopic> filterDataByTopic = new ConcurrentHashMap<>(256);
 
@@ -120,6 +132,7 @@ public class ConsumerFilterManager extends ConfigManager {
     }
 
     public void register(final String consumerGroup, final Collection<SubscriptionData> subList) {
+        // 遍历消费者组中订阅的topic信息，构建并缓存 订阅组下每个topic的过滤信息（布隆过滤器的初始化）
         for (SubscriptionData subscriptionData : subList) {
             register(
                 subscriptionData.getTopic(),
@@ -154,6 +167,7 @@ public class ConsumerFilterManager extends ConfigManager {
 
     public boolean register(final String topic, final String consumerGroup, final String expression,
         final String type, final long clientVersion) {
+        // 判断是否为 tag 类型的，返回 false
         if (ExpressionType.isTagType(type)) {
             return false;
         }
@@ -169,7 +183,7 @@ public class ConsumerFilterManager extends ConfigManager {
             FilterDataMapByTopic prev = this.filterDataByTopic.putIfAbsent(topic, temp);
             filterDataMapByTopic = prev != null ? prev : temp;
         }
-
+        // 在 布隆过滤器中计算 consumerGroup#topic 的位置的数组 与 布隆过滤器总的位数，封装位 BloomFilterData 对象
         BloomFilterData bloomFilterData = bloomFilter.generate(consumerGroup + "#" + topic);
 
         return filterDataMapByTopic.register(consumerGroup, expression, type, bloomFilterData, clientVersion);
@@ -343,6 +357,9 @@ public class ConsumerFilterManager extends ConfigManager {
         this.filterDataByTopic = filterDataByTopic;
     }
 
+    /**
+     * 该对象保存了 某topic 在所有消费者组下的 过滤表达式信息
+     */
     public static class FilterDataMapByTopic {
 
         private ConcurrentMap<String/*consumer group*/, ConsumerFilterData> groupFilterData = new ConcurrentHashMap<>();
@@ -376,6 +393,7 @@ public class ConsumerFilterManager extends ConfigManager {
 
         public boolean register(String consumerGroup, String expression, String type, BloomFilterData bloomFilterData,
             long clientVersion) {
+            // 查询topic是否存在某消费者组的过滤表达式信息
             ConsumerFilterData old = this.groupFilterData.get(consumerGroup);
 
             if (old == null) {

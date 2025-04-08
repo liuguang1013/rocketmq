@@ -199,6 +199,10 @@ public class ProxyConfig implements ConfigFile {
 
     private boolean useDelayLevel = false;
     private String messageDelayLevel = "1s 5s 10s 30s 1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h";
+    /**
+     * 在 init 方法中 调用 parseDelayLevel() 完成初始化
+     * key：level 从 1 开始 最大 18，value ： ms 单位
+     */
     private transient ConcurrentSkipListMap<Integer /* level */, Long/* delay timeMillis */> delayLevelTable = new ConcurrentSkipListMap<>();
 
     private String metricCollectorMode = MetricCollectorMode.OFF.getModeString();
@@ -264,16 +268,20 @@ public class ProxyConfig implements ConfigFile {
 
     @Override
     public void initData() {
+        // 解析 延迟等级 并缓存到
         parseDelayLevel();
+        // 本服务器地址
         if (StringUtils.isEmpty(localServeAddr)) {
             this.localServeAddr = NetworkUtil.getLocalAddress();
         }
         if (StringUtils.isBlank(localServeAddr)) {
             throw new ProxyException(ProxyExceptionCode.INTERNAL_SERVER_ERROR, "get local serve ip failed");
         }
+
         if (StringUtils.isBlank(remotingAccessAddr)) {
             this.remotingAccessAddr = this.localServeAddr;
         }
+        // 集群名
         if (StringUtils.isBlank(heartbeatSyncerTopicClusterName)) {
             this.heartbeatSyncerTopicClusterName = this.rocketMQClusterName;
         }
@@ -290,6 +298,13 @@ public class ProxyConfig implements ConfigFile {
         return sortedLevels.get(sortedLevels.size() - 1).getKey();
     }
 
+    /**
+     * 解析延迟等级
+     * 由 messageDelayLevel 字符串解析而来
+     * 1s 5s 10s 30s 1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h
+     * 最终保存到 delayLevelTable ，key：level 从 1 开始 最大 18
+     *                             value ： ms 单位
+     */
     public void parseDelayLevel() {
         this.delayLevelTable = new ConcurrentSkipListMap<>();
         Map<String, Long> timeUnitTable = new HashMap<>();

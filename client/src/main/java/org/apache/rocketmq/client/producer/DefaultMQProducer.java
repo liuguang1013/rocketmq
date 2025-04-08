@@ -443,8 +443,8 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
      * @throws InterruptedException if the sending thread is interrupted.
      */
     @Override
-    public SendResult send(
-        Message msg) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+    public SendResult send(Message msg)
+            throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
         msg.setTopic(withNamespace(msg.getTopic()));
         if (this.getAutoBatch() && !(msg instanceof MessageBatch)) {
             return sendByAccumulator(msg, null, null);
@@ -660,6 +660,8 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
 
     /**
      * Same to {@link #send(Message, MessageQueueSelector, Object)} with send timeout specified.
+     *
+     *  同步发送消息，自定义消息队列选择器
      *
      * @param msg      Message to send.
      * @param selector Message queue selector, through which we get target message queue to deliver message to.

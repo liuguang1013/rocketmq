@@ -88,6 +88,9 @@ public class RemotingCommand {
     private int flag = 0;
     private String remark;
     private HashMap<String, String> extFields;
+    /**
+     * 不参与序列化
+     */
     private transient CommandCustomHeader customHeader;
     private transient CommandCustomHeader cachedHeader;
 
@@ -286,7 +289,16 @@ public class RemotingCommand {
             return null;
         }
 
+        // 解析 额外的信息，并设置到 对映的请求头的属性字段中
         if (this.extFields != null) {
+
+            /**
+             * 只有四个实现类：
+             *      PullMessageRequestHeader
+             *      PullMessageResponseHeader
+             *      SendMessageRequestHeaderV2
+             *      SendMessageResponseHeader
+             */
             if (objectHeader instanceof FastCodesHeader && useFastEncode) {
                 ((FastCodesHeader) objectHeader).decode(this.extFields);
                 objectHeader.checkFields();
@@ -295,6 +307,7 @@ public class RemotingCommand {
 
             Field[] fields = getClazzFields(classHeader);
             for (Field field : fields) {
+                // 不是静态常量的字段
                 if (!Modifier.isStatic(field.getModifiers())) {
                     String fieldName = field.getName();
                     if (!fieldName.startsWith("this")) {
@@ -348,6 +361,7 @@ public class RemotingCommand {
 
         if (field == null) {
             Set<Field> fieldList = new HashSet<>();
+            // 获取去自己及父类的全部字段
             for (Class className = classHeader; className != Object.class; className = className.getSuperclass()) {
                 Field[] fields = className.getDeclaredFields();
                 fieldList.addAll(Arrays.asList(fields));
@@ -425,6 +439,13 @@ public class RemotingCommand {
         }
     }
 
+    /**
+     * 将请求头的属性 都封装在 map 中
+     * CommandCustomHeader 接口存在多个实现类，RemotingCommand 只保存接口
+     * 在响应端接收请求后，需要将请求头反序列化到请求指定的请求头对象中，使用 mqp 进行缓存
+     * todo：是序列的问题吗？
+     * 反序列化的时候需要知道具体的类信息来实例化对象，如果字段的类型是接口，就不能被序列化
+     */
     public void makeCustomHeaderToNet() {
         if (this.customHeader != null) {
             Field[] fields = getClazzFields(customHeader.getClass());
@@ -466,6 +487,7 @@ public class RemotingCommand {
             }
             headerSize = RocketMQSerializable.rocketMQProtocolEncode(this, out);
         } else {
+            // 为了应对反序列化接口字段的丢失问题 ，将CommandCustomHeader请求头的字段都放入extFields  map 中
             this.makeCustomHeaderToNet();
             // 使用 fastJson 转换为json字符串，再获取字节数组
             byte[] header = RemotingSerializable.encode(this);

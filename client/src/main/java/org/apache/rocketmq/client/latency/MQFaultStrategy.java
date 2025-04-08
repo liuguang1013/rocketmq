@@ -22,6 +22,10 @@ import org.apache.rocketmq.client.impl.producer.TopicPublishInfo;
 import org.apache.rocketmq.client.impl.producer.TopicPublishInfo.QueueFilter;
 import org.apache.rocketmq.common.message.MessageQueue;
 
+/**
+ * 1、发送消息的时候，通过该类 选取要发送的消息队列
+ * 2、proxy 中 TopicRouteService 更新 LatencyFaultToleranceImpl 中的 FaultItem
+ */
 public class MQFaultStrategy {
     private LatencyFaultTolerance<String> latencyFaultTolerance;
     private volatile boolean sendLatencyFaultEnable;
@@ -49,6 +53,9 @@ public class MQFaultStrategy {
     }
 
     private ThreadLocal<BrokerFilter> threadBrokerFilter = new ThreadLocal<BrokerFilter>() {
+        /**
+         * threadBrokerFilter 使用 get 方法，默认返回一个 BrokerFilter 对象，无需显式set值
+         */
         @Override protected BrokerFilter initialValue() {
             return new BrokerFilter();
         }
@@ -151,7 +158,7 @@ public class MQFaultStrategy {
                 // 重置索引值
                 tpInfo.resetIndex();
             }
-
+            // 先执行
             MessageQueue mq = tpInfo.selectOneMessageQueue(availableFilter, brokerFilter);
             if (mq != null) {
                 return mq;

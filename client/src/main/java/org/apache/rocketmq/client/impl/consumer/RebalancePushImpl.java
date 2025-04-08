@@ -65,7 +65,7 @@ public class RebalancePushImpl extends RebalanceImpl {
         log.info("{} Rebalance changed, also update version: {}, {}", topic, subscriptionData.getSubVersion(), newVersion);
         subscriptionData.setSubVersion(newVersion);
 
-        // 根据 消息队列的数量 设置参数：
+        // 根据 消息队列的数量 设置拉取消息服务的流控参数：
         int currentQueueCount = this.processQueueTable.size();
         if (currentQueueCount != 0) {
             int pullThresholdForTopic = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getPullThresholdForTopic();
@@ -98,7 +98,7 @@ public class RebalancePushImpl extends RebalanceImpl {
 
     @Override
     public boolean removeUnnecessaryMessageQueue(final MessageQueue mq, final ProcessQueue pq) {
-        // 集群消费模式，并且是顺序消息
+        // 顺序消息-消费者-初始化(4)集群消费模式，并且是顺序消息下，移除ProcessQueue信息。
         if (this.defaultMQPushConsumerImpl.isConsumeOrderly()
             && MessageModel.CLUSTERING.equals(this.defaultMQPushConsumerImpl.messageModel())) {
 
@@ -107,7 +107,7 @@ public class RebalancePushImpl extends RebalanceImpl {
             this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);
 
             // remove order message queue: unlock & remove
-            // 尝试移除顺序消息队列： todo：待看
+            // 尝试移除顺序消息队列：
             return tryRemoveOrderMessageQueue(mq, pq);
         } else {
             // 持久化 topic 的消费位置
@@ -117,9 +117,16 @@ public class RebalancePushImpl extends RebalanceImpl {
         }
     }
 
+    /**
+     * 尝试移除顺序消息队列，主要是移除顺序消息的 缓存的偏移量信息
+     * @param mq
+     * @param pq
+     * @return
+     */
     private boolean tryRemoveOrderMessageQueue(final MessageQueue mq, final ProcessQueue pq) {
         try {
             // unlock & remove when no message is consuming or UNLOCK_DELAY_TIME_MILLS timeout (Backwards compatibility)
+            // 强制移除： 处理队列已经移除，并且已经超过解锁时间 默认20s
             boolean forceUnlock = pq.isDropped() && System.currentTimeMillis() > pq.getLastLockTimestamp() + UNLOCK_DELAY_TIME_MILLS;
             if (forceUnlock || pq.getConsumeLock().writeLock().tryLock(500, TimeUnit.MILLISECONDS)) {
                 try {
@@ -127,13 +134,15 @@ public class RebalancePushImpl extends RebalanceImpl {
                     RebalancePushImpl.this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);
                     // 清除缓存
                     RebalancePushImpl.this.defaultMQPushConsumerImpl.getOffsetStore().removeOffset(mq);
-
+                    // 将处理队列设置为未锁定状态：此时就不会继续从该消息队列拉取消息，详见 pullMessage(final PullRequest pullRequest)方法
                     pq.setLocked(false);
-                    //
+                    // 顺序消息-消费者-初始化(5)向Broker发送解锁消费队列请求，只发送一次
                     RebalancePushImpl.this.unlock(mq, true);
                     return true;
                 } finally {
+                    // 在强制解锁状态下，不释放写锁，意味着不能对当前队列进行操作
                     if (!forceUnlock) {
+                        // 解锁
                         pq.getConsumeLock().writeLock().unlock();
                     }
                 }
@@ -150,7 +159,7 @@ public class RebalancePushImpl extends RebalanceImpl {
     @Override
     public boolean clientRebalance(String topic) {
         // POPTODO order pop consume not implement yet
-        // 广播类型 并且是顺序消费 的  topic
+        // 广播类型 或者 顺序消费 的  topic
         return defaultMQPushConsumerImpl.getDefaultMQPushConsumer().isClientRebalance()
                 || defaultMQPushConsumerImpl.isConsumeOrderly()
                 || MessageModel.BROADCASTING.equals(messageModel);

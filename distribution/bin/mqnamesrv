@@ -42,4 +42,8 @@ fi
 
 export ROCKETMQ_HOME
 
+# 运行 runserver.sh 脚本，携带以下参数：
+# 参数1：-Drmq.logback.configurationFile 显示的指定 logback 的配置的文件名 和 文件路径
+# 参数2：org.apache.rocketmq.namesrv.NamesrvStartup 指定启动类名称
+# 参数3：$@ 在调用其他脚本或命令时 $@可以将所有传递给当前脚本的参数都转发给目标脚本或命令。
 sh ${ROCKETMQ_HOME}/bin/runserver.sh -Drmq.logback.configurationFile=$ROCKETMQ_HOME/conf/rmq.namesrv.logback.xml org.apache.rocketmq.namesrv.NamesrvStartup $@

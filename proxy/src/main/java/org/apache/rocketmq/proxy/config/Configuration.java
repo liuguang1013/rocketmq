@@ -37,28 +37,42 @@ public class Configuration {
     public static final String CONFIG_PATH_PROPERTY = "com.rocketmq.proxy.configPath";
 
     public void init() throws Exception {
+        // 获取  rmq-proxy.json 文件内容，默认只有 "rocketMQClusterName": "DefaultCluster"
         String proxyConfigData = loadJsonConfig();
 
         ProxyConfig proxyConfig = JSON.parseObject(proxyConfigData, ProxyConfig.class);
         proxyConfig.initData();
+
         setProxyConfig(proxyConfig);
     }
 
+    /**
+     * 加载  rmq-proxy.json 文件
+     * 默认在 distribution 项目 conf 文件夹下
+     * @return
+     * @throws Exception
+     */
     public static String loadJsonConfig() throws Exception {
+        // rmq-proxy.json
         String configFileName = ProxyConfig.DEFAULT_CONFIG_FILE_NAME;
+        // 获取环境变量 com.rocketmq.proxy.configPath
         String filePath = System.getProperty(CONFIG_PATH_PROPERTY);
+
         if (StringUtils.isBlank(filePath)) {
             final String testResource = "rmq-proxy-home/conf/" + configFileName;
+            // 优先加载 rmq-proxy-home/conf/rmq-proxy.json 文件，存在直接返回
             try (InputStream inputStream = Configuration.class.getClassLoader().getResourceAsStream(testResource)) {
                 if (null != inputStream) {
                     return CharStreams.toString(new InputStreamReader(inputStream, Charsets.UTF_8));
                 }
             }
+            //  filePath 为全路径名：${RMQ_PROXY_HOME}/conf/rmq-proxy.json
             filePath = new File(ConfigurationManager.getProxyHome() + File.separator + "conf", configFileName).toString();
         }
 
         File file = new File(filePath);
         log.info("The current configuration file path is {}", filePath);
+        // 不存在
         if (!file.exists()) {
             log.warn("the config file {} not exist", filePath);
             throw new RuntimeException(String.format("the config file %s not exist", filePath));

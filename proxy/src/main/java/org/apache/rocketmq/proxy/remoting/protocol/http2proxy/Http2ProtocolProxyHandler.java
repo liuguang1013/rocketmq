@@ -84,14 +84,19 @@ public class Http2ProtocolProxyHandler implements ProtocolHandler {
 
     @Override
     public boolean match(ByteBuf in) {
+        // 默认为 ture
         if (!ConfigurationManager.getProxyConfig().isEnableRemotingLocalProxyGrpc()) {
             return false;
         }
 
         // If starts with 'PRI '
+        //  0x50524920
         return in.getInt(in.readerIndex()) == PRI_INT;
     }
 
+    /**
+     * 创建 Netty 客户端，并连接本机 broker 的 netty Server
+     */
     @Override
     public void config(final ChannelHandlerContext ctx, final ByteBuf msg) {
         // proxy channel to http2 server
@@ -121,8 +126,10 @@ public class Http2ProtocolProxyHandler implements ProtocolHandler {
         }
 
         final Channel outboundChannel = f.channel();
+        // 配置 proxy 接收/发送 pipeline
         configPipeline(inboundChannel, outboundChannel);
 
+        //
         SslHandler sslHandler = null;
         if (sslContext != null) {
             sslHandler = sslContext.newHandler(outboundChannel.alloc(), LOCAL_HOST, config.getGrpcServerPort());
@@ -131,6 +138,7 @@ public class Http2ProtocolProxyHandler implements ProtocolHandler {
     }
 
     protected void configPipeline(Channel inboundChannel, Channel outboundChannel) {
+        // proxy_protocol_addr
         if (inboundChannel.hasAttr(AttributeKeys.PROXY_PROTOCOL_ADDR)) {
             inboundChannel.pipeline().addLast(new HAProxyMessageForwarder(outboundChannel));
             outboundChannel.pipeline().addFirst(HAProxyMessageEncoder.INSTANCE);

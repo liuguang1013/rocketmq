@@ -817,9 +817,14 @@ public class MQClientAPIImpl implements NameServerUpdateCallback {
             }
             uniqMsgId = sb.toString();
         }
+        // 构建发送消息结果
         SendResult sendResult = new SendResult(sendStatus,
             uniqMsgId,
-            responseHeader.getMsgId(), messageQueue, responseHeader.getQueueOffset());
+                responseHeader.getMsgId(),
+                messageQueue,
+                // 发送消息在消息队列中的偏移量
+                responseHeader.getQueueOffset());
+
         sendResult.setTransactionId(responseHeader.getTransactionId());
         String regionId = response.getExtFields().get(MessageConst.PROPERTY_MSG_REGION);
         if (regionId == null || regionId.isEmpty()) {

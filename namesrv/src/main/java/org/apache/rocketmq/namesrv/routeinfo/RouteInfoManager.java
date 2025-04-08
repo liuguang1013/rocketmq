@@ -459,6 +459,7 @@ public class RouteInfoManager {
                 }
             }
 
+            // 获取主节点的 地址，设置到响应对象中，Broker在对响应进行解析的时候会获取，并更新主节点信息
             if (MixAll.MASTER_ID != brokerId) {
                 String masterAddr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
                 if (masterAddr != null) {

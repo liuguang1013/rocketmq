@@ -60,6 +60,7 @@ import org.apache.rocketmq.remoting.protocol.route.TopicRouteData;
 
 /**
  * 1、查询 broker 主节点的 最大偏移量
+ * 2、发送自定义 MessageQueueSelector 消息 的时候，去除 MessageQueue 中 topic 的 Namespace、死信、重试队列的前缀修饰
  */
 public class MQAdminImpl {
 
@@ -157,9 +158,16 @@ public class MQAdminImpl {
         throw new MQClientException("Unknow why, Can not find Message Queue for this topic, " + topic, null);
     }
 
+    /**
+     * 解析 TopicPublishInfo 中的 MessageQueue 列表信息
+     * 去除 MessageQueue 中 topic 的 Namespace、死信、重试队列的前缀修饰
+     * @param messageQueueList
+     * @return
+     */
     public List<MessageQueue> parsePublishMessageQueues(List<MessageQueue> messageQueueList) {
         List<MessageQueue> resultQueues = new ArrayList<>();
         for (MessageQueue queue : messageQueueList) {
+            // 去除 MessageQueue 中 topic 的 Namespace、死信、重试队列的前缀修饰
             String userTopic = NamespaceUtil.withoutNamespace(queue.getTopic(), this.mQClientFactory.getClientConfig().getNamespace());
             resultQueues.add(new MessageQueue(userTopic, queue.getBrokerName(), queue.getQueueId()));
         }

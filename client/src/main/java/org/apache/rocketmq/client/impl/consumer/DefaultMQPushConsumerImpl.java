@@ -27,6 +27,9 @@ import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
+
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelHandlerContext;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.rocketmq.client.QueryResult;
@@ -76,6 +79,7 @@ import org.apache.rocketmq.remoting.RPCHook;
 import org.apache.rocketmq.remoting.common.RemotingHelper;
 import org.apache.rocketmq.remoting.exception.RemotingException;
 import org.apache.rocketmq.remoting.protocol.NamespaceUtil;
+import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 import org.apache.rocketmq.remoting.protocol.ResponseCode;
 import org.apache.rocketmq.remoting.protocol.body.ConsumeStatus;
 import org.apache.rocketmq.remoting.protocol.body.ConsumerRunningInfo;
@@ -86,6 +90,7 @@ import org.apache.rocketmq.remoting.protocol.filter.FilterAPI;
 import org.apache.rocketmq.remoting.protocol.header.AckMessageRequestHeader;
 import org.apache.rocketmq.remoting.protocol.header.ChangeInvisibleTimeRequestHeader;
 import org.apache.rocketmq.remoting.protocol.header.ExtraInfoUtil;
+import org.apache.rocketmq.remoting.protocol.header.PullMessageRequestHeader;
 import org.apache.rocketmq.remoting.protocol.heartbeat.ConsumeType;
 import org.apache.rocketmq.remoting.protocol.heartbeat.MessageModel;
 import org.apache.rocketmq.remoting.protocol.heartbeat.SubscriptionData;
@@ -93,6 +98,8 @@ import org.apache.rocketmq.remoting.protocol.route.BrokerData;
 import org.apache.rocketmq.remoting.protocol.route.TopicRouteData;
 import org.apache.rocketmq.logging.org.slf4j.Logger;
 import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
+import org.apache.rocketmq.remoting.protocol.statictopic.TopicQueueMappingContext;
+import org.apache.rocketmq.remoting.protocol.subscription.SubscriptionGroupConfig;
 
 public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     /**
@@ -118,6 +125,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     private final RebalanceImpl rebalanceImpl = new RebalancePushImpl(this);
     private final ArrayList<FilterMessageHook> filterMessageHookList = new ArrayList<>();
     private final long consumerStartTimestamp = System.currentTimeMillis();
+
     private final ArrayList<ConsumeMessageHook> consumeMessageHookList = new ArrayList<>();
     private final RPCHook rpcHook;
     private volatile ServiceState serviceState = ServiceState.CREATE_JUST;
@@ -129,7 +137,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
      */
     private boolean consumeOrderly = false;
     /**
-     * @
+     * MessageListener 的实现类会封装，用户通过@RocketMQMessageListener 注解自定义的消息消费类
+     * 会通过 DefaultMQPushConsumer 设置到该类中，
+     * 但是最终在start方法中， 将MessageListener 传给 consumeMessageService，后续真正消费消息是在 consumeMessageService中
      */
     private MessageListener messageListenerInner;
     /**
@@ -138,7 +148,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
      */
     private OffsetStore offsetStore;
     /**
-     *
+     * 根据不同的消费类型，选择不同消费服务。
+     * @RocketMQMessageListener 注解中 consumeMode属性
+     * ConsumeMode.CONCURRENTLY 使用 ConsumeMessageConcurrentlyService
+     *  ConsumeMode.ORDERLY 使用 ConsumeMessageOrderlyService
      */
     private ConsumeMessageService consumeMessageService;
     /**
@@ -336,9 +349,12 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 return;
             }
         }
-        // 顺序消息：todo 处理待看
+        // 顺序消息-消费者-拉取消息(1)发送拉取消息前，处理队列校验：消息队列拉取位置偏移量、对比偏移量
         else {
+            // 顺序消息 在 reBalance 服务中添加 PullRequest 请求时候，会向 broker 发送请求 lock 队列
+            // 创建 ProcessQueue 时，默认就是 true
             if (processQueue.isLocked()) {
+                // 默认 之前是 未锁定状态
                 if (!pullRequest.isPreviouslyLocked()) {
                     long offset = -1L;
                     try {
@@ -352,14 +368,20 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                         log.error("Failed to compute pull offset, pullResult: {}", pullRequest, e);
                         return;
                     }
+                    // todo：什么情况下，会出现这种情况？
+                    /**
+                     * pullRequest 在 updateProcessQueueTableInRebalance 中初次添加的时候，
+                     * pullRequest的 offSet 和 该方法中的 offSet 获取方法相同 computePullFromWhereWithException
+                     * 从名称上看是 broker繁忙，具体原因待看
+                     */
                     boolean brokerBusy = offset < pullRequest.getNextOffset();
-                    log.info("the first time to pull message, so fix offset from broker. pullRequest: {} NewOffset: {} brokerBusy: {}",
-                        pullRequest, offset, brokerBusy);
+                    log.info("the first time to pull message, so fix offset from broker. pullRequest: {} NewOffset: {} brokerBusy: {}", pullRequest, offset, brokerBusy);
+
                     if (brokerBusy) {
-                        log.info("[NOTIFYME]the first time to pull message, but pull request offset larger than broker consume offset. pullRequest: {} NewOffset: {}",
-                            pullRequest, offset);
+                        log.info("[NOTIFYME]the first time to pull message, but pull request offset larger than broker consume offset. pullRequest: {} NewOffset: {}", pullRequest, offset);
                     }
                     // todo： 这个状态作用是什么？ 什么时候设置为 false
+                    // 是为了修正偏移量？
                     pullRequest.setPreviouslyLocked(true);
                     // 修正开始拉取的偏移量
                     pullRequest.setNextOffset(offset);
@@ -396,9 +418,18 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                         subscriptionData);
 
                     // 这些状态 最终在 MQClientAPIImpl#processPullResponse 进行转换
+                    /**
+                     * GetMessageStatus、ResponseCode、PullStatus 三者之间关系转换
+                     *
+                     * 1、DefaultMessageStore.getMessage()：产生GetMessageStatus
+                     * 2、composeResponseHeader：转换 GetMessageStatus、ResponseCode 状态
+                     * 3、processPullResponse：转换 ResponseCode、PullStatus 状态
+                     * 4、该方法处理：PullStatus
+                     */
                     switch (pullResult.getPullStatus()) {
                         case FOUND:
                             long prevRequestOffset = pullRequest.getNextOffset();
+                            // 设置下次开始拉取的消息
                             pullRequest.setNextOffset(pullResult.getNextBeginOffset());
                             // 统计消息拉取的时间间隔
                             long pullRT = System.currentTimeMillis() - beginTimestamp;
@@ -410,7 +441,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 // 未拉取到消息，马上再去拉取消息
                                 DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
                             } else {
-                                //
+                                // 第一个消息的偏移量
                                 firstMsgOffset = pullResult.getMsgFoundList().get(0).getQueueOffset();
 
                                 // 统计 消费者组、某topic拉取消息的 tps
@@ -421,6 +452,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
 
                                 // 向消费消息服务，添加消费请求
+                                // 顺序消息-消费者-消费(1)拉取消息、向消费处理队列中添加消息成功后，向 ConsumeMessageOrderlyService 的线程池中添加消费请求
+                                // 普通消息：直接分组消费消息
                                 DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
                                     pullResult.getMsgFoundList(),
                                     processQueue,
@@ -449,7 +482,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                         case NO_NEW_MSG:
                         case NO_MATCHED_MSG:
                             pullRequest.setNextOffset(pullResult.getNextBeginOffset());
-
+                            // 更新 offstore 缓存
                             DefaultMQPushConsumerImpl.this.correctTagsOffset(pullRequest);
 
                             DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
@@ -472,6 +505,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
 
                                         // removeProcessQueue will also remove offset to cancel the frozen status.
                                         DefaultMQPushConsumerImpl.this.rebalanceImpl.removeProcessQueue(pullRequest.getMessageQueue());
+
                                         DefaultMQPushConsumerImpl.this.rebalanceImpl.getmQClientFactory().rebalanceImmediately();
 
                                         log.warn("fix the pull request offset, {}", pullRequest);
@@ -505,11 +539,19 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             }
         };
 
-        // 提交偏移量的标识，会被保存到 sysFlag 中
-        // 存在该标识：在 broker 的PullMessageProcessor 中 获取消息后，
-        // 对消息的偏移量，不仅会缓存ConsumerOffsetManager.pullOffsetTable
-        // 还会缓存 ConsumerOffsetManager.offsetTable
-        // ConsumerOffsetManager.offsetTable  才是在 broker 获取偏移量的时候返回的缓存值
+        /**
+         * 提交偏移量的标识，会被保存到 sysFlag 中
+         * 存在该标识：在 broker 的PullMessageProcessor 中 获取消息后，
+         * 对消息的偏移量，不仅会缓存ConsumerOffsetManager.pullOffsetTable
+         * 还会缓存 ConsumerOffsetManager.offsetTable
+         * ConsumerOffsetManager.offsetTable  才是在 broker 获取偏移量的时候返回的缓存值
+         *
+         * 这个标识很重要：消费者对于消费完成的消息会通过定时任务的方式，向Broker 发送请求更新offsetTable缓存中消息偏移量
+         * @see org.apache.rocketmq.broker.processor.ConsumerManageProcessor#updateConsumerOffset(ChannelHandlerContext, RemotingCommand)
+         * 但是commitOffsetEnable 标识为 true，会在拉取消息的时候，在DefaultPullMessageResultHandler 中就更新
+         * @see org.apache.rocketmq.broker.processor.DefaultPullMessageResultHandler#handle(org.apache.rocketmq.store.GetMessageResult, RemotingCommand, PullMessageRequestHeader, Channel, SubscriptionData, SubscriptionGroupConfig, boolean, org.apache.rocketmq.store.MessageFilter, RemotingCommand, TopicQueueMappingContext, long)
+         */
+
         boolean commitOffsetEnable = false;
         long commitOffsetValue = 0L;
         if (MessageModel.CLUSTERING == this.defaultMQPushConsumer.getMessageModel()) {
@@ -520,6 +562,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
             }
         }
 
+        /**
+         * subExpression 该标识
+         */
         String subExpression = null;
         boolean classFilter = false;
         SubscriptionData sd = this.rebalanceImpl.getSubscriptionInner().get(pullRequest.getMessageQueue().getTopic());
@@ -995,6 +1040,11 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 // 构建 消费者组的 重试 topic，封装subscriptionData，保存到 rebalanceImpl 的缓存中
                 this.copySubscription();
                 // instanceName 设置实例名： Pid#系统纳秒
+                /**
+                 *  这一步很重要，每个消费者都会有 mQClientInstance 实例，
+                 *  在创建时会创建 defaultMQProducer，消费者组名为CLIENT_INNER_PRODUCER_GROUP
+                 *  此处设置InstanceName，后续在defaultMQProducer启动时候，根据clientId获取mQClientInstance实例
+                  */
                 if (this.defaultMQPushConsumer.getMessageModel() == MessageModel.CLUSTERING) {
                     this.defaultMQPushConsumer.changeInstanceNameToPID();
                 }
@@ -1018,7 +1068,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 // 注册 钩子函数
                 this.pullAPIWrapper.registerFilterMessageHook(filterMessageHookList);
 
-                // 偏移量
+                // 获取消费者当前的消费偏移量。广播类型消息：使用本地存储；集群类型消息：在服务端获取偏移量
                 if (this.defaultMQPushConsumer.getOffsetStore() != null) {
                     this.offsetStore = this.defaultMQPushConsumer.getOffsetStore();
                 } else {
@@ -1038,9 +1088,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 //
                 this.offsetStore.load();
 
-                // 根据 不同消息类型 创建 不同服务
+                // 根据不同消息类型创建不同消息服务：在broker获取到的消息，在对映服务中完成消费
                 if (this.getMessageListenerInner() instanceof MessageListenerOrderly) {
                     this.consumeOrderly = true;
+                    //顺序消息-消费者push-初始化(1)创建顺序消费消息服务
                     this.consumeMessageService = new ConsumeMessageOrderlyService(this
                                                         , (MessageListenerOrderly) this.getMessageListenerInner());
                     //POPTODO reuse Executor ?
@@ -1064,7 +1115,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                  */
                 this.consumeMessageService.start();
                 // POPTODO
-                // 什么也不做
+                /**
+                 * 顺序消息中：只在集群消费模式下：延迟执行1s，之后固定每20s执行一次，对broker主节点发送请求，但是什么也没做
+                 * 普通消息中：什么也不做
+                 */
                 this.consumeMessagePopService.start();
 
                 // 向 MQClientInstance.consumerTable 中 注册 DefaultMQPushConsumer 消费者
@@ -1080,7 +1134,9 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 /**
                  *   客户端开启
                  *   创建 netty 客户端 bootStrap 对象
-                 *   开启定时任务：
+                 *   开启定时任务
+                 *   开启拉取消息服务
+                 *   开启重新平衡服务
                   */
                 mQClientFactory.start();
                 log.info("the consumer [{}] start OK.", this.defaultMQPushConsumer.getConsumerGroup());
@@ -1509,7 +1565,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     @Override
     public boolean tryRebalance() {
         if (!this.pause) {
-            //
+            //顺序消息-消费者-初始化(2)客户端负载平衡消息队列，传入是否顺序消费标识
             return this.rebalanceImpl.doRebalance(this.isConsumeOrderly());
         }
         return false;
@@ -1675,6 +1731,14 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
     }
 
 
+    /**
+     * 对于重试消息，去除 Retry、Namespace 前缀修饰
+     *
+     * 重试消息的标识：在消息 Property 属性中，存在 RETRY_TOPIC
+     *
+     * @param msgs
+     * @param consumerGroup
+     */
     public void resetRetryAndNamespace(final List<MessageExt> msgs, String consumerGroup) {
         final String groupTopic = MixAll.getRetryTopic(consumerGroup);
         for (MessageExt msg : msgs) {

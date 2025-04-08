@@ -42,6 +42,10 @@ import org.apache.rocketmq.remoting.rpc.TopicRequestHeader;
 
 import static org.apache.rocketmq.remoting.protocol.RemotingCommand.buildErrorResponse;
 
+/**
+ * Static Topic 的引入是为了提高 RocketMQ 在大规模场景下的性能、可预测性 和 运维效率，同时降低动态路由的查询开销。
+ * 它适用于 路由稳定、消息量大、运维简单化 的场景，帮助企业在分布式消息传输中实现更高效、更稳定的消息管理。
+ */
 public class TopicQueueMappingManager extends ConfigManager {
     private static final Logger log = LoggerFactory.getLogger(LoggerName.BROKER_LOGGER_NAME);
     private static final long LOCK_TIMEOUT_MILLIS = 3000;
@@ -255,7 +259,8 @@ public class TopicQueueMappingManager extends ConfigManager {
             }
             TopicQueueMappingDetail mappingDetail = mappingContext.getMappingDetail();
             if (!mappingContext.isLeader()) {
-                return buildErrorResponse(ResponseCode.NOT_LEADER_FOR_QUEUE, String.format("%s-%d does not exit in request process of current broker %s", requestHeader.getTopic(), requestHeader.getQueueId(), mappingDetail.getBname()));
+                return buildErrorResponse(ResponseCode.NOT_LEADER_FOR_QUEUE, String.format("%s-%d does not exit in request process of current broker %s",
+                        requestHeader.getTopic(), requestHeader.getQueueId(), mappingDetail.getBname()));
             }
             LogicQueueMappingItem mappingItem = mappingContext.getLeaderItem();
             requestHeader.setQueueId(mappingItem.getQueueId());

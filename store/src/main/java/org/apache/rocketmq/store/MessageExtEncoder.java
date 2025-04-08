@@ -63,7 +63,8 @@ public class MessageExtEncoder {
         int bornhostLength = (sysFlag & MessageSysFlag.BORNHOST_V6_FLAG) == 0 ? 8 : 20;
         int storehostAddressLength = (sysFlag & MessageSysFlag.STOREHOSTADDRESS_V6_FLAG) == 0 ? 8 : 20;
 
-        return 4 //TOTALSIZE
+        return
+            4 //TOTALSIZE
             + 4 //MAGICCODE
             + 4 //BODYCRC
             + 4 //QUEUEID
@@ -77,9 +78,12 @@ public class MessageExtEncoder {
             + storehostAddressLength //STOREHOSTADDRESS
             + 4 //RECONSUMETIMES
             + 8 //Prepared Transaction Offset
-            + 4 + (Math.max(bodyLength, 0)) //BODY
-            + messageVersion.getTopicLengthSize() + topicLength //TOPIC
-            + 2 + (Math.max(propertiesLength, 0)); //propertiesLength
+            + 4 //bodyLength
+            + (Math.max(bodyLength, 0)) //BODY
+            + messageVersion.getTopicLengthSize() //topicLength
+            + topicLength //TOPIC
+            + 2 // propertiesLength
+            + (Math.max(propertiesLength, 0)); //properties
     }
 
     public static int calMsgLengthNoProperties(MessageVersion messageVersion,
@@ -175,6 +179,7 @@ public class MessageExtEncoder {
     public PutMessageResult encode(MessageExtBrokerInner msgInner) {
         this.byteBuf.clear();
 
+        // todo：为什么多分发的 不需要保存 消息属性？
         if (messageStoreConfig.isEnableMultiDispatch() && CommitLog.isMultiDispatchMsg(msgInner)) {
             return encodeWithoutProperties(msgInner);
         }
@@ -279,6 +284,7 @@ public class MessageExtEncoder {
             this.byteBuf.writeByte((byte) MessageDecoder.PROPERTY_SEPARATOR);
         }
         // 18 CRC32
+        // 重置写指针的位置：将冗余校验的长度留出来
         this.byteBuf.writerIndex(this.byteBuf.writerIndex() + crc32ReservedLength);
 
         return null;

@@ -32,15 +32,11 @@ public class TopicPublishInfo {
     private boolean orderTopic = false;
     private boolean haveTopicRouterInfo = false;
     /**
-     * 消息队列信息
-     * MessageQueue 封装 topic、brokerName、queueId
-     *
+     * 消息队列信息 MessageQueue 封装 topic、brokerName、queueId
      * 每个 topic 对映多个 brokerName
      * 每个 brokerName 对映多个 queueId
      *
-     * 消息对指定的队列进行发送的时候，会在该列表中进行筛选
-     * MessageQueueSelector
-     *
+     * 消息对指定的队列进行发送的时候，MessageQueueSelector会在该列表中进行筛选
      */
     private List<MessageQueue> messageQueueList = new ArrayList<>();
     /**
@@ -48,8 +44,7 @@ public class TopicPublishInfo {
      */
     private volatile ThreadLocalIndex sendWhichQueue = new ThreadLocalIndex();
     /**
-     * topic 路由信息
-     *
+     * nameSrv返回的 topic 路由信息
      */
     private TopicRouteData topicRouteData;
 
@@ -103,7 +98,7 @@ public class TopicPublishInfo {
             return null;
         }
 
-        // 过滤器 筛选： 默认的 BrokerFilter 必须与上次的 broker 不同
+        // 过滤器 筛选： 默认的 BrokerFilter 必须与上次的 brokerName 不同，保证消息均匀发送
         if (filter != null && filter.length != 0) {
             for (int i = 0; i < messageQueueList.size(); i++) {
                 int index = Math.abs(sendQueue.incrementAndGet() % messageQueueList.size());

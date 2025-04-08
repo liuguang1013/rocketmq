@@ -101,6 +101,7 @@ public class DefaultPullMessageResultHandler implements PullMessageResultHandler
         TopicConfig topicConfig = this.brokerController.getTopicConfigManager().selectTopicConfig(requestHeader.getTopic());
 
         // 构建响应头 设置 Response ： code、suggestWhichBrokerId、nextBeginOffset、minOffset、maxOffset等信息
+        //   很重要的是：将 GetMessageStatus 和   ResponseCode 对映起来
         processor.composeResponseHeader(requestHeader, getMessageResult, topicConfig.getTopicSysFlag(),
             subscriptionGroupConfig, response, clientAddress);
 
@@ -187,9 +188,11 @@ public class DefaultPullMessageResultHandler implements PullMessageResultHandler
                     return null;
                 }
             case ResponseCode.PULL_NOT_FOUND:
+                // 当未拉取到消息，请求头中又存在：暂停标识
                 final boolean hasSuspendFlag = PullSysFlag.hasSuspendFlag(requestHeader.getSysFlag());
+                // 默认 15s
                 final long suspendTimeoutMillisLong = hasSuspendFlag ? requestHeader.getSuspendTimeoutMillis() : 0;
-
+                // broker 默认允许暂停 、 默认请求中有暂停标识
                 if (brokerAllowSuspend && hasSuspendFlag) {
                     long pollingTimeMills = suspendTimeoutMillisLong;
                     if (!this.brokerController.getBrokerConfig().isLongPollingEnable()) {
