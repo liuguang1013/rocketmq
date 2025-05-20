@@ -239,6 +239,9 @@ public class UtilAll {
         return file.exists();
     }
 
+    /**
+     * 获取磁盘分区空间使用百分比
+     */
     public static double getDiskPartitionSpaceUsedPercent(final String path) {
         if (null == path || path.isEmpty()) {
             STORE_LOG.error("Error when measuring disk space usage, path is null or empty, path : {}", path);
@@ -252,7 +255,8 @@ public class UtilAll {
                 STORE_LOG.error("Error when measuring disk space usage, file doesn't exist on this path: {}", path);
                 return -1;
             }
-
+            //这个方法返回的是指定路径所在文件系统的分区总的存储空间大小，以字节为单位。
+            // 也就是说，它告诉你挂载到这个路径的磁盘或分区一共有多少存储空间，而不是某个特定文件占用了多少空间。
             long totalSpace = file.getTotalSpace();
 
             if (totalSpace > 0) {

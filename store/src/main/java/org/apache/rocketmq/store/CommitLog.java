@@ -625,7 +625,7 @@ public class CommitLog implements Swappable {
                 if (tags != null && tags.length() > 0) {
                     // 取 tags 字符串的 hashCode
                     // 此处很重要，在后续构建消费队列的消息额外信息的时候会替换 tagsCode ，
-                    // 使用装饰后的 消息绝对偏移量 去替换 tagsCode
+                    // 使用装饰后的 消息在ConsumeQueueExt中绝对偏移量 去替换 tagsCode
                     // 对象的hash值是int类型，但是保存额外信息后会装饰成 long 类型
                     /**
                      *  @see ConsumeQueueExt#decorate(long)
@@ -636,6 +636,10 @@ public class CommitLog implements Swappable {
 
                 // Timing message processing
                 {
+                    /**
+                     * 延时消息-broker-接收(2.3)延迟等级-消息重放：构建消息队列额外信息：tagsCode 重置。对于延迟消息存储时间 要加上延迟时间
+                     * （多个地方都用这个方法，先说明 重放场景下）
+                     */
                     String t = propertiesMap.get(MessageConst.PROPERTY_DELAY_TIME_LEVEL);
                     if (TopicValidator.RMQ_SYS_SCHEDULE_TOPIC.equals(topic) && t != null) {
                         int delayLevel = Integer.parseInt(t);
@@ -645,6 +649,7 @@ public class CommitLog implements Swappable {
                         }
 
                         if (delayLevel > 0) {
+                            //
                             tagsCode = this.defaultMessageStore.computeDeliverTimestamp(delayLevel,
                                 storeTimestamp);
                         }
@@ -1043,7 +1048,7 @@ public class CommitLog implements Swappable {
         // 消息冗余开关，默认不开启，只会在主备同步时被复制到从 Broker。
         // 如果设置为 true，那么当一条消息被发送到 Broker 时，除了将消息存储在本地之外，还会尝试将这条消息复制到其他指定的 Broker 上，从而实现消息的冗余存储
         if (!defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()) {
-            // 设置存储时间戳
+            // 消息时间-StoreTimestamp-(2)无锁下-设置存储时间戳
             msg.setStoreTimestamp(System.currentTimeMillis());
         }
         // Set the message body CRC (consider the most appropriate setting on the client)
@@ -1133,7 +1138,7 @@ public class CommitLog implements Swappable {
 
             if (needAssignOffset) {
                 /**
-                 * 事务消息-broker-发送-(4)对于没有事务类型、提交类型事务消息，才会分配队列偏移量
+                 * 事务消息-broker-接收-(4)对于没有事务类型、提交类型事务消息，才会分配队列偏移量
                  * 在 queueOffsetOperator.topicQueueTable 的缓存中，
                  * 通过 key：Topic-QueueId ，获取缓存的队列偏移量，放入消息的queueOffset属性中
                  * 偏移量是 topic 某队列的消息数量
@@ -1165,6 +1170,7 @@ public class CommitLog implements Swappable {
                 // global
                 if (!defaultMessageStore.getMessageStoreConfig().isDuplicationEnable()) {
                     // 这里设置存储时间戳，以保证有序
+                    // 消息时间-StoreTimestamp-(2)有锁下-设置存储时间戳
                     msg.setStoreTimestamp(beginLockTimestamp);
                 }
 
@@ -1225,7 +1231,7 @@ public class CommitLog implements Swappable {
             }
             // Increase queue offset when messages are successfully written
             if (AppendMessageStatus.PUT_OK.equals(result.getStatus())) {
-                //事务消息-broker-发送-(6)对于没有事务类型、提交类型事务消息，才会增加队列偏移量
+                //事务消息-broker-接收-(6)对于没有事务类型、提交类型事务消息，才会增加队列偏移量
                 this.defaultMessageStore.increaseOffset(msg, getMessageNum(msg));
             }
         } catch (RocksDBException e) {
@@ -1507,6 +1513,7 @@ public class CommitLog implements Swappable {
 
     /**
      * According to receive certain message or offset storage time if an error occurs, it returns -1
+     * 如果发生错误，则根据接收到的特定消息或偏移存储时间返回-1
      */
     public long pickupStoreTimestamp(final long offset, final int size) {
         if (offset >= this.getMinOffset() && offset + size <= this.getMaxOffset()) {
@@ -2244,7 +2251,7 @@ public class CommitLog implements Swappable {
             short messageNum = getMessageNum(msgInner);
 
             // Transaction messages that require special handling
-            //事务消息-broker-发送-(5)对于事务消息，需要进行特殊处理，将队列中偏移量置为0
+            //事务消息-broker-接收-(5)对于事务消息，需要进行特殊处理，将队列中偏移量置为0
             final int tranType = MessageSysFlag.getTransactionValue(msgInner.getSysFlag());
             switch (tranType) {
                 // Prepared and Rollback message is not consumed, will not enter the consume queue

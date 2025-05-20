@@ -97,6 +97,7 @@ public class ScheduleMessageService extends ConfigManager {
 
     public ScheduleMessageService(final BrokerController brokerController) {
         this.brokerController = brokerController;
+        // 默认 false
         this.enableAsyncDeliver = brokerController.getMessageStoreConfig().isEnableScheduleAsyncDeliver();
         scheduledPersistService = ThreadUtils.newScheduledThreadPool(1,
             new ThreadFactoryImpl("ScheduleMessageServicePersistThread", true, brokerController.getBrokerConfig()));
@@ -138,13 +139,19 @@ public class ScheduleMessageService extends ConfigManager {
         return storeTimestamp + 1000;
     }
 
+
     public void start() {
+        // CAS 设置开启状态
         if (started.compareAndSet(false, true)) {
             this.load();
             this.deliverExecutorService = ThreadUtils.newScheduledThreadPool(this.maxDelayLevel, new ThreadFactoryImpl("ScheduleMessageTimerThread_"));
+            // 默认 false
             if (this.enableAsyncDeliver) {
                 this.handleExecutorService = ThreadUtils.newScheduledThreadPool(this.maxDelayLevel, new ThreadFactoryImpl("ScheduleMessageExecutorHandleThread_"));
             }
+            /**
+             * 延时消息-broker-基于延时等级(1)开启定时任务 ScheduleMessageService，遍历各个延迟等级的消息，每 1 秒执行一次。
+             */
             for (Map.Entry<Integer, Long> entry : this.delayLevelTable.entrySet()) {
                 Integer level = entry.getKey();
                 Long timeDelay = entry.getValue();
@@ -157,12 +164,14 @@ public class ScheduleMessageService extends ConfigManager {
                     if (this.enableAsyncDeliver) {
                         this.handleExecutorService.schedule(new HandlePutResultTask(level), FIRST_DELAY_TIME, TimeUnit.MILLISECONDS);
                     }
+                    // 1s 执行一次
                     this.deliverExecutorService.schedule(new DeliverDelayedMessageTimerTask(level, offset), FIRST_DELAY_TIME, TimeUnit.MILLISECONDS);
                 }
             }
 
             scheduledPersistService.scheduleAtFixedRate(() -> {
                 try {
+                    // 将每个队列的 偏移量持久化到 磁盘中。
                     ScheduleMessageService.this.persist();
                 } catch (Throwable e) {
                     log.error("scheduleAtFixedRate flush exception", e);
@@ -240,6 +249,10 @@ public class ScheduleMessageService extends ConfigManager {
         return result;
     }
 
+    /**
+     * 校验 修正 延时队列的 各个消息延迟等级的 消费队列的偏移量
+     * @return
+     */
     public boolean correctDelayOffset() {
         try {
             for (int delayLevel : delayLevelTable.keySet()) {
@@ -334,6 +347,7 @@ public class ScheduleMessageService extends ConfigManager {
                 long num = Long.parseLong(value.substring(0, value.length() - 1));
                 long delayTimeMillis = tu * num;
                 this.delayLevelTable.put(level, delayTimeMillis);
+                // 默认 false
                 if (this.enableAsyncDeliver) {
                     this.deliverPendingTable.put(level, new LinkedBlockingQueue<>());
                 }
@@ -412,16 +426,21 @@ public class ScheduleMessageService extends ConfigManager {
             return result;
         }
 
+        /**
+         * 延时消息-broker-基于延时等级(2)开始执行 某一等级的延迟消息定时器任务
+         */
         public void executeOnTimeUp() {
             ConsumeQueueInterface cq =
                 ScheduleMessageService.this.brokerController.getMessageStore().getConsumeQueue(TopicValidator.RMQ_SYS_SCHEDULE_TOPIC,
                     delayLevel2QueueId(delayLevel));
 
+            // 未获取到消费队列，延迟 100ms 再次执行
             if (cq == null) {
                 this.scheduleNextTimerTask(this.offset, DELAY_FOR_A_WHILE);
                 return;
             }
 
+            // 根据偏移量获取存储单位，未获取到会延迟 100ms 再次执行
             ReferredIterator<CqUnit> bufferCQ = cq.iterateFrom(this.offset);
             if (bufferCQ == null) {
                 long resetOffset;
@@ -448,14 +467,20 @@ public class ScheduleMessageService extends ConfigManager {
                     long tagsCode = cqUnit.getTagsCode();
 
                     if (!cqUnit.isTagsCodeValid()) {
+                        // tagsCode 是指向 ConsumeQueueExt 文件会进入
+
                         //can't find ext content.So re compute tags code.
                         log.error("[BUG] can't find consume queue extend file content!addr={}, offsetPy={}, sizePy={}",
                             tagsCode, offsetPy, sizePy);
+                        // 在 commitLog 中获取消息的存储时间，
                         long msgStoreTime = ScheduleMessageService.this.brokerController.getMessageStore().getCommitLog().pickupStoreTimestamp(offsetPy, sizePy);
+                        // 再加上延迟等级对映的延迟时间，最终获取 消息的延迟时间 。
+                        // todo： 为什么用 tagsCode 标识呢？ 因为在构建 消息队列的时候，存储的是 延时时间
                         tagsCode = computeDeliverTimestamp(delayLevel, msgStoreTime);
                     }
 
                     long now = System.currentTimeMillis();
+                    // 修正发送时间
                     long deliverTimestamp = this.correctDeliverTimestamp(now, tagsCode);
 
                     long currOffset = cqUnit.getQueueOffset();
@@ -464,16 +489,19 @@ public class ScheduleMessageService extends ConfigManager {
 
                     long countdown = deliverTimestamp - now;
                     if (countdown > 0) {
+                        // 延迟 100ms 继续执行
                         this.scheduleNextTimerTask(currOffset, DELAY_FOR_A_WHILE);
+                        // 更新该延迟等级的消费队列 消费偏移量
                         ScheduleMessageService.this.updateOffset(this.delayLevel, currOffset);
                         return;
                     }
 
+                    // 从 CommitLog 中获取消息
                     MessageExt msgExt = ScheduleMessageService.this.brokerController.getMessageStore().lookMessageByOffset(offsetPy, sizePy);
                     if (msgExt == null) {
                         continue;
                     }
-
+                    // 将消息的 topic、queueId 设置为原始值
                     MessageExtBrokerInner msgInner = ScheduleMessageService.this.messageTimeUp(msgExt);
                     if (TopicValidator.RMQ_SYS_TRANS_HALF_TOPIC.equals(msgInner.getTopic())) {
                         log.error("[BUG] the real topic of schedule msg is {}, discard the msg. msg={}",
@@ -485,6 +513,7 @@ public class ScheduleMessageService extends ConfigManager {
                     if (ScheduleMessageService.this.enableAsyncDeliver) {
                         deliverSuc = this.asyncDeliver(msgInner, msgExt.getMsgId(), currOffset, offsetPy, sizePy);
                     } else {
+                        // 调用 defaultMessageStore 存储消息，保存成功更新 延迟等级的 偏移量
                         deliverSuc = this.syncDeliver(msgInner, msgExt.getMsgId(), currOffset, offsetPy, sizePy);
                     }
 
@@ -513,6 +542,7 @@ public class ScheduleMessageService extends ConfigManager {
             PutMessageResult result = resultProcess.get();
             boolean sendStatus = result != null && result.getPutMessageStatus() == PutMessageStatus.PUT_OK;
             if (sendStatus) {
+                // 发送成功，更新消费的偏移量
                 ScheduleMessageService.this.updateOffset(this.delayLevel, resultProcess.getNextOffset());
             }
             return sendStatus;

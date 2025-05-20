@@ -96,7 +96,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
      * 如果 writeBuffer 不为空，消息将首先放到这里，然后重新放到FileChannel。
      *
-     * TransientStorePool 中持有多个
+     * TransientStorePool 中持有多个 ，每个 ByteBuffer 1G
      */
     protected ByteBuffer writeBuffer = null;
     protected TransientStorePool transientStorePool = null;
@@ -683,7 +683,7 @@ public class DefaultMappedFile extends AbstractMappedFile {
         // 会 先修改 available 状态，refCount次数 -1，
         //refCount次数 = 0 后，修改 cleanupOver 状态
         this.shutdown(intervalForcibly);
-        // 判断是够内存映射文件还有引用
+        // 判断内存映射文件没有引用
         if (this.isCleanupOver()) {
             try {
                 long lastModified = getLastModifiedTimestamp();

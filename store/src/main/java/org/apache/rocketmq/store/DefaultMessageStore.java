@@ -693,6 +693,7 @@ public class DefaultMessageStore implements MessageStore {
     public CompletableFuture<PutMessageResult> asyncPutMessage(MessageExtBrokerInner msg) {
         // 存储消息前，遍历执行钩子函数
         for (PutMessageHook putMessageHook : putMessageHookList) {
+            // 延时消息-broker-接收(1)保存消息前置钩子函数：处理延时消息
             PutMessageResult handleResult = putMessageHook.executeBeforePutMessage(msg);
             if (handleResult != null) {
                 return CompletableFuture.completedFuture(handleResult);
@@ -942,10 +943,10 @@ public class DefaultMessageStore implements MessageStore {
     @Override
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
                                        final int maxMsgNums, final int maxTotalMsgSize, final MessageFilter messageFilter) {
-
-        if (topic.equals("topic1")&&group.equals("normalConsumerGroup2")) {
-            System.out.println("消息在消息队列偏移量 = " + queueId+" offset"+offset+" ");
-        }
+//
+//        if (topic.equals("topic1")&&group.equals("normalConsumerGroup2")) {
+//            System.out.println("消息在消息队列偏移量 = " + queueId+" offset"+offset+" ");
+//        }
         if (this.shutdown) {
             LOGGER.warn("message store has shutdown, so getMessage is forbidden");
             return null;
@@ -2034,7 +2035,7 @@ public class DefaultMessageStore implements MessageStore {
     private void addScheduleTask() {
 
         /**
-         * 删除过期文件
+         * 清除CommitLog-(1)开启定时任务：删除 CommitLog 过期文件，默认 3 天。
          */
         this.scheduledExecutorService.scheduleAtFixedRate(new AbstractBrokerRunnable(this.getBrokerIdentity()) {
             @Override
@@ -2043,12 +2044,15 @@ public class DefaultMessageStore implements MessageStore {
             }
         }, 1000 * 60, this.messageStoreConfig.getCleanResourceInterval(), TimeUnit.MILLISECONDS);
 
+
         this.scheduledExecutorService.scheduleAtFixedRate(new AbstractBrokerRunnable(this.getBrokerIdentity()) {
             @Override
             public void run0() {
                 DefaultMessageStore.this.checkSelf();
             }
         }, 1, 10, TimeUnit.MINUTES);
+
+
 
         this.scheduledExecutorService.scheduleAtFixedRate(new AbstractBrokerRunnable(this.getBrokerIdentity()) {
             @Override
@@ -2448,7 +2452,10 @@ public class DefaultMessageStore implements MessageStore {
         public void dispatch(DispatchRequest request) throws RocksDBException {
             // 获取消息的事务类型
             final int tranType = MessageSysFlag.getTransactionValue(request.getSysFlag());
-            // 事务消息-broker-重放-(1)事务半消息、回滚消息，不构建消费队列
+            /**
+             * 事务消息-broker-重放-(1)事务半消息、回滚消息，不构建消费队列，但实际上事务半消息已经清除了SysFlag中 TRANSACTION_PREPARED_TYPE 的标识
+             * @see org.apache.rocketmq.broker.transaction.queue.TransactionalMessageBridge#parseHalfMessageInner
+              */
             switch (tranType) {
                 // 不是事务消息、提交事务消息
                 case MessageSysFlag.TRANSACTION_NOT_TYPE:
@@ -2550,9 +2557,9 @@ public class DefaultMessageStore implements MessageStore {
 
         public void run() {
             try {
-
+                //清除CommitLog-(2)删除过期 3天的文件
                 this.deleteExpiredFiles();
-
+                // 清除CommitLog-(3)尝试删除第一个CommitLog文件
                 this.reDeleteHangedFile();
             } catch (Throwable e) {
                 DefaultMessageStore.LOGGER.warn(this.getServiceName() + " service has exception. ", e);
@@ -2561,22 +2568,28 @@ public class DefaultMessageStore implements MessageStore {
 
         private void deleteExpiredFiles() {
             int deleteCount = 0;
-            // CommitLog 文件保留时间：72
+            // CommitLog 文件保留时间：72 小时
             long fileReservedTime = DefaultMessageStore.this.getMessageStoreConfig().getFileReservedTime();
             //  CommitLog 删除时间间隔 100
             int deletePhysicFilesInterval = DefaultMessageStore.this.getMessageStoreConfig().getDeleteCommitLogFilesInterval();
-            // 强制销毁 MappedFile 时间间隔 1000 * 120
+            // 强制销毁 MappedFile 时间间隔 1000 * 120 ms
             int destroyMappedFileIntervalForcibly = DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
             // 批量删除文件最大值：10
             int deleteFileBatchMax = DefaultMessageStore.this.getMessageStoreConfig().getDeleteFileBatchMax();
 
             // 每日 4点 是删除时间
             boolean isTimeUp = this.isTimeToDelete();
-            // 存储空间使用率是否超过阈值
+            // 存储空间使用率是否超过阈值 75%
             boolean isUsageExceedsThreshold = this.isSpaceToDelete();
 
             boolean isManualDelete = this.manualDeleteFileSeveralTimes > 0;
 
+            /**
+             * 清除CommitLog-(2.1) 满足三个条件之一就开始清理：
+             *                          1、每日 4点 是删除时间
+             *                          2、存储空间使用率超过阈值 75%
+             *                          3、调用API手动删除
+             */
             if (isTimeUp || isUsageExceedsThreshold || isManualDelete) {
 
                 if (isManualDelete) {
@@ -2598,6 +2611,7 @@ public class DefaultMessageStore implements MessageStore {
 
                 deleteCount = DefaultMessageStore.this.commitLog.deleteExpiredFile(fileReservedTime, deletePhysicFilesInterval,
                     destroyMappedFileIntervalForcibly, cleanAtOnce, deleteFileBatchMax);
+
                 if (deleteCount > 0) {
                     // If in the controller mode, we should notify the AutoSwitchHaService to truncateEpochFile
                     if (DefaultMessageStore.this.brokerConfig.isEnableControllerMode()) {
@@ -2613,13 +2627,15 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         private void reDeleteHangedFile() {
+            // 120 s
             int interval = DefaultMessageStore.this.getMessageStoreConfig().getRedeleteHangedFileInterval();
             long currentTimestamp = System.currentTimeMillis();
+            // 大于 120s 执行
             if ((currentTimestamp - this.lastRedeleteTimestamp) > interval) {
                 this.lastRedeleteTimestamp = currentTimestamp;
-
+                // 120s
                 int destroyMappedFileIntervalForcibly = DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
-
+                // 清除CommitLog-(3.1) 尝试删除第一个文件
                 if (DefaultMessageStore.this.commitLog.retryDeleteFirstFile(destroyMappedFileIntervalForcibly)) {
                 }
             }
@@ -2642,6 +2658,8 @@ public class DefaultMessageStore implements MessageStore {
 
         /**
          * 分别对 commitLog、ConsumeQueue、ReplicasPerDiskPartition 空间进行判断
+         * 磁盘使用率最小值都大于 75 认为应该清理
+         * 磁盘使用率最小值都大于 85 认为应该立即清理
          * @return
          */
         private boolean isSpaceToDelete() {
@@ -2668,6 +2686,7 @@ public class DefaultMessageStore implements MessageStore {
             DefaultMessageStore.this.commitLog.setFullStorePaths(fullStorePath);
             // 超过磁盘空间预警线 0.9
             if (minPhysicRatio > getDiskSpaceWarningLevelRatio()) {
+                // 所有磁盘使用率都大于 0.9 设置运行状态为 磁盘已满
                 boolean diskFull = DefaultMessageStore.this.runningFlags.getAndMakeDiskFull();
                 if (diskFull) {
                     DefaultMessageStore.LOGGER.error("physic disk maybe full soon " + minPhysicRatio +
@@ -2687,6 +2706,7 @@ public class DefaultMessageStore implements MessageStore {
                 }
             }
 
+            // 判断消息队列
             String storePathLogics = StorePathConfigHelper
                 .getStorePathConsumeQueue(DefaultMessageStore.this.getMessageStoreConfig().getStorePathRootDir());
             double logicsRatio = UtilAll.getDiskPartitionSpaceUsedPercent(storePathLogics);
@@ -3237,7 +3257,7 @@ public class DefaultMessageStore implements MessageStore {
                                 DefaultMessageStore.this.doDispatch(dispatchRequest);
                                 // notifyMessageArriveInBatch = false
                                 if (!notifyMessageArriveInBatch) {
-                                    // todo：待看
+                                    //
                                     notifyMessageArriveIfNecessary(dispatchRequest);
                                 }
                                 // 重放的位置向后移动

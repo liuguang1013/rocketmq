@@ -23,13 +23,31 @@ import java.util.concurrent.CountDownLatch;
 
 public class TimerRequest {
 
+    /**
+     * 消息在Commitlog中偏移量
+     */
     private final long offsetPy;
+    /**
+     * 消息大小
+     */
     private final int sizePy;
+    /**
+     * 延迟时间
+     */
     private final long delayTime;
 
+    /**
+     * 魔法数，默认 -1
+     */
     private final int magic;
 
+    /**
+     * 进入 enqueuePutQueue 队列时间
+     */
     private long enqueueTime;
+    /**
+     * commitLog 中获取的消息
+     */
     private MessageExt msg;
 
 

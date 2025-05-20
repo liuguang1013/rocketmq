@@ -1014,7 +1014,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                     if (isTrans != null && isTrans.equals("true")) {
                         context.setMsgType(MessageType.Trans_Msg_Half);
                     }
-
+                    // 延迟消息-生产者-发送(1)发送消息前钩子函数：上下文容器增加延迟消息标识
                     if (msg.getProperty("__STARTDELIVERTIME") != null || msg.getProperty(MessageConst.PROPERTY_DELAY_TIME_LEVEL) != null) {
                         context.setMsgType(MessageType.Delay_Msg);
                     }
@@ -1036,9 +1036,11 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 // 系统标识：是否压缩消息、是否事务消息
                 requestHeader.setSysFlag(sysFlag);
                 // 消息发送时间 注意与 storeTimestamp 区分
+                // 消息时间-BornTimestamp-(1)消息发送时间
                 requestHeader.setBornTimestamp(System.currentTimeMillis());
                 requestHeader.setFlag(msg.getFlag());
                 // 消息的属性：封装
+                // 延时消息-生产者-(1)RocketMQTemplate发送延时消息时，将延迟的时间作为 Properties属性已保存在 消息中
                 requestHeader.setProperties(MessageDecoder.messageProperties2String(msg.getProperties()));
                 // 消息消费的次数
                 requestHeader.setReconsumeTimes(0);
@@ -1504,6 +1506,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
         // ignore DelayTimeLevel parameter
         if (msg.getDelayTimeLevel() != 0) {
+            // 延迟消息-生产者-发送()事务消息发送，不能有延迟属性
             MessageAccessor.clearProperty(msg, MessageConst.PROPERTY_DELAY_TIME_LEVEL);
         }
 

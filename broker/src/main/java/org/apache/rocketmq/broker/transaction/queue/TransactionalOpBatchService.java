@@ -24,7 +24,8 @@ import org.apache.rocketmq.logging.org.slf4j.LoggerFactory;
 
 /**
  * todo：该类是做啥的？
- *
+ * 对保存在 TransactionalMessageServiceImpl 的 deleteContext  缓存map中的  已经提交或者回滚的事务半消息 的 消息队列偏移量数据
+ * 进行封装成 message 保存到 RMQ_SYS_TRANS_OP_HALF_TOPIC 中，默认队列id 为 0
  */
 public class TransactionalOpBatchService extends ServiceThread {
     private static final Logger LOGGER = LoggerFactory.getLogger(LoggerName.TRANSACTION_LOGGER_NAME);

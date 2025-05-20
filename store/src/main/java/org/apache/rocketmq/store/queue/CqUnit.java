@@ -79,6 +79,11 @@ public class CqUnit {
         return tagsCode;
     }
 
+    /**
+     * 是 tags 的 hashCode ，返回 true
+     * 是 ConsumeQueueExt 的绝对偏移量，返回 false
+     * @return
+     */
     public boolean isTagsCodeValid() {
         return !ConsumeQueueExt.isExtAddr(tagsCode);
     }

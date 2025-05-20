@@ -91,7 +91,9 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                 // 检查半消息：生产组、偏移量等信息
                 RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
                 if (res.getCode() == ResponseCode.SUCCESS) {
+                    // 将事务消息的真实 topic、queueId、属性等信息，重新设置。
                     MessageExtBrokerInner msgInner = endMessageTransaction(result.getPrepareMessage());
+                    // 清除事务标识
                     msgInner.setSysFlag(MessageSysFlag.resetTransactionValue(msgInner.getSysFlag(), requestHeader.getCommitOrRollback()));
                     msgInner.setQueueOffset(requestHeader.getTranStateTableOffset());
                     msgInner.setPreparedTransactionOffset(requestHeader.getCommitLogOffset());
@@ -121,7 +123,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
                 return res;
             }
         }
-        // 事务消息-broker-结束事务-回滚-(1)Broker处理事务回滚，其处理流程与 提交相似，只是再次提交消息
+        // 事务消息-broker-结束事务-回滚-(1)Broker处理事务回滚，其处理流程与 提交 相似，但不会向 CommitLog 中再次添加正常消息。
         else if (MessageSysFlag.TRANSACTION_ROLLBACK_TYPE == requestHeader.getCommitOrRollback()) {
             // 从 commitLog中，根据偏移量获取半消息，并封装到OperationResult 中
             result = this.brokerController.getTransactionalMessageService().rollbackMessage(requestHeader);
@@ -137,6 +139,7 @@ public class EndTransactionProcessor implements NettyRequestProcessor {
 
                 RemotingCommand res = checkPrepareMessage(result.getPrepareMessage(), requestHeader);
                 if (res.getCode() == ResponseCode.SUCCESS) {
+
                     this.brokerController.getTransactionalMessageService()
                             .deletePrepareMessage(result.getPrepareMessage());
 

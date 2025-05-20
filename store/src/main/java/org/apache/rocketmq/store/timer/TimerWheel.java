@@ -59,7 +59,7 @@ public class TimerWheel {
         this.slotsTotal = slotsTotal;
         this.precisionMs = precisionMs;
         this.fileName = fileName;
-        // 时间轮字节数
+        // 时间轮字节数 = 7天秒数 * 2 * 32
         this.wheelLength = this.slotsTotal * 2 * Slot.SIZE;
 
         File file = new File(fileName);
@@ -76,7 +76,7 @@ public class TimerWheel {
             randomAccessFile.setLength(wheelLength);
             fileChannel = randomAccessFile.getChannel();
             mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_WRITE, 0, wheelLength);
-            //
+            // 映射的内存，不一定是指定的内存数
             assert wheelLength == mappedByteBuffer.remaining();
             // 申请直接内存
             this.byteBuffer = ByteBuffer.allocateDirect(wheelLength);
@@ -160,7 +160,17 @@ public class TimerWheel {
         localBuffer.get().putLong(firstPos);
         localBuffer.get().putLong(lastPos);
     }
+
+    /**
+     *
+     * @param timeMs    延迟秒数
+     * @param firstPos  上个消息在 timerLog 中的位置
+     * @param lastPos   当前消息在 timerLog 中的位置
+     * @param num       该 Slot 中消息的数量
+     * @param magic     魔法数，标识消息是否在下个周期，两天后、消息是否删除
+     */
     public void putSlot(long timeMs, long firstPos, long lastPos, int num, int magic) {
+        // 时间在时间轮中的槽位下标
         localBuffer.get().position(getSlotIndex(timeMs) * Slot.SIZE);
         localBuffer.get().putLong(timeMs / precisionMs);
         localBuffer.get().putLong(firstPos);

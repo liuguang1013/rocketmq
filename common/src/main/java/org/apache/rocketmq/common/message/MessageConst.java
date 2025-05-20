@@ -86,8 +86,19 @@ public class MessageConst {
     public static final String PROPERTY_INNER_MULTI_DISPATCH = "INNER_MULTI_DISPATCH";
     public static final String PROPERTY_INNER_MULTI_QUEUE_OFFSET = "INNER_MULTI_QUEUE_OFFSET";
     public static final String PROPERTY_TRACE_CONTEXT = "TRACE_CONTEXT";
+
+    /**
+     * 延迟消息：固定延时等级
+     */
+    public static final String PROPERTY_TIMER_DELAY_LEVEL = "TIMER_DELAY_LEVEL";
+    /**
+     * 延迟消息：延迟任意时间
+     */
     public static final String PROPERTY_TIMER_DELAY_SEC = "TIMER_DELAY_SEC";
+    public static final String PROPERTY_TIMER_DELAY_MS = "TIMER_DELAY_MS";
+
     public static final String PROPERTY_TIMER_DELIVER_MS = "TIMER_DELIVER_MS";
+
     public static final String PROPERTY_BORN_HOST = "__BORNHOST";
     public static final String PROPERTY_BORN_TIMESTAMP = "BORN_TIMESTAMP";
 
@@ -113,10 +124,11 @@ public class MessageConst {
     public static final String PROPERTY_TIMER_ENQUEUE_MS = "TIMER_ENQUEUE_MS";
     public static final String PROPERTY_TIMER_DEQUEUE_MS = "TIMER_DEQUEUE_MS";
     public static final String PROPERTY_TIMER_ROLL_TIMES = "TIMER_ROLL_TIMES";
+    /**
+     * 延时消息超时时间
+     */
     public static final String PROPERTY_TIMER_OUT_MS = "TIMER_OUT_MS";
     public static final String PROPERTY_TIMER_DEL_UNIQKEY = "TIMER_DEL_UNIQKEY";
-    public static final String PROPERTY_TIMER_DELAY_LEVEL = "TIMER_DELAY_LEVEL";
-    public static final String PROPERTY_TIMER_DELAY_MS = "TIMER_DELAY_MS";
     public static final String PROPERTY_CRC32 = "__CRC32#";
 
     /**

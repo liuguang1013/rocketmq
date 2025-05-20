@@ -32,10 +32,12 @@ public class Slot {
 
     public final long timeMs; //delayed time
     /**
+     * 前一个延时消息在 timerLog 中的位置 ：FileFromOffset +WrotePosition
      * 指向该槽中第一个定时任务的位置。这有助于在遍历和执行槽中的任务时找到起始位置。
      */
     public final long firstPos;
     /**
+     * 当前延时消息在 timerLog 中的位置 ：FileFromOffset +WrotePosition
      * 指向该槽中最后一个定时任务的位置。这有助于在追加新任务时快速找到插入点。
      */
     public final long lastPos;

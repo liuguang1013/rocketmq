@@ -92,9 +92,11 @@ public class EscapeBridge {
 
     public PutMessageResult putMessage(MessageExtBrokerInner messageExt) {
         BrokerController masterBroker = this.brokerController.peekMasterBroker();
+
         if (masterBroker != null) {
             return masterBroker.getMessageStore().putMessage(messageExt);
-        } else if (this.brokerController.getBrokerConfig().isEnableSlaveActingMaster()
+        }
+        else if (this.brokerController.getBrokerConfig().isEnableSlaveActingMaster()
             && this.brokerController.getBrokerConfig().isEnableRemoteEscape()) {
 
             try {
@@ -105,7 +107,8 @@ public class EscapeBridge {
                 LOG.error("sendMessageInFailover to remote failed", e);
                 return new PutMessageResult(PutMessageStatus.PUT_TO_REMOTE_BROKER_FAIL, null, true);
             }
-        } else {
+        }
+        else {
             LOG.warn("Put message failed, enableSlaveActingMaster={}, enableRemoteEscape={}.",
                 this.brokerController.getBrokerConfig().isEnableSlaveActingMaster(), this.brokerController.getBrokerConfig().isEnableRemoteEscape());
             return new PutMessageResult(PutMessageStatus.SERVICE_NOT_AVAILABLE, null);

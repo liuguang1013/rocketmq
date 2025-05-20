@@ -761,7 +761,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
         boolean canWrite = this.messageStore.getRunningFlags().isCQWriteable();
         for (int i = 0; i < maxRetries && canWrite; i++) {
             long tagsCode = request.getTagsCode();
-            // 判断消息的 额外信息是否可写
+            // 判断消息的 额外信息是否可写，默认不可泄
             if (isExtWriteEnable()) {
                 // 构建消息存储基本单位：20字节+bitmap length
                 ConsumeQueueExt.CqExtUnit cqExtUnit = new ConsumeQueueExt.CqExtUnit();
@@ -769,8 +769,11 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
                 cqExtUnit.setMsgStoreTime(request.getStoreTimestamp());
                 cqExtUnit.setTagsCode(request.getTagsCode());
                 /**
-                 * 将消息保存到 consumeQueueExt 映射文件中，如果文件写不下，创建新的文件
-                 * 对消息在消费队列额外信息的 逻辑队列 中方的 绝对偏移量 进行装饰，返回 long 值，用于区分 tagsCode
+                 * 将消息的 tagsCode、msgStoreTime、filterBitMap等额外信息，保存到 consumeQueueExt 映射文件中，
+                 * 如果文件写不下，创建新的文件
+                 * 返回 long 值，用于区分 tagsCode
+                 *  返回值是：消息额外信息 在 consumeQueueExt 文件队列中的绝对偏移量，后续替换 tagsCode
+                 *
                  */
                 long extAddr = this.consumeQueueExt.put(cqExtUnit);
                 if (isExtAddr(extAddr)) {
@@ -977,7 +980,7 @@ public class ConsumeQueue implements ConsumeQueueInterface, FileQueueLifeCycle {
     }
 
     /**
-     *
+     * 在消息队列中，获取 从第x个消息开始 到可读位置的 消息信息，封装到 ConsumeQueueIterator
      * @param startOffset 消息队列中第几个消息
      * @return
      */

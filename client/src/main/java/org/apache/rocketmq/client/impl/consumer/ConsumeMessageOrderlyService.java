@@ -290,13 +290,14 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
                     log.warn("the message queue consume result is illegal, we think you want to ack these message {}",
                         consumeRequest.getMessageQueue());
                 case SUCCESS:
-                    // 顺序消息-消费者-消费(9)提交处理队列信息：减少 ProcessQueue 中消息的数量，清除正在消费消息的缓存
+                    // 顺序消息-消费者-消费(9)消费成功：提交处理队列信息：减少 ProcessQueue 中消息的数量，清除正在消费消息的缓存
                     commitOffset = consumeRequest.getProcessQueue().commit();
                     this.getConsumerStatsManager().incConsumeOKTPS(consumerGroup, consumeRequest.getMessageQueue().getTopic(), msgs.size());
                     break;
                 case SUSPEND_CURRENT_QUEUE_A_MOMENT:
                     this.getConsumerStatsManager().incConsumeFailedTPS(consumerGroup, consumeRequest.getMessageQueue().getTopic(), msgs.size());
                     if (checkReconsumeTimes(msgs)) {
+                        // 顺序消息-消费者-消费(10)消费失败：清除正在消费消息的缓存，将消息添加回 ProcessQueue 缓存
                         consumeRequest.getProcessQueue().makeMessageToConsumeAgain(msgs);
                         this.submitConsumeRequestLater(
                             consumeRequest.getProcessQueue(),
@@ -512,7 +513,12 @@ public class ConsumeMessageOrderlyService implements ConsumeMessageService {
                             ConsumeReturnType returnType = ConsumeReturnType.SUCCESS;
                             boolean hasException = false;
                             try {
-                                // 顺序消息-消费者-消费(6)加消费读锁，todo 这是为啥？
+                                //
+                                /**
+                                 * 顺序消息-消费者-消费(6)加消费读锁，
+                                 * todo 为啥加读锁？
+                                 * 防止写操作，保证在消费期间不会修改处理队列
+                                 */
                                 this.processQueue.getConsumeLock().readLock().lock();
                                 if (this.processQueue.isDropped()) {
                                     log.warn("consumeMessage, the message queue not be able to consume, because it's dropped. {}",

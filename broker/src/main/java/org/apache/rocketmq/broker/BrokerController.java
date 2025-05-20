@@ -1687,10 +1687,17 @@ public class BrokerController {
 
     protected void startBasicService() throws Exception {
 
+        /**
+         * 启动 消息存储服务：
+         *
+         */
         if (this.messageStore != null) {
             this.messageStore.start();
         }
 
+        /**
+         * 定时消息存储服务
+         */
         if (this.timerMessageStore != null) {
             this.timerMessageStore.start();
         }
@@ -1801,7 +1808,7 @@ public class BrokerController {
             this.brokerOuterAPI.start();
         }
 
-
+        //
         startBasicService();
 
         //

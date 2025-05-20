@@ -79,7 +79,7 @@ public class MappedFileQueue implements Swappable {
     }
 
     /**
-     *
+     * 检查 文件大小 是否正确
      */
     public void checkSelf() {
         List<MappedFile> mappedFiles = new ArrayList<>(this.mappedFiles);
@@ -532,6 +532,16 @@ public class MappedFileQueue implements Swappable {
         }
     }
 
+    /**
+     * 清除CommitLog-(2.2) 在MappedFileQueue中，遍历mappedFile文件逐个进行处理
+     *
+     * @param expiredTime  CommitLog 文件保留时间：72 小时
+     * @param deleteFilesInterval  CommitLog 删除时间间隔 100
+     * @param intervalForcibly  强制销毁 MappedFile 时间间隔 1000 * 120 ms
+     * @param cleanImmediately 是否立即清除
+     * @param deleteFileBatchMax
+     * @return
+     */
     public int deleteExpiredFileByTime(final long expiredTime,
         final int deleteFilesInterval,
         final long intervalForcibly,
@@ -548,14 +558,18 @@ public class MappedFileQueue implements Swappable {
         int skipFileNum = 0;
         if (null != mfs) {
             //do check before deleting
+            // 检查每个文件大小 等于 mappedFileSize
             checkSelf();
+
             for (int i = 0; i < mfsLength; i++) {
                 MappedFile mappedFile = (MappedFile) mfs[i];
+
                 long liveMaxTimestamp = mappedFile.getLastModifiedTimestamp() + expiredTime;
                 if (System.currentTimeMillis() >= liveMaxTimestamp || cleanImmediately) {
                     if (skipFileNum > 0) {
                         log.info("Delete CommitLog {} but skip {} files", mappedFile.getFileName(), skipFileNum);
                     }
+                    // 清除CommitLog-(2.3) 每个mappedFile中，先修改 available 状态，refCount次数 -1，关闭文件
                     if (mappedFile.destroy(intervalForcibly)) {
                         files.add(mappedFile);
                         deleteCount++;
@@ -831,6 +845,7 @@ public class MappedFileQueue implements Swappable {
     public boolean retryDeleteFirstFile(final long intervalForcibly) {
         MappedFile mappedFile = this.getFirstMappedFile();
         if (mappedFile != null) {
+            // 判断是否可用
             if (!mappedFile.isAvailable()) {
                 log.warn("the mappedFile was destroyed once, but still alive, " + mappedFile.getFileName());
                 boolean result = mappedFile.destroy(intervalForcibly);

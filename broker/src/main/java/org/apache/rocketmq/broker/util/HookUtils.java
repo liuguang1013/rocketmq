@@ -145,7 +145,7 @@ public class HookUtils {
         final int tranType = MessageSysFlag.getTransactionValue(msg.getSysFlag());
         // 不是事物消息、事物消息的提交类型
         if (tranType == MessageSysFlag.TRANSACTION_NOT_TYPE || tranType == MessageSysFlag.TRANSACTION_COMMIT_TYPE) {
-            // 判断 topic 不是 rmq_sys_wheel_timer
+            // 判断 topic 不是 rmq_sys_wheel_timer ，因为对于时间较长的消息会重新投递到 commitLog 中。
             if (!isRolledTimerMessage(msg)) {
                 // 判断消息指定 定时等级 返回 false
                 if (checkIfTimerMessage(msg)) {
@@ -155,7 +155,7 @@ public class HookUtils {
                         // 时间轮不允许，拒绝消息
                         return new PutMessageResult(PutMessageStatus.WHEEL_TIMER_NOT_ENABLE, null);
                     }
-                    // 当不满足条件时候，返回 PutMessageResult 对象
+                    // 延时消息-broker-接收(2)任意延时时间：时间轮
                     PutMessageResult transformRes = transformTimerMessage(brokerController, msg);
                     if (null != transformRes) {
                         return transformRes;
@@ -163,9 +163,8 @@ public class HookUtils {
                 }
             }
             // Delay Delivery
-            //
             if (msg.getDelayTimeLevel() > 0) {
-
+                // 延时消息-broker-接收(2)固定延时时间：延时等级
                 transformDelayLevelMessage(brokerController, msg);
             }
         }
@@ -177,8 +176,15 @@ public class HookUtils {
         return TimerMessageStore.TIMER_TOPIC.equals(msg.getTopic());
     }
 
+    /**
+     * 判断消息是否是延时消息
+     *  true 是延时消息
+     *  false 不是延时消息
+     * @param msg
+     * @return
+     */
     public static boolean checkIfTimerMessage(MessageExtBrokerInner msg) {
-        // 定时消息
+        // 对于 存在延时等级的 定时消息 ，清除时间轮定时消息相关的属性
         if (msg.getDelayTimeLevel() > 0) {
             // 清除定时发送延迟 ms
             if (null != msg.getProperty(MessageConst.PROPERTY_TIMER_DELIVER_MS)) {
@@ -210,19 +216,26 @@ public class HookUtils {
         int delayLevel = msg.getDelayTimeLevel();
         long deliverMs;
 
-        // 获取定时消息，发送时间
+        // 获取消息延时时间
         try {
             if (msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC) != null) {
                 deliverMs = System.currentTimeMillis() + Long.parseLong(msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_SEC)) * 1000;
             } else if (msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_MS) != null) {
+                // TIMER_DELAY_MS 延时时间需要当前时间 + 属性值计算
                 deliverMs = System.currentTimeMillis() + Long.parseLong(msg.getProperty(MessageConst.PROPERTY_TIMER_DELAY_MS));
             } else {
+                // TIMER_DELIVER_MS 直接记录小时的 延时时间
                 deliverMs = Long.parseLong(msg.getProperty(MessageConst.PROPERTY_TIMER_DELIVER_MS));
             }
         } catch (Exception e) {
             return new PutMessageResult(PutMessageStatus.WHEEL_TIMER_MSG_ILLEGAL, null);
         }
-        // 大于当前时间
+        /**
+         *  大于当前时间
+         *  此处判断非常重要：对于 dequeuePutQueue 中，重新投递的消息包含：已到期的消息、还未到期的正常消息。
+         *  已到期的消息：不进行 topic 转换，正常进行后续流程。
+         *  还未到期的消息：继续替换再次进入时间轮
+          */
         if (deliverMs > System.currentTimeMillis()) {
             // 定时发送时间大于 3天
             if (delayLevel <= 0 && deliverMs - System.currentTimeMillis() > brokerController.getMessageStoreConfig().getTimerMaxDelaySec() * 1000L) {
@@ -230,17 +243,20 @@ public class HookUtils {
             }
             // 获取 精度 ：1s
             int timerPrecisionMs = brokerController.getMessageStoreConfig().getTimerPrecisionMs();
-            // 对时间进行
+            // 对时间进行取整
             if (deliverMs % timerPrecisionMs == 0) {
                 deliverMs -= timerPrecisionMs;
             } else {
                 deliverMs = deliverMs / timerPrecisionMs * timerPrecisionMs;
             }
-            // 判断时间轮存储 是否拒绝存储：
+            // 判断时间轮存储 是否拒绝存储：触发流控
             if (brokerController.getTimerMessageStore().isReject(deliverMs)) {
                 return new PutMessageResult(PutMessageStatus.WHEEL_TIMER_FLOW_CONTROL, null);
             }
-            // 设置属性
+            /**
+             * 延时消息-broker-接收(2-1)时间轮：properties 保存真实 topic、queueId、延时时间；
+             *              调整 topic 为 rmq_sys_wheel_timer、queueId 固定为 0
+             */
             MessageAccessor.putProperty(msg, MessageConst.PROPERTY_TIMER_OUT_MS, deliverMs + "");
             MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_TOPIC, msg.getTopic());
             MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msg.getQueueId()));
@@ -261,11 +277,16 @@ public class HookUtils {
             msg.setDelayTimeLevel(brokerController.getScheduleMessageService().getMaxDelayLevel());
         }
 
+        /**
+         * 延时消息-broker-接收(2-2)延迟等级：properties 保存真实 topic、queueId
+         *              调整 topic 为 SCHEDULE_TOPIC_XXXX、queueId 为 delayLevel - 1
+         */
         // Backup real topic, queueId
         MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_TOPIC, msg.getTopic());
         MessageAccessor.putProperty(msg, MessageConst.PROPERTY_REAL_QUEUE_ID, String.valueOf(msg.getQueueId()));
         msg.setPropertiesString(MessageDecoder.messageProperties2String(msg.getProperties()));
 
+        //SCHEDULE_TOPIC_XXXX
         msg.setTopic(TopicValidator.RMQ_SYS_SCHEDULE_TOPIC);
         // 队列 id ：delayLevel - 1;
         msg.setQueueId(ScheduleMessageService.delayLevel2QueueId(msg.getDelayTimeLevel()));

@@ -223,7 +223,7 @@ public class TransactionalMessageBridge {
     }
 
     /**
-     * 事务消息-broker-发送-(3)将消息中，topic、queueId 保存到 Property 中，
+     * 事务消息-broker-接收-(3)将消息中，topic、queueId 保存到 Property 中，
      * 并将消息的 topic 替换为 RMQ_SYS_TRANS_HALF_TOPIC、将 queueId 替换为 0
      */
     private MessageExtBrokerInner parseHalfMessageInner(MessageExtBrokerInner msgInner) {

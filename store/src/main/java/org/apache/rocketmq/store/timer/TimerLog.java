@@ -29,7 +29,12 @@ public class TimerLog {
     private static Logger log = LoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     public final static int BLANK_MAGIC_CODE = 0xBBCCDDEE ^ 1880681586 + 8;
     private final static int MIN_BLANK_LEN = 4 + 8 + 4;
-    public final static int UNIT_SIZE = 4  //size
+
+    /**
+     * 52字节
+     */
+    public final static int
+   UNIT_SIZE = 4  //size
             + 8 //prev pos
             + 4 //magic value
             + 8 //curr write time, for trace
@@ -38,6 +43,8 @@ public class TimerLog {
             + 4 //sizePy
             + 4 //hash code of real topic
             + 8; //reserved value, just in case of
+
+
     /**
      *
      */
@@ -69,6 +76,7 @@ public class TimerLog {
             log.error("Create mapped file1 error for timer log");
             return -1;
         }
+        // 判断 mappedFile 空间是否充足，不足创建心mappedFile
         if (len + MIN_BLANK_LEN > mappedFile.getFileSize() - mappedFile.getWrotePosition()) {
             ByteBuffer byteBuffer = ByteBuffer.allocate(MIN_BLANK_LEN);
             byteBuffer.putInt(mappedFile.getFileSize() - mappedFile.getWrotePosition());
@@ -88,6 +96,7 @@ public class TimerLog {
             }
         }
         long currPosition = mappedFile.getFileFromOffset() + mappedFile.getWrotePosition();
+        // 向 mappedFile 中添加数据
         if (!mappedFile.appendMessage(data, pos, len)) {
             log.error("Append error for timer log");
             return -1;

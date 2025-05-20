@@ -227,8 +227,11 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
             // 发送到死信队列的标识
             boolean sendRetryMessageToDeadLetterQueueDirectly = false;
-            // todo：为什么消费者组存在锁未过期，要把消息发送到死信队列？
-            // RebalanceLockManager 是有序Topic下，管理队列分配的锁信息
+            /**
+             * todo：为什么消费者组存在锁未过期，要把消息发送到死信队列？
+             * 顺序消息-broker-接收(2)检查是否进入死信队列：顺序消息正常来说，就不会有重试消息出现，因为消费者端对于失败情况下，会消费者端不断重试。所以直接发送到死信队列
+             * RebalanceLockManager 是有序Topic下，管理队列分配的锁信息
+             */
             if (!brokerController.getRebalanceLockManager().isLockAllExpired(groupName)) {
                 LOGGER.info("Group has unexpired lock record, which show it is ordered message, send it to DLQ "
                         + "right now group={}, topic={}, reconsumeTimes={}, maxReconsumeTimes={}.", groupName,
@@ -245,6 +248,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                     .build();
                 BrokerMetricsManager.sendToDlqMessages.add(1, attributes);
 
+                // 延迟消息-broker-接收(1)检查是否进入死信队列：进入死信队列的消息，默认都是没有延迟的。
                 properties.put(MessageConst.PROPERTY_DELAY_TIME_LEVEL, "-1");
                 newTopic = MixAll.getDLQTopic(groupName);
                 int queueIdInt = randomQueueId(DLQ_NUMS_PER_GROUP);
@@ -256,6 +260,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
                 // 更新 Topic 为 死信队列的Topic
                 msg.setTopic(newTopic);
                 msg.setQueueId(queueIdInt);
+
                 msg.setDelayTimeLevel(0);
                 if (null == topicConfig) {
                     response.setCode(ResponseCode.SYSTEM_ERROR);
@@ -333,7 +338,6 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
         }
 
         msgInner.setTagsCode(MessageExtBrokerInner.tagsString2tagsCode(topicConfig.getTopicFilterType(), msgInner.getTags()));
-        // 消息时间-BornTimestamp-broker接收到消息
         msgInner.setBornTimestamp(requestHeader.getBornTimestamp());
         msgInner.setBornHost(ctx.channel().remoteAddress());
         msgInner.setStoreHost(this.getStoreHost());
@@ -343,7 +347,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
         msgInner.setPropertiesString(MessageDecoder.messageProperties2String(msgInner.getProperties()));
 
-        // 事务消息-broker-发送-(1)接收消息，判断是否为事务消息
+        // 事务消息-broker-接收-(1)接收消息，判断是否为事务消息
         String traFlag = oriProps.get(MessageConst.PROPERTY_TRANSACTION_PREPARED);
         boolean sendTransactionPrepareMessage;
         // 判断是否是事务消息
@@ -372,7 +376,7 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
             CompletableFuture<PutMessageResult> asyncPutMessageFuture;
             if (sendTransactionPrepareMessage) {
                 /**
-                 *  事务消息-broker-发送-(2)通过TransactionalMessageService，异步保存事务 半消息
+                 *  事务消息-broker-接收-(2)通过TransactionalMessageService，异步保存事务 半消息
                  *  实际在对消息进行拼装后，还是会调用 this.brokerController.getMessageStore().asyncPutMessage(msgInner)
                   */
 
@@ -741,7 +745,8 @@ public class SendMessageProcessor extends AbstractSendMessageProcessor implement
 
     /**
      * 创建响应、设置请求id、添加额外属性：MSG_REGION、TRACE_ON
-     * 消息检查：对 topic 进行校验、获取 topic 配置信息、校验 QueueId
+     * 消息检查：对 topic 进行校验、获取 topic 配置信息、校验 QueueId、
+     *          topic配置信息不存在会创建，并向nameSrv上报
      */
     private RemotingCommand preSend(ChannelHandlerContext ctx, RemotingCommand request, SendMessageRequestHeader requestHeader) {
         // 创建响应
